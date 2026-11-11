@@ -1,0 +1,239 @@
+local function freshRequire(mod) -- edit-mode require caches modules across runs; load a clone so edits take effect
+  local c = mod:Clone(); c.Parent = mod.Parent; c.Name = "_fresh_" .. mod.Name
+  local ok, res = pcall(require, c); c:Destroy(); if not ok then error(res) end; return res
+end
+-- OK Beat Maker v0: 4 tracks x 16 steps. Re-runnable: overwrites its own modules, samples, remote and scripts.
+local RS, SP = game:GetService("ReplicatedStorage"), game:GetService("StarterPlayer")
+local function ensure(parent, class, name) local i = parent:FindFirstChild(name); if not i or i.ClassName ~= class then if i then i:Destroy() end; i = Instance.new(class); i.Name = name; i.Parent = parent end; return i end
+local OK = RS.OK
+local Modules, Systems, Remotes = OK.Modules, OK.Systems, OK.Remotes
+local written = {}
+local function src(inst, text) inst.Source = text; table.insert(written, inst:GetFullName()) end
+
+local CONFIG = [===[
+-- OK Beat Maker config. Swap a sound by editing one SoundId here (and re-running 10_daw.lua to refresh Samples).
+local C = {}
+C.Version = 0
+C.Steps = 16
+C.BPM = { Default = 142, Min = 60, Max = 200, Step = 5 }
+C.CloseDistance = 14
+C.SaveCooldown = 3      -- seconds between saves per player
+C.XPPerSave = 10
+C.XPCooldown = 60       -- seconds between XP awards for saving
+C.Tracks = {
+  { Name = "Kick",  SoundId = "rbxassetid://9043367885",      Volume = 0.9,  Gate = 0.9,  Color = Color3.fromRGB(255, 60, 160), Source = "APM PERCUSSIVE NOISE 14-Electronic Kick (Roblox licensed library)" },
+  { Name = "Snare", SoundId = "rbxassetid://1837831619",      Volume = 0.55, Gate = 0.6,  Color = Color3.fromRGB(0, 170, 255),  Source = "APM SNARE-Distorted Snare 02 (Roblox licensed library)" },
+  { Name = "Clap",  SoundId = "rbxassetid://9114762817",      Volume = 0.7,  Gate = 0.5,  Color = Color3.fromRGB(225, 200, 140), Source = "Pro Sound Effects Hand Clap Single Hits 7 (Roblox licensed library)" },
+  { Name = "Hat",   SoundId = "rbxassetid://140468458870544", Volume = 0.45, Gate = 0.15, Color = Color3.fromRGB(0, 255, 140),  Source = "338_Hi-Hat_Closed_Hard, public Creator Store upload by kyleamida (not Roblox licensed)" },
+}
+-- track-major string: Kick steps 1-16, Snare 1-16, Clap 1-16, Hat 1-16
+C.DefaultPattern = "1000001000100000" .. "0000100000001000" .. "0000000000001000" .. "1010101010101010"
+return C
+]===]
+
+local ENGINE = [===[
+-- OK Beat Maker playback engine (client). Steps fire on Heartbeat; late steps are dropped instead of bunching up.
+local RunService, Debris, SoundService = game:GetService("RunService"), game:GetService("Debris"), game:GetService("SoundService")
+local E = {}; E.__index = E
+function E.new(cfg, samples) return setmetatable({cfg = cfg, samples = samples, playing = false, step = 0, nextT = 0, hits = 0}, E) end
+function E:Trigger(t)
+  local tr = self.cfg.Tracks[t]; local tmpl = tr and self.samples:FindFirstChild(tr.Name); if not tmpl then return end
+  local s = tmpl:Clone(); s.Parent = SoundService; s:Play(); Debris:AddItem(s, tr.Gate)
+  self.hits += 1
+end
+function E:Start(getPattern, getBPM, onStep)
+  if self.playing then return end
+  self.playing = true; self.step = 0; self.nextT = os.clock()
+  self.conn = RunService.Heartbeat:Connect(function()
+    local now = os.clock(); if now < self.nextT then return end
+    local interval = 60 / getBPM() / 4
+    if now - self.nextT > interval then self.nextT = now end -- fell behind: drop late steps
+    self.nextT += interval
+    self.step = self.step % self.cfg.Steps + 1
+    local p, n = getPattern(), self.cfg.Steps
+    for t = 1, #self.cfg.Tracks do local i = (t - 1) * n + self.step; if p:sub(i, i) == "1" then self:Trigger(t) end end
+    if onStep then onStep(self.step, self.hits) end
+  end)
+end
+function E:Stop() self.playing = false; if self.conn then self.conn:Disconnect(); self.conn = nil end; self.step = 0 end
+return E
+]===]
+
+local UI = [===[
+-- OK Beat Maker window. State lives in attributes on the root frame so other code (and tests) can drive it:
+-- Pattern (string of 0/1), BPM (number), Playing (bool), Step (number, 0 = idle), Hits (number), Status (string), LastSave (string)
+-- Command (string): set to play | stop | clear | save | close to run that action.
+local M = {}
+function M.Build(gui, Theme, Cfg)
+  local function new(class, props, parent) local i = Instance.new(class); for k, v in pairs(props) do i[k] = v end; i.Parent = parent; return i end
+  local function corner(p, r) new("UICorner", {CornerRadius = UDim.new(0, r or 10)}, p) end
+  local nT, nS = #Cfg.Tracks, Cfg.Steps
+  local C = {}
+  local root = new("Frame", {Name = "DAW", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.55), Size = UDim2.fromScale(0.92, 0.6), BackgroundColor3 = Theme.panel, BorderSizePixel = 0, Visible = false}, gui)
+  corner(root, 14); new("UIStroke", {Color = Theme.line, Thickness = 1.5}, root)
+  new("UISizeConstraint", {MinSize = Vector2.new(340, 230), MaxSize = Vector2.new(980, 420)}, root)
+  for k, v in pairs({Pattern = string.rep("0", nT * nS), BPM = Cfg.BPM.Default, Playing = false, Step = 0, Hits = 0, Status = "", LastSave = "", Command = ""}) do root:SetAttribute(k, v) end
+  new("TextLabel", {Name = "Title", Text = "OK BEAT MAKER", Font = Theme.fontBlack, TextColor3 = Theme.accent, TextSize = 22, BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 8), Size = UDim2.new(0.5, 0, 0, 30), TextXAlignment = Enum.TextXAlignment.Left}, root)
+  local status = new("TextLabel", {Name = "StatusText", Text = "", Font = Theme.font, TextColor3 = Theme.muted, TextSize = 14, BackgroundTransparency = 1, Position = UDim2.new(0.45, 0, 0, 8), Size = UDim2.new(0.55, -60, 0, 30), TextXAlignment = Enum.TextXAlignment.Right, TextTruncate = Enum.TextTruncate.AtEnd}, root)
+  local close = new("TextButton", {Name = "Close", Text = "X", Size = UDim2.fromOffset(32, 32), Position = UDim2.new(1, -42, 0, 8), BackgroundColor3 = Theme.line, TextColor3 = Theme.text, Font = Theme.fontBlack, TextSize = 16}, root); corner(close, 8)
+  local bar = new("Frame", {Name = "Transport", BackgroundTransparency = 1, Position = UDim2.fromOffset(16, 46), Size = UDim2.new(1, -32, 0, 34)}, root)
+  new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center}, bar)
+  local function btn(name, text, w, order, color)
+    local b = new("TextButton", {Name = name, Text = text, Size = UDim2.fromOffset(w, 32), BackgroundColor3 = color or Theme.line, TextColor3 = Theme.text, Font = Theme.font, TextSize = 15, LayoutOrder = order}, bar); corner(b, 8); return b
+  end
+  local play = btn("Play", "▶ PLAY", 92, 1, Theme.accent)
+  local bpmDown = btn("BpmDown", "–", 34, 2)
+  local bpmLabel = new("TextLabel", {Name = "BPMText", Text = "", Size = UDim2.fromOffset(84, 32), BackgroundTransparency = 1, TextColor3 = Theme.text, Font = Theme.mono, TextSize = 16, LayoutOrder = 3}, bar)
+  local bpmUp = btn("BpmUp", "+", 34, 4)
+  local clear = btn("Clear", "CLEAR", 72, 5)
+  local save = btn("Save", "SAVE", 72, 6, Theme.accent2)
+  local grid = new("Frame", {Name = "Grid", BackgroundColor3 = Theme.bg, BorderSizePixel = 0, Position = UDim2.fromOffset(16, 90), Size = UDim2.new(1, -32, 1, -102)}, root); corner(grid, 10)
+  local labelW, span = 0.13, 0.86
+  local cells = {}
+  for t = 1, nT do
+    local tr = Cfg.Tracks[t]; local y = (t - 1) / nT
+    new("TextLabel", {Name = "Label" .. t, Text = string.upper(tr.Name), Font = Theme.font, TextSize = 14, TextColor3 = tr.Color, BackgroundTransparency = 1, Position = UDim2.new(0, 10, y, 0), Size = UDim2.new(labelW, -10, 1 / nT, 0), TextXAlignment = Enum.TextXAlignment.Left}, grid)
+    cells[t] = {}
+    for s = 1, nS do
+      local c = new("TextButton", {Name = string.format("Cell_%d_%d", t, s), Text = "", AutoButtonColor = false, BorderSizePixel = 0, Position = UDim2.new(labelW + span * (s - 1) / nS, 2, y, 5), Size = UDim2.new(span / nS, -4, 1 / nT, -10), BackgroundColor3 = Theme.line}, grid)
+      corner(c, 4); cells[t][s] = c
+      c.MouseButton1Click:Connect(function() C.Toggle(t, s) end)
+    end
+  end
+  local function idx(t, s) return (t - 1) * nS + s end
+  local function render()
+    local p, step = root:GetAttribute("Pattern"), root:GetAttribute("Step")
+    for t = 1, nT do for s = 1, nS do
+      local on = p:sub(idx(t, s), idx(t, s)) == "1"
+      local off = (s == step) and Color3.fromRGB(96, 96, 118) or (((s - 1) % 4 == 0) and Color3.fromRGB(52, 52, 66) or Theme.line)
+      local c = cells[t][s]; c.BackgroundColor3 = on and Cfg.Tracks[t].Color or off
+      c.BackgroundTransparency = (on and s ~= step and step > 0) and 0.2 or 0
+    end end
+    bpmLabel.Text = string.format("%d BPM", root:GetAttribute("BPM"))
+    play.Text = root:GetAttribute("Playing") and "■ STOP" or "▶ PLAY"
+    status.Text = root:GetAttribute("Status")
+  end
+  function C.Toggle(t, s)
+    local p = root:GetAttribute("Pattern"); local i = idx(t, s)
+    root:SetAttribute("Pattern", p:sub(1, i - 1) .. (p:sub(i, i) == "1" and "0" or "1") .. p:sub(i + 1))
+  end
+  function C.SetBPM(n) root:SetAttribute("BPM", math.clamp(math.floor(n + 0.5), Cfg.BPM.Min, Cfg.BPM.Max)) end
+  function C.Play() root:SetAttribute("Playing", true) end
+  function C.Stop() root:SetAttribute("Playing", false) end
+  function C.Clear() root:SetAttribute("Pattern", string.rep("0", nT * nS)) end
+  function C.Show(pattern, bpm) root:SetAttribute("Pattern", pattern); C.SetBPM(bpm); root:SetAttribute("Status", ""); root.Visible = true end
+  function C.Hide() C.Stop(); root.Visible = false end
+  function C.IsOpen() return root.Visible end
+  C.Root = root
+  C.OnPlayChanged = function(on) end
+  C.OnSave = function() end
+  play.MouseButton1Click:Connect(function() if root:GetAttribute("Playing") then C.Stop() else C.Play() end end)
+  bpmDown.MouseButton1Click:Connect(function() C.SetBPM(root:GetAttribute("BPM") - Cfg.BPM.Step) end)
+  bpmUp.MouseButton1Click:Connect(function() C.SetBPM(root:GetAttribute("BPM") + Cfg.BPM.Step) end)
+  clear.MouseButton1Click:Connect(C.Clear)
+  save.MouseButton1Click:Connect(function() C.OnSave() end)
+  close.MouseButton1Click:Connect(C.Hide)
+  root:GetAttributeChangedSignal("Playing"):Connect(function() C.OnPlayChanged(root:GetAttribute("Playing") == true) end)
+  root:GetAttributeChangedSignal("Command"):Connect(function()
+    local cmd = root:GetAttribute("Command"); if cmd == "" then return end
+    root:SetAttribute("Command", "")
+    if cmd == "play" then C.Play() elseif cmd == "stop" then C.Stop() elseif cmd == "clear" then C.Clear() elseif cmd == "save" then C.OnSave() elseif cmd == "close" then C.Hide() end
+  end)
+  for _, a in ipairs({"Pattern", "BPM", "Playing", "Step", "Status"}) do root:GetAttributeChangedSignal(a):Connect(render) end
+  render()
+  return C
+end
+return M
+]===]
+
+local SYSTEM = [===[
+-- OK Studio system: DAW (OK Beat Maker v0). The studio PC opens the beat maker; saves are validated here.
+local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
+local Cfg = require(RS.OK.Modules.DAWConfig)
+local M = { Enabled = true, Version = 1 }
+local lastSave, lastXP = {}, {}
+function M.Validate(pattern, bpm)
+  if type(pattern) ~= "string" or #pattern ~= #Cfg.Tracks * Cfg.Steps or pattern:find("[^01]") then return nil end
+  if type(bpm) ~= "number" or bpm ~= bpm or bpm == math.huge or bpm == -math.huge then return nil end
+  return pattern, math.clamp(math.floor(bpm + 0.5), Cfg.BPM.Min, Cfg.BPM.Max)
+end
+function M.Init(ctx)
+  RS.OK.Remotes.DAW_Save.OnServerInvoke = function(player, pattern, bpm)
+    local p, b = M.Validate(pattern, bpm)
+    if not p then return { ok = false, reason = "invalid" } end
+    local now = os.clock()
+    if lastSave[player] and now - lastSave[player] < Cfg.SaveCooldown then return { ok = false, reason = "cooldown" } end
+    lastSave[player] = now
+    local prof = ctx.Data.GetProfile(player)
+    prof.daw = { pattern = p, bpm = b, saves = ((prof.daw and prof.daw.saves) or 0) + 1 }
+    local xp = 0
+    if not lastXP[player] or now - lastXP[player] >= Cfg.XPCooldown then lastXP[player] = now; ctx.Data.AddXP(player, Cfg.XPPerSave); xp = Cfg.XPPerSave end
+    print(string.format("[OK] %s saved a beat (%d BPM, save #%d, +%d XP)", player.Name, b, prof.daw.saves, xp))
+    return { ok = true, xp = xp, profile = prof }
+  end
+  ctx.Interaction.Register("Computer", function(player, inst)
+    local prof = ctx.Data.GetProfile(player)
+    RS.OK.Remotes.InteractionEvent:FireClient(player, "OpenDAW", { source = inst:GetFullName(), daw = prof.daw })
+  end)
+  Players.PlayerRemoving:Connect(function(p) lastSave[p] = nil; lastXP[p] = nil end)
+end
+return M
+]===]
+
+local CLIENT = [===[
+-- OK Beat Maker client: builds the window, plays the samples locally, saves through the server.
+local RS, Players, RunService, CP = game:GetService("ReplicatedStorage"), game:GetService("Players"), game:GetService("RunService"), game:GetService("ContentProvider")
+local player = Players.LocalPlayer
+local Cfg = require(RS.OK.Modules.DAWConfig); local Theme = require(RS.OK.Modules.UITheme)
+local Engine = require(RS.OK.Modules.DAWEngine); local UI = require(RS.OK.Modules.DAWUI)
+local Event, SaveFn = RS.OK.Remotes.InteractionEvent, RS.OK.Remotes:WaitForChild("DAW_Save")
+local samples = RS.OK:WaitForChild("Samples")
+task.spawn(function() pcall(function() CP:PreloadAsync(samples:GetChildren()) end) end)
+local gui = Instance.new("ScreenGui"); gui.Name = "OK_DAW"; gui.ResetOnSpawn = false; gui.DisplayOrder = 5; gui.Parent = player:WaitForChild("PlayerGui")
+local ui = UI.Build(gui, Theme, Cfg); local root = ui.Root
+local engine = Engine.new(Cfg, samples)
+local sourcePos = nil
+ui.OnPlayChanged = function(on)
+  if on then
+    engine:Start(function() return root:GetAttribute("Pattern") end, function() return root:GetAttribute("BPM") end, function(step, hits) root:SetAttribute("Step", step); root:SetAttribute("Hits", hits) end)
+  else engine:Stop(); root:SetAttribute("Step", 0) end
+  player:SetAttribute("DAWPlaying", on)
+end
+ui.OnSave = function()
+  root:SetAttribute("Status", "Saving…")
+  local ok, res = pcall(function() return SaveFn:InvokeServer(root:GetAttribute("Pattern"), root:GetAttribute("BPM")) end)
+  if ok and type(res) == "table" and res.ok then
+    root:SetAttribute("Status", res.xp > 0 and ("Saved · +" .. res.xp .. " XP") or "Saved"); root:SetAttribute("LastSave", "ok")
+  else
+    local reason = (ok and type(res) == "table" and res.reason) or "error"
+    root:SetAttribute("Status", reason == "cooldown" and "Wait a moment before saving again" or ("Not saved (" .. reason .. ")")); root:SetAttribute("LastSave", reason)
+  end
+end
+local function resolve(fullName) local node = game; for seg in string.gmatch(fullName, "[^%.]+") do node = node and node:FindFirstChild(seg) end; return node end
+Event.OnClientEvent:Connect(function(kind, payload)
+  if kind ~= "OpenDAW" then return end
+  local src = payload.source and resolve(payload.source); sourcePos = (src and src:IsA("BasePart")) and src.Position or nil
+  local d = payload.daw
+  ui.Show((d and d.pattern) or Cfg.DefaultPattern, (d and d.bpm) or Cfg.BPM.Default)
+end)
+RunService.Heartbeat:Connect(function()
+  if ui.IsOpen() and sourcePos then
+    local r = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if r and (r.Position - sourcePos).Magnitude > Cfg.CloseDistance then ui.Hide() end
+  end
+end)
+]===]
+
+src(ensure(Modules, "ModuleScript", "DAWConfig"), CONFIG)
+src(ensure(Modules, "ModuleScript", "DAWEngine"), ENGINE)
+src(ensure(Modules, "ModuleScript", "DAWUI"), UI)
+src(ensure(Systems, "ModuleScript", "DAW"), SYSTEM)
+ensure(Remotes, "RemoteFunction", "DAW_Save")
+local client = ensure(SP:WaitForChild("StarterPlayerScripts"):WaitForChild("OK"), "LocalScript", "DAWClient"); client.Disabled = false
+src(client, CLIENT)
+-- sample templates (cloned and played locally by the engine)
+local cfg = freshRequire(Modules.DAWConfig)
+local samples = OK:FindFirstChild("Samples"); if samples then samples:Destroy() end
+samples = Instance.new("Folder"); samples.Name = "Samples"; samples.Parent = OK
+for _, tr in ipairs(cfg.Tracks) do local s = Instance.new("Sound"); s.Name = tr.Name; s.SoundId = tr.SoundId; s.Volume = tr.Volume; s.Parent = samples end
+return "DAW written:\n" .. table.concat(written, "\n") .. "\nsamples=" .. #samples:GetChildren()

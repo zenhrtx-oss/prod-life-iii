@@ -1,0 +1,994 @@
+<title>Prod Life III</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=Instrument+Sans:wght@400;500;600;700&family=Montserrat:wght@600;700;800;900&display=swap">
+<style>
+/* Layout: one long column, a studio's warm dark floor; each pillar pairs plain text with a mockup drawn in the game's own UI, stacking on phones */
+:root {
+  color-scheme: dark;
+  --ground: #100C0B;
+  --band: #18120F;
+  --ink: #F1E9E1;
+  --ink-dim: #ADA195;
+  --line: #2E2522;
+  --lamp: #F4B14E;
+  --neon: #FF3CA0;
+  /* the game's UI palette (from the walk-ins mockup) */
+  --ui-bg: #0A0A0E;
+  --ui-panel: #121218;
+  --ui-line: #282834;
+  --ui-btn: #1A1A22;
+  --ui-ink: #EBEBEB;
+  --ui-dim: #9696A5;
+  --money: #00FF8C;
+  --xp: #00AAFF;
+  --violet: #C84BFF;
+  --gold: #FFC83C;
+  /* provenance */
+  --built: #3DDC97;
+  --checked: #6BB8FF;
+  --new: #F4B14E;
+  --f-display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --f-body: "Instrument Sans", "Helvetica Neue", Arial, sans-serif;
+  --f-ui: "Montserrat", "Arial Black", Helvetica, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 16.5px;
+  line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0;
+}
+.wrap { max-width: 1120px; margin: 0 auto; }
+a { color: var(--lamp); }
+a:focus-visible { outline: 2px solid var(--lamp); outline-offset: 3px; }
+p { margin: 0; max-width: 66ch; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+h2 { font-family: var(--f-display); font-weight: 700; font-size: clamp(26px, 3.6vw, 38px); line-height: 1.15; letter-spacing: -0.01em; }
+h3 { font-family: var(--f-body); font-weight: 700; font-size: 17px; line-height: 1.35; }
+.eyebrow { font-family: var(--f-ui); font-weight: 800; font-size: 11.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--lamp); }
+.dim { color: var(--ink-dim); }
+.small { font-size: 14px; line-height: 1.55; }
+
+/* hero */
+.hero { padding-block: 72px 56px; display: grid; gap: 22px; }
+.hero h1 {
+  font-family: var(--f-display); font-weight: 800;
+  font-size: clamp(46px, 10vw, 112px); line-height: 0.95; letter-spacing: -0.02em;
+  color: #FFE3F1;
+  text-shadow: 0 0 6px rgba(255, 60, 160, 0.55), 0 0 26px rgba(255, 60, 160, 0.35);
+}
+.hero .lede { font-size: clamp(18px, 2vw, 21px); line-height: 1.55; max-width: 60ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px 22px; padding-top: 6px; }
+.legend div { display: flex; gap: 10px; align-items: baseline; font-size: 14px; color: var(--ink-dim); max-width: 340px; }
+.toc { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; }
+.toc a { font-family: var(--f-ui); font-weight: 700; font-size: 12px; letter-spacing: 0.04em; color: var(--ink); text-decoration: none; padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; }
+.toc a:hover { border-color: var(--lamp); color: var(--lamp); }
+
+/* sections */
+section { padding-block: 64px; border-top: 1px solid var(--line); display: grid; gap: 28px; }
+.head { display: grid; gap: 10px; }
+.split { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 44px; align-items: start; }
+.stack { display: grid; gap: 22px; }
+@media (max-width: 900px) { .split { grid-template-columns: 1fr; gap: 32px; } }
+
+/* provenance tags */
+.tag { display: inline-block; font-family: var(--f-ui); font-weight: 800; font-size: 10px; line-height: 1; letter-spacing: 0.08em; padding: 5px 7px; border-radius: 5px; border: 1px solid; white-space: nowrap; }
+.tag.built { color: var(--built); border-color: color-mix(in srgb, var(--built) 50%, transparent); background: color-mix(in srgb, var(--built) 9%, transparent); }
+.tag.checked { color: var(--checked); border-color: color-mix(in srgb, var(--checked) 50%, transparent); background: color-mix(in srgb, var(--checked) 9%, transparent); }
+.tag.new { color: var(--new); border-color: color-mix(in srgb, var(--new) 70%, transparent); border-style: dashed; background: transparent; }
+
+ul.feat { list-style: none; margin: 0; padding: 0; display: grid; gap: 11px; }
+ul.feat li { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 12px; align-items: baseline; font-size: 15.5px; line-height: 1.5; }
+ul.feat li .tag { justify-self: start; }
+.group { display: grid; gap: 12px; }
+.group h3 { color: var(--ink); }
+
+/* pillars */
+.pillars { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+.pillar { border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; gap: 10px; align-content: start; background: var(--band); }
+.pillar .word { font-family: var(--f-display); font-weight: 800; font-size: 26px; letter-spacing: 0.01em; }
+.pillar .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.rule { border: 1px solid color-mix(in srgb, var(--lamp) 45%, transparent); border-radius: 12px; padding: 16px 18px; font-size: 15.5px; background: color-mix(in srgb, var(--lamp) 6%, transparent); max-width: none; }
+.rule b { color: var(--lamp); }
+
+/* career arc */
+.arc { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.stage { border-top: 3px solid var(--line); padding-top: 12px; display: grid; gap: 6px; align-content: start; }
+.stage .tier { font-family: var(--f-ui); font-weight: 900; font-size: 13px; letter-spacing: 0.08em; }
+.stage .when { font-family: var(--f-ui); font-weight: 700; font-size: 11px; letter-spacing: 0.06em; color: var(--ink-dim); }
+.stage p { font-size: 14.5px; line-height: 1.5; color: var(--ink); }
+.stage:nth-child(1) { border-color: #6F6A75; }
+.stage:nth-child(2) { border-color: var(--xp); }
+.stage:nth-child(3) { border-color: var(--violet); }
+.stage:nth-child(4) { border-color: var(--neon); }
+.stage:nth-child(5) { border-color: var(--gold); }
+.stage:nth-child(6) { border-color: var(--ink-dim); border-top-style: dashed; }
+
+/* first 15 minutes */
+ol.minutes { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; border-left: 1px solid var(--line); }
+ol.minutes li { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; gap: 14px; align-items: baseline; padding: 11px 0 11px 18px; position: relative; font-size: 15.5px; line-height: 1.5; }
+ol.minutes li::before { content: ""; position: absolute; left: -5px; top: 19px; width: 9px; height: 9px; border-radius: 50%; background: var(--ground); border: 2px solid var(--lamp); }
+ol.minutes .t { font-family: var(--f-ui); font-weight: 800; font-size: 13px; color: var(--lamp); font-variant-numeric: tabular-nums; }
+@media (max-width: 560px) { ol.minutes li { grid-template-columns: 48px minmax(0, 1fr); } ol.minutes li .tag { grid-column: 2; justify-self: start; } }
+
+/* game-ui mockups */
+.mock { display: grid; gap: 10px; justify-items: start; }
+.cap { font-size: 13px; color: var(--ink-dim); line-height: 1.5; max-width: 60ch; }
+.screen { width: 100%; background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 16px; padding: 14px; font-family: var(--f-ui); color: var(--ui-ink); display: grid; gap: 12px; }
+
+.hud { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; background: rgba(18, 18, 24, 0.92); border-radius: 9px; padding: 6px 8px; }
+.lv { background: var(--neon); color: var(--ui-bg); font-weight: 900; font-size: 12px; padding: 4px 8px; border-radius: 6px; }
+.xpbar { width: 64px; height: 6px; background: var(--ui-line); border-radius: 3px; position: relative; overflow: hidden; }
+.xpbar i { position: absolute; inset: 0 auto 0 0; background: var(--xp); border-radius: 3px; }
+.pill { font-weight: 900; font-size: 11.5px; padding: 5px 8px; border-radius: 6px; background: var(--ui-bg); white-space: nowrap; }
+.pill.money { color: var(--money); }
+.pill.aura { color: var(--violet); }
+.pill.fol { color: var(--xp); }
+.phone-ic { font-weight: 900; font-size: 10.5px; padding: 5px 8px; border-radius: 6px; background: var(--ui-line); position: relative; }
+.phone-ic b { position: absolute; top: -6px; right: -6px; background: #FF3B3B; color: #fff; font-size: 9px; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; }
+.floats { display: flex; gap: 14px; flex-wrap: wrap; font-weight: 900; font-size: 11.5px; padding-left: 4px; }
+.floats .f1 { color: var(--xp); }
+.floats .f2 { color: var(--violet); }
+
+.wcard { background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 14px; padding: 14px 16px; display: grid; gap: 10px; }
+.wc-head { display: flex; align-items: center; gap: 12px; }
+.ava { position: relative; width: 44px; height: 44px; flex: 0 0 44px; background: var(--ui-bg); border-radius: 8px; overflow: hidden; }
+.ava i { position: absolute; display: block; }
+.wc-name { font-weight: 900; font-size: 16px; letter-spacing: 0.06em; color: var(--neon); line-height: 1.2; }
+.wc-sub { font-weight: 700; font-size: 10px; letter-spacing: 0.04em; color: var(--ui-dim); }
+.chip { margin-left: auto; font-weight: 800; font-size: 9.5px; letter-spacing: 0.05em; color: var(--ui-dim); background: var(--ui-bg); padding: 5px 9px; border-radius: 11px; white-space: nowrap; }
+.wc-line { font-weight: 700; font-size: 13px; line-height: 1.45; color: var(--ui-ink); max-width: none; }
+.choice { min-height: 44px; border: 1px solid var(--ui-line); border-radius: 9px; background: var(--ui-btn); font-weight: 800; font-size: 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 14px; }
+.choice::after { content: "›"; color: var(--ui-dim); font-size: 18px; line-height: 1; }
+.choice em { font-style: normal; color: var(--money); }
+.choices { display: grid; gap: 6px; }
+.wc-foot { display: flex; justify-content: space-between; gap: 10px; font-weight: 700; font-size: 9.5px; color: var(--ui-dim); }
+.overhead { justify-self: center; font-weight: 900; font-size: 12px; letter-spacing: 0.06em; color: var(--ui-bg); background: var(--gold); padding: 6px 12px; border-radius: 6px; }
+
+/* stats table */
+.tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; line-height: 1.45; }
+th, td { text-align: left; vertical-align: top; padding: 11px 14px; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font-family: var(--f-ui); font-weight: 800; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-dim); background: var(--band); }
+td.stat { font-family: var(--f-ui); font-weight: 900; font-size: 12.5px; letter-spacing: 0.06em; white-space: nowrap; }
+
+/* phones */
+.phones { display: flex; flex-wrap: wrap; gap: 18px; }
+.phone { width: 268px; max-width: 100%; border-radius: 34px; border: 8px solid #1C1C23; background: var(--ui-bg); padding: 14px 12px 16px; font-family: var(--f-ui); color: var(--ui-ink); display: grid; gap: 10px; align-content: start; }
+.app-top { display: flex; justify-content: space-between; align-items: center; }
+.wordmark { font-weight: 900; font-size: 18px; letter-spacing: 0.1em; color: var(--neon); }
+.tabs { display: flex; gap: 10px; font-weight: 800; font-size: 9.5px; letter-spacing: 0.06em; color: var(--ui-dim); }
+.tabs .on { color: var(--ui-ink); border-bottom: 2px solid var(--neon); padding-bottom: 2px; }
+.post { background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 12px; padding: 10px; display: grid; gap: 8px; }
+.post-h { display: flex; align-items: center; gap: 8px; }
+.pfp { width: 28px; height: 28px; border-radius: 50%; background: conic-gradient(from 200deg, var(--violet), var(--neon), var(--gold), var(--violet)); display: grid; place-items: center; font-weight: 900; font-size: 10px; color: var(--ui-bg); }
+.handle { font-weight: 800; font-size: 11.5px; }
+.handle small { display: block; font-weight: 700; font-size: 9px; color: var(--ui-dim); letter-spacing: 0.05em; }
+.cover { aspect-ratio: 1 / 1; border-radius: 9px; position: relative; overflow: hidden; background: linear-gradient(160deg, #2A0E3A 0%, #12091E 55%, #0A0A0E 100%); }
+.cover .sun { position: absolute; width: 62%; aspect-ratio: 1; border-radius: 50%; right: -12%; top: 8%; background: radial-gradient(circle at 40% 40%, #FF7AC0, #FF3CA0 55%, #8A1457 100%); }
+.cover .bars { position: absolute; left: 0; right: 0; bottom: 22%; height: 18%; background: repeating-linear-gradient(90deg, rgba(255, 200, 60, 0.85) 0 6px, transparent 6px 11px); opacity: 0.55; }
+.cover .title { position: absolute; left: 10px; bottom: 10px; font-weight: 900; font-size: 22px; line-height: 0.95; letter-spacing: 0.02em; color: #FFF4DA; }
+.cover .title small { display: block; font-size: 9px; font-weight: 800; letter-spacing: 0.08em; color: #FFC83C; margin-top: 4px; }
+.viral { font-weight: 900; font-size: 9.5px; letter-spacing: 0.08em; color: var(--ui-bg); background: var(--gold); border-radius: 4px; padding: 3px 6px; }
+.nums { display: flex; gap: 10px; flex-wrap: wrap; font-weight: 800; font-size: 10px; color: var(--ui-dim); }
+.nums b { color: var(--ui-ink); }
+.cmt { font-weight: 600; font-size: 10.5px; line-height: 1.4; color: var(--ui-dim); }
+.cmt b { color: var(--ui-ink); font-weight: 800; }
+.sheet-h { font-weight: 900; font-size: 14px; letter-spacing: 0.06em; }
+.opt { border: 1px solid var(--ui-line); background: var(--ui-btn); border-radius: 10px; padding: 10px; display: grid; gap: 6px; min-height: 44px; }
+.opt span { font-weight: 800; font-size: 11.5px; line-height: 1.35; }
+.risk { font-weight: 900; font-size: 8.5px; letter-spacing: 0.1em; justify-self: start; padding: 3px 6px; border-radius: 4px; }
+.risk.safe { color: var(--money); background: color-mix(in srgb, var(--money) 12%, transparent); }
+.risk.gamble { color: var(--gold); background: color-mix(in srgb, var(--gold) 12%, transparent); }
+.risk.bold { color: var(--neon); background: color-mix(in srgb, var(--neon) 12%, transparent); }
+.fine { font-weight: 700; font-size: 9.5px; line-height: 1.4; color: var(--ui-dim); }
+
+/* virality steps */
+ol.steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; counter-reset: s; }
+ol.steps li { counter-increment: s; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; font-size: 15.5px; line-height: 1.5; }
+ol.steps li::before { content: counter(s); font-family: var(--f-ui); font-weight: 900; font-size: 13px; width: 26px; height: 26px; border-radius: 50%; border: 1.5px solid var(--lamp); color: var(--lamp); display: grid; place-items: center; }
+
+/* contract */
+.contract { background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 14px; overflow: hidden; font-family: var(--f-ui); color: var(--ui-ink); width: 100%; }
+.contract .brand { background: linear-gradient(90deg, #0E3B2E, #12241F); padding: 14px 16px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.contract .brand b { font-weight: 900; font-size: 15px; letter-spacing: 0.08em; color: #7DFFC8; }
+.contract .brand span { font-weight: 800; font-size: 9.5px; letter-spacing: 0.08em; color: #BFEFDC; }
+.crow { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; padding: 10px 16px; border-top: 1px solid var(--ui-line); font-size: 12px; font-weight: 700; line-height: 1.45; }
+.crow .k { font-weight: 900; font-size: 9.5px; letter-spacing: 0.08em; color: var(--ui-dim); padding-top: 2px; }
+.ok { color: var(--money); }
+.prog { display: flex; gap: 4px; margin-top: 6px; }
+.prog i { width: 26px; height: 6px; border-radius: 3px; background: var(--ui-line); }
+.prog i.on { background: var(--money); }
+.strikes i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #FF6B6B; margin-right: 4px; vertical-align: -1px; }
+.strikes i.on { background: #FF6B6B; }
+.gig { margin: 0 16px 14px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--gold) 14%, transparent); color: var(--gold); font-weight: 900; font-size: 10.5px; letter-spacing: 0.06em; }
+
+/* building diagram */
+.diagram { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--band); padding: 14px; }
+.diagram svg { display: block; min-width: 780px; width: 100%; height: auto; }
+.diagram.loop svg { min-width: 480px; }
+.svg-ink { fill: var(--ink); }
+.svg-dim { fill: var(--ink-dim); }
+.svg-lamp { fill: var(--lamp); }
+.svg-neon { fill: var(--neon); }
+.svg-gold { fill: var(--gold); }
+.svg-room { fill: #1F1815; stroke: #3B302B; stroke-width: 1.5; }
+.svg-shared { fill: #241B17; stroke: #4A3B33; stroke-width: 1.5; }
+.svg-legend { fill: #221A2A; stroke: #5B3D6B; stroke-width: 1.5; }
+.svg-door { fill: #2F2622; stroke: #5A4A42; stroke-width: 1; }
+.svg-door-you { fill: #3A1229; stroke: var(--neon); stroke-width: 1.5; }
+.svg-line { stroke: #5A4A42; stroke-width: 1.5; fill: none; }
+.svg-arrow { stroke: var(--ink-dim); stroke-width: 1.8; fill: none; }
+.svg-node { fill: #221A17; stroke: #4A3B33; stroke-width: 1.5; }
+.svg-node-hot { fill: #2A1121; stroke: var(--neon); stroke-width: 1.5; }
+.t-ui { font-family: var(--f-ui); font-weight: 800; }
+.t-body { font-family: var(--f-body); font-weight: 500; }
+
+/* ladder */
+ol.ladder { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+ol.ladder li { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 14px; align-items: start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; }
+ol.ladder .n { font-family: var(--f-display); font-weight: 800; font-size: 20px; color: var(--lamp); line-height: 1.1; }
+ol.ladder .name { font-family: var(--f-ui); font-weight: 900; font-size: 13px; letter-spacing: 0.07em; }
+ol.ladder .price { font-family: var(--f-ui); font-weight: 800; font-size: 11.5px; color: var(--money); margin-left: 8px; letter-spacing: 0.02em; }
+ol.ladder p { font-size: 14.5px; line-height: 1.5; margin-top: 3px; }
+
+/* build mode mockup */
+.room { position: relative; width: 100%; aspect-ratio: 16 / 10; background: #15120F; border-radius: 10px; overflow: hidden; border: 1px solid var(--ui-line); }
+.room .it { position: absolute; border-radius: 4px; display: grid; place-items: center; font-weight: 800; font-size: 8.5px; letter-spacing: 0.06em; color: rgba(235, 235, 235, 0.75); text-align: center; line-height: 1.15; }
+.room .floor-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px); background-size: 6.25% 10%; }
+.room .sel { outline: 2px dashed var(--lamp); outline-offset: 3px; }
+.room .hint { position: absolute; right: 8px; bottom: 8px; font-weight: 800; font-size: 9px; letter-spacing: 0.06em; color: var(--lamp); background: rgba(10, 10, 14, 0.85); padding: 4px 7px; border-radius: 5px; }
+.cat-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.cat-tabs span { font-weight: 800; font-size: 9.5px; letter-spacing: 0.08em; color: var(--ui-dim); padding: 6px 9px; border-radius: 6px; background: var(--ui-btn); }
+.cat-tabs span.on { color: var(--ui-bg); background: var(--ui-ink); }
+.items { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.item { background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 10px; padding: 9px 10px; display: grid; gap: 3px; }
+.item b { font-weight: 900; font-size: 11px; letter-spacing: 0.04em; }
+.item span { font-weight: 700; font-size: 9.5px; color: var(--ui-dim); }
+.item em { font-style: normal; font-weight: 900; font-size: 11px; color: var(--money); }
+.vibe { display: grid; gap: 6px; }
+.vibe-top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-weight: 900; font-size: 11px; letter-spacing: 0.05em; }
+.vibe-bar { height: 8px; border-radius: 4px; background: var(--ui-line); position: relative; overflow: hidden; }
+.vibe-bar i { position: absolute; inset: 0 auto 0 0; width: 64%; background: linear-gradient(90deg, var(--violet), var(--neon)); }
+.vibe-bar u { position: absolute; top: -2px; bottom: -2px; left: 70%; width: 2px; background: var(--gold); }
+
+.limit { border: 1px dashed color-mix(in srgb, #FF6B6B 70%, transparent); border-radius: 12px; padding: 16px 18px; display: grid; gap: 6px; }
+.limit b { font-family: var(--f-ui); font-weight: 900; font-size: 11.5px; letter-spacing: 0.08em; color: #FF8A8A; }
+.limit p { font-size: 15px; max-width: none; }
+
+/* lounge tv */
+.tvs { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.tv { aspect-ratio: 16 / 9; background: #050507; border: 7px solid #1C1C23; border-radius: 8px; padding: 10px 12px; font-family: var(--f-ui); display: grid; align-content: center; gap: 4px; }
+.tv .k { font-weight: 900; font-size: 9px; letter-spacing: 0.12em; }
+.tv .v { font-weight: 900; font-size: 14px; line-height: 1.15; color: var(--ui-ink); }
+.tv .s { font-weight: 700; font-size: 10px; color: var(--ui-dim); line-height: 1.35; }
+.plates { display: grid; gap: 8px; justify-items: start; }
+.plate { font-family: var(--f-ui); font-weight: 900; font-size: 11px; letter-spacing: 0.05em; color: var(--ui-ink); background: rgba(10, 10, 14, 0.9); border: 1px solid var(--ui-line); padding: 6px 10px; border-radius: 6px; }
+.plate em { font-style: normal; color: var(--gold); }
+.plate .crew { color: var(--violet); }
+
+/* money */
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.col { border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 10px; align-content: start; }
+.col h3 { font-family: var(--f-ui); font-weight: 900; font-size: 13px; letter-spacing: 0.1em; }
+.col ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 15px; }
+.share { display: grid; gap: 10px; }
+.share-row { display: grid; grid-template-columns: 190px minmax(0, 1fr) 56px; gap: 12px; align-items: center; font-size: 14px; }
+.share-track { position: relative; height: 14px; background: var(--band); border-radius: 4px; border: 1px solid var(--line); }
+.share-track i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--lamp); }
+.share-track u { position: absolute; top: -5px; bottom: -5px; left: 50%; width: 2px; background: #FF6B6B; }
+.share-row .v { font-family: var(--f-ui); font-weight: 800; font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; }
+@media (max-width: 560px) { .share-row { grid-template-columns: minmax(0, 1fr) 52px; } .share-row .lbl { grid-column: 1 / -1; } }
+
+/* decisions + road */
+ol.decide { margin: 0; padding-left: 22px; display: grid; gap: 14px; font-size: 15.5px; }
+ol.decide li::marker { font-family: var(--f-ui); font-weight: 900; color: var(--lamp); }
+ol.decide b { color: var(--ink); }
+ol.road { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+ol.road li { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 14px; align-items: baseline; padding-bottom: 10px; border-bottom: 1px solid var(--line); font-size: 15.5px; }
+ol.road li:last-child { border-bottom: 0; }
+ol.road .p { font-family: var(--f-display); font-weight: 800; font-size: 15px; color: var(--lamp); }
+footer { border-top: 1px solid var(--line); padding-block: 36px 64px; font-size: 13.5px; color: var(--ink-dim); display: grid; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">The finished game</div>
+  <h1>PROD LIFE III</h1>
+  <p class="lede">You start as the intern in a shared studio with a laptop and nobody's number. You make beats, deal with whoever walks in, live with what you choose, build your own room upstairs, and end your career as a name the whole server knows. Then you start a new one.</p>
+  <p class="small dim">What the completed game could look like, written for you to react to. Nothing on this page is approved to build, and every number marked as an example still needs a pacing run. 26 October 2026.</p>
+  <div class="legend" aria-label="What the labels mean">
+    <div><span class="tag built">BUILT</span><span>In the game now (Milestones 1–8).</span></div>
+    <div><span class="tag checked">CHECKED</span><span>From the 122-idea catalog. A reviewer read the code for it.</span></div>
+    <div><span class="tag new">NEW</span><span>First written here. Nobody has designed or checked it yet.</span></div>
+  </div>
+  <nav class="toc" aria-label="Sections">
+    <a href="#pillars">Pillars</a><a href="#career">A career</a><a href="#first">First 15 minutes</a><a href="#make">Make</a><a href="#live">Live</a><a href="#phone">Phone &amp; social</a><a href="#sponsors">Sponsors</a><a href="#studio">Your studio</a><a href="#together">Together</a><a href="#money">Money</a><a href="#scope">1.0</a><a href="#decisions">Decisions</a><a href="#road">The road there</a>
+  </nav>
+</header>
+
+<section id="pillars">
+  <div class="head">
+    <div class="eyebrow">The game in four words</div>
+    <h2>Make. Live. Build. Together.</h2>
+  </div>
+  <div class="pillars">
+    <div class="pillar">
+      <div class="word">MAKE</div>
+      <p class="small">The beat maker is the action. Every request, post and cypher runs on beats you actually made, and the stars you earn tilt the odds on what comes next.</p>
+      <div class="tags"><span class="tag built">MOSTLY BUILT</span></div>
+    </div>
+    <div class="pillar">
+      <div class="word">LIVE</div>
+      <p class="small">BitLife for producers. Artists walk in, your phone buzzes, you choose, and hidden odds decide what happens to your money, aura and fame.</p>
+      <div class="tags"><span class="tag built">CORE BUILT</span><span class="tag checked">MOST IDEAS CHECKED</span></div>
+    </div>
+    <div class="pillar">
+      <div class="word">BUILD</div>
+      <p class="small">Your own studio in the building, from a desk and a laptop to a compound with rooms for the artists you signed. Gear changes your sound; decor changes who shows up.</p>
+      <div class="tags"><span class="tag new">MOSTLY NEW</span></div>
+    </div>
+    <div class="pillar">
+      <div class="word">TOGETHER</div>
+      <p class="small">Up to 12 producers per server. Air beats for the room, battle in cyphers, form crews, walk into each other's studios. Everything still works alone.</p>
+      <div class="tags"><span class="tag built">CORE BUILT</span><span class="tag checked">CHECKED</span></div>
+    </div>
+  </div>
+  <p class="rule"><b>Two rules hold everything up.</b> Making beats always pays the most: walk-ins and sponsors together stay at or under half of a player's money. And it has to play well on a phone.</p>
+</section>
+
+<section id="career">
+  <div class="head">
+    <div class="eyebrow">A career, start to finish</div>
+    <h2>Every day you show up is a year of your career</h2>
+    <p class="dim">Your followers set your fame tier, and each tier brings new people through the door. <span class="tag checked">CHECKED</span> fame tiers, recap and retirement. <span class="tag new">NEW</span> the room ladder.</p>
+  </div>
+  <div class="arc">
+    <div class="stage">
+      <div class="tier">INTERN · LOCAL</div>
+      <div class="when">YEAR 1 · 0 FOLLOWERS</div>
+      <p>You work at the house studio's shared stations. First session requests, a superfan as your first visitor, and the backstory you picked.</p>
+    </div>
+    <div class="stage">
+      <div class="tier">BUZZING</div>
+      <div class="when">1K FOLLOWERS</div>
+      <p>You rent your first room upstairs. Phone pops start: scam DMs, the weird deck, mom with a plate of food. A local sponsor rep comes by.</p>
+    </div>
+    <div class="stage">
+      <div class="tier">KNOWN</div>
+      <div class="when">5K FOLLOWERS</div>
+      <p>The talk-show booker calls. You can drop merch. Artists remember you: bonds, contacts, and the day-one payback for that free beat.</p>
+    </div>
+    <div class="stage">
+      <div class="tier">FAMOUS</div>
+      <div class="when">20K · VERIFIED TICK</div>
+      <p>The gossip page, big-tier sponsors, your own suite, and the West Suite opens. A manager offers to sign you.</p>
+    </div>
+    <div class="stage">
+      <div class="tier">ICON</div>
+      <div class="when">100K FOLLOWERS</div>
+      <p>Label deals, a three-day tour, awards night, and the compound behind your door with rooms for artists signed to your camp.</p>
+    </div>
+    <div class="stage">
+      <div class="tier">RETIRE</div>
+      <div class="when">WHEN YOU CHOOSE</div>
+      <p>The last card shows the odds you never saw. Ribbons pin to your card, and the artist you worked with most walks into your next career with a placement.</p>
+    </div>
+  </div>
+</section>
+
+<section id="first">
+  <div class="head">
+    <div class="eyebrow">Single player</div>
+    <h2>Your first 15 minutes, alone, on a phone</h2>
+    <p class="dim">No other players needed. A new player hears their own beat inside two minutes and has a reason to come back tomorrow.</p>
+  </div>
+  <div class="split">
+    <ol class="minutes">
+      <li><span class="t">0:00</span><span>You spawn in the lobby. An origin card asks where you started; you pick one of three backstories.</span><span class="tag checked">CHECKED</span></li>
+      <li><span class="t">0:40</span><span>The tour points you to a station in the house studio. You tap a starter beat and it plays.</span><span class="tag built">BUILT</span></li>
+      <li><span class="t">2:00</span><span>First session request: JUNO VALE wants 140–150 BPM with the kick on the one. Each ask ticks green as you tap.</span><span class="tag built">BUILT</span></li>
+      <li><span class="t">3:30</span><span>DELIVER. The listen-back plays while she reacts in the booth. Two stars, +$450 and a credit line.</span><span class="tag built">BUILT</span></li>
+      <li><span class="t">5:00</span><span>Your first walk-in is a superfan who wants a photo. This card can't cost you money.</span><span class="tag checked">CHECKED</span></li>
+      <li><span class="t">6:30</span><span>You put your beat on the monitors. Another producer taps FIRE: money and a few followers.</span><span class="tag built">BUILT</span></li>
+      <li><span class="t">8:00</span><span>Your phone buzzes: "guaranteed 100k streams. $200 placement fee." Reporting it is the smart move, and the card shows you why.</span><span class="tag checked">CHECKED</span></li>
+      <li><span class="t">10:00</span><span>You buy Roll FX at the gear rack for $250, and hat rolls unlock in the beat maker.</span><span class="tag built">BUILT</span></li>
+      <li><span class="t">12:00</span><span>You open CLOUT and post a snippet of the beat you aired. The roll lands: +800 followers.</span><span class="tag new">NEW</span></li>
+      <li><span class="t">14:00</span><span>The building manager shows you an empty room upstairs. It's yours for $1,500 when you can afford it.</span><span class="tag new">NEW</span></li>
+    </ol>
+    <div class="stack">
+      <div class="group">
+        <h3>A normal day after that</h3>
+        <ul class="feat">
+          <li><span class="tag checked">CHECKED</span><span>Your first visit of the day opens a recap: money in and out, the biggest win and loss, and a ribbon that names your day.</span></li>
+          <li><span class="tag built">BUILT</span><span>Three daily requests and the Weekly Single, the same on every server, plus your streak.</span></li>
+          <li><span class="tag built">BUILT</span><span>Up to 8 walk-ins a day, arriving in your room.</span></li>
+          <li><span class="tag checked">CHECKED</span><span>About 6 phone pops a day on top: DMs, news, offers.</span></li>
+          <li><span class="tag built">BUILT</span><span>A cypher round whenever 3 or more producers are in.</span></li>
+          <li><span class="tag new">NEW</span><span>Spending what you made in build mode, then posting the result.</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3>How the loops connect</h3>
+        <div class="diagram loop" style="padding: 10px;">
+          <svg viewBox="0 0 640 380" role="img" aria-label="The core loop: make a beat, deliver or air or post it, earn money and fame, spend on rooms and gear, which gives better sounds and bigger visitors. Walk-ins and the phone turn your stats into choices.">
+            <defs>
+              <marker id="ah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="svg-dim"/></marker>
+            </defs>
+            <rect x="30" y="30" width="200" height="64" rx="12" class="svg-node-hot"/>
+            <text x="130" y="58" text-anchor="middle" class="t-ui svg-ink" font-size="15">MAKE A BEAT</text>
+            <text x="130" y="78" text-anchor="middle" class="t-body svg-dim" font-size="12">beat maker · piano roll</text>
+            <rect x="410" y="30" width="200" height="64" rx="12" class="svg-node"/>
+            <text x="510" y="58" text-anchor="middle" class="t-ui svg-ink" font-size="15">DELIVER · AIR · POST</text>
+            <text x="510" y="78" text-anchor="middle" class="t-body svg-dim" font-size="12">stars, FIRE, viral rolls</text>
+            <rect x="410" y="286" width="200" height="64" rx="12" class="svg-node"/>
+            <text x="510" y="314" text-anchor="middle" class="t-ui svg-ink" font-size="15">$ · AURA · FOLLOWERS</text>
+            <text x="510" y="334" text-anchor="middle" class="t-body svg-dim" font-size="12">fame tier, HEAT</text>
+            <rect x="30" y="286" width="200" height="64" rx="12" class="svg-node"/>
+            <text x="130" y="314" text-anchor="middle" class="t-ui svg-ink" font-size="15">ROOMS · GEAR · FITS</text>
+            <text x="130" y="334" text-anchor="middle" class="t-body svg-dim" font-size="12">build mode, the rack</text>
+            <rect x="225" y="158" width="190" height="64" rx="12" class="svg-node"/>
+            <text x="320" y="186" text-anchor="middle" class="t-ui svg-lamp" font-size="14">WALK-INS · PHONE</text>
+            <text x="320" y="206" text-anchor="middle" class="t-body svg-dim" font-size="12">choices, hidden odds</text>
+            <path d="M234 62 H402" class="svg-arrow" marker-end="url(#ah)"/>
+            <path d="M510 98 V278" class="svg-arrow" marker-end="url(#ah)"/>
+            <path d="M406 318 H238" class="svg-arrow" marker-end="url(#ah)"/>
+            <path d="M130 282 V102" class="svg-arrow" marker-end="url(#ah)"/>
+            <path d="M419 196 C 470 196, 490 240, 492 280" class="svg-arrow" marker-end="url(#ah)"/>
+            <path d="M440 286 C 420 250, 400 236, 380 226" class="svg-arrow" stroke-dasharray="4 4" marker-end="url(#ah)"/>
+            <text x="318" y="52" text-anchor="middle" class="t-body svg-dim" font-size="12">your stars</text>
+            <text x="522" y="192" class="t-body svg-dim" font-size="12">payouts</text>
+            <text x="318" y="308" text-anchor="middle" class="t-body svg-dim" font-size="12">spend</text>
+            <text x="138" y="238" class="t-body svg-dim" font-size="11">better sounds,</text>
+            <text x="138" y="253" class="t-body svg-dim" font-size="11">bigger visitors</text>
+            <text x="250" y="244" class="t-body svg-dim" font-size="11">your stats decide</text>
+            <text x="250" y="259" class="t-body svg-dim" font-size="11">who shows up</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="make">
+  <div class="head">
+    <div class="eyebrow">Pillar 1 · Make</div>
+    <h2>Real beats drive everything</h2>
+    <p class="dim">Every system in the game grades or plays beats the player actually made. That's what separates this from the music tycoons that died: there's no way to get famous without making things.</p>
+  </div>
+  <div class="split">
+    <ul class="feat">
+      <li><span class="tag built">BUILT</span><span>Five-row drum grid (kick, snare, clap, hat, 808), hat rolls, a pitched 808, swing, three beat slots, a desk camera and a phone layout.</span></li>
+      <li><span class="tag built">BUILT</span><span>FL-style piano roll: three voices, scale lock, velocity accents and a chord stamp.</span></li>
+      <li><span class="tag built">BUILT</span><span>TAPE and IRON drum kits plus MUSIC BOX, PLUCK and CHIME voices, sold as gear. Licensed Roblox sounds only.</span></li>
+      <li><span class="tag built">BUILT</span><span>Session requests from fictional artists, daily requests, the Weekly Single, and SAMPLE IT flips of someone else's beat.</span></li>
+      <li><span class="tag checked">CHECKED</span><span>"Make the beat he asked for": an artist's card sends you to the beat maker, and your stars decide whether he uses it.</span></li>
+      <li><span class="tag checked">CHECKED</span><span>Skill cards: some visitors swap the hidden roll for a 20-second task in the grid. "i need the drop at bar 4. go."</span></li>
+      <li><span class="tag new">NEW</span><span>Song mode: chain bars into an intro, a hook and a verse. This needs a beat-format migration.</span></li>
+      <li><span class="tag new">NEW</span><span>Weekly trend: one sound everybody is chasing this week (808 slides, banjo, sped-up). Beats that match it get a better viral roll.</span></li>
+    </ul>
+    <div class="mock">
+      <div class="screen" aria-label="Mockup of the beat maker with a session request strip">
+        <div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-weight: 900; font-size: 11px; letter-spacing: 0.05em;">
+          <span style="color: var(--neon);">JUNO VALE · SESSION</span><span style="color: var(--ui-dim);">145 BPM · SLOT 1</span>
+        </div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; font-weight: 800; font-size: 10px;">
+          <span style="color: var(--money);">✓ kick on the one</span><span style="color: var(--money);">✓ snare on 2 and 4</span><span style="color: var(--ui-dim);">○ bonus: an 808 slide</span>
+        </div>
+        <div id="grid" style="display: grid; grid-template-columns: 40px repeat(16, minmax(0, 1fr)); gap: 3px; align-items: center;"></div>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <span class="pill" style="background: var(--ui-btn);">PLAY</span><span class="pill" style="background: var(--ui-btn);">KEYS</span><span class="pill" style="background: var(--ui-btn);">KIT: IRON</span><span class="pill" style="background: var(--neon); color: var(--ui-bg);">DELIVER</span>
+        </div>
+      </div>
+      <p class="cap">The beat maker as it works today, with a session request ticking green. The grid here is an illustration of a real 5 × 16 pattern.</p>
+    </div>
+  </div>
+</section>
+
+<section id="live">
+  <div class="head">
+    <div class="eyebrow">Pillar 2 · Live</div>
+    <h2>BitLife for producers</h2>
+    <p class="dim">Walk-ins are the game's age-up button. A sound-alike artist walks into your room, and everyone in the server sees him, but only you get the card. You pick, the server rolls, and the room sees the result over your head.</p>
+  </div>
+  <div class="split">
+    <div class="stack">
+      <div class="group">
+        <h3>What happens to you</h3>
+        <ul class="feat">
+          <li><span class="tag built">BUILT</span><span>Walk-ins: 9 sound-alike artists and 5 role visitors, about 45 cards with follow-ups, up to 8 a day.</span></li>
+          <li><span class="tag checked">CHECKED</span><span>Phone pops, offstage news ("your beat's in a dance trend"), and cards that only show up when your life fits them (rich, broke, famous, cancelled).</span></li>
+          <li><span class="tag checked">CHECKED</span><span>Life's small stuff: the weird deck (a pigeon in the lounge, "coo."), mom dropping by with food, studio mishaps, your beat leaking, your page getting hacked, scam DMs.</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3>Stories that come back</h3>
+        <ul class="feat">
+          <li><span class="tag built">BUILT</span><span>Follow-ups: a choice plants a later visit where the single charts or flops, then offers a bigger choice.</span></li>
+          <li><span class="tag checked">CHECKED</span><span>Day-one payback ("album's out. track one is yours" 20 visits later), the rival's rumour, and "he left a note" when you ignore someone.</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3>People</h3>
+        <ul class="feat">
+          <li><span class="tag checked">CHECKED</span><span>A bond with every artist, a Contacts tab, and DMs between visits. Artists can sign to your camp, feud with each other until you pick a side, or ghost you until a sit-down fixes it.</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3>Arcs and memory</h3>
+        <ul class="feat">
+          <li><span class="tag checked">CHECKED</span><span>Arcs: cancelled and the comeback, hiring a manager, taking an advance, the label deal and its dispute, a three-day tour, awards night.</span></li>
+          <li><span class="tag checked">CHECKED</span><span>Memory: a year counter on your nameplate, a story log of your career, a daily and weekly recap with a ribbon, and your discography.</span></li>
+          <li><span class="tag checked">CHECKED</span><span>Endings: retire whenever you like. The obituary card shows your real odds, your past careers stay listed, and an old collaborator remembers you in the next one.</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="mock">
+      <div class="screen" aria-label="Mockup of the HUD and a walk-in card">
+        <div class="hud">
+          <span class="lv">LV 6</span><span class="xpbar"><i style="width: 64%;"></i></span>
+          <span class="pill money">$3,250</span><span class="pill aura">AURA 212</span><span class="pill fol">FOLLOWERS 6.4K</span><span class="phone-ic">PHONE<b>2</b></span>
+        </div>
+        <div class="floats"><span class="f1">+1,500 FOLLOWERS</span><span class="f2">−5 AURA</span></div>
+        <div class="wcard">
+          <div class="wc-head">
+            <div class="ava" aria-hidden="true">
+              <i style="left: 11px; top: 14px; width: 22px; height: 20px; background: #966E55;"></i>
+              <i style="left: 5px; top: 11px; width: 34px; height: 4px; background: var(--neon);"></i>
+              <i style="left: 12px; top: 3px; width: 20px; height: 9px; background: var(--neon);"></i>
+              <i style="left: 7px; top: 34px; width: 30px; height: 10px; background: var(--violet);"></i>
+            </div>
+            <div><div class="wc-name">LIL NAV X</div><div class="wc-sub">POP-RAP · WANTS A PLACEMENT</div></div>
+            <span class="chip">YEAR 12 · 3 OF 8</span>
+          </div>
+          <p class="wc-line">"I got a single dropping next month and no beat. Everybody says you're the one. What's it gonna be?"</p>
+          <div class="choices">
+            <div class="choice"><span>Give him the beat for free. It's exposure.</span></div>
+            <div class="choice"><span>Full rate or nothing. <em>$400.</em></span></div>
+            <div class="choice"><span>Tell him you're booked. Make him wait a week.</span></div>
+          </div>
+          <div class="wc-foot"><span>Your Aura and Followers tilt the odds. You never see them.</span><span>WALK AWAY</span></div>
+        </div>
+        <div class="overhead">PLACEMENT · +500 FOLLOWERS</div>
+      </div>
+      <p class="cap">The walk-in card as built, with the stat pills and floating deltas from the next wave. The gold tag is what the room sees over your head.</p>
+      <div class="tablewrap" style="width: 100%;">
+        <table>
+          <thead><tr><th>Stat</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td class="stat" style="color: var(--money);">MONEY</td><td>The only thing you spend. <span class="tag built">BUILT</span></td></tr>
+            <tr><td class="stat" style="color: var(--violet);">AURA</td><td>Your reputation. It can go negative, and under −100 you're cancelled until you climb back. <span class="tag built">BUILT</span></td></tr>
+            <tr><td class="stat" style="color: var(--xp);">FOLLOWERS</td><td>Your reach. It sets your fame tier. <span class="tag built">BUILT</span></td></tr>
+            <tr><td class="stat">PLACEMENTS</td><td>Songs your beats landed on. <span class="tag built">BUILT</span></td></tr>
+            <tr><td class="stat" style="color: var(--gold);">HITS</td><td>Placements that charted. They only come from follow-ups. <span class="tag built">BUILT</span></td></tr>
+            <tr><td class="stat">SPONSORS</td><td>Deals you hold. <span class="tag built">BUILT</span></td></tr>
+            <tr><td class="stat" style="color: var(--neon);">HEAT</td><td>How hot you are right now. It rises when you make and air beats and cools while you're away. It never pays money; it decides who bothers to show up. <span class="tag checked">CHECKED</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="phone">
+  <div class="head">
+    <div class="eyebrow">Pillar 2 · The phone and social media</div>
+    <h2>Your phone, your page, your numbers</h2>
+    <p class="dim">The phone is where the game happens when nobody walks in. It buzzes on its own; while you're in the beat maker it waits with a red count. Its social app (working name CLOUT) is how you go viral, and how you get dragged.</p>
+  </div>
+  <div class="split">
+    <div class="stack">
+      <div class="group">
+        <h3>The apps</h3>
+        <ul class="feat">
+          <li><span class="tag checked">CHECKED</span><span><b>MESSAGES</b>: DMs from contacts, scams and offers, each one a small card with choices.</span></li>
+          <li><span class="tag new">NEW</span><span><b>CLOUT</b>: your page, a feed and posting.</span></li>
+          <li><span class="tag checked">CHECKED</span><span><b>NEWS</b>: offstage news, this week's trend and the charts.</span></li>
+          <li><span class="tag new">NEW</span><span><b>DEALS</b> and <b>BANK</b>: your sponsors and label contracts, money in and out, royalties, what you owe.</span></li>
+          <li><span class="tag checked">CHECKED</span><span><b>STORY</b>: your career, one line per thing that happened.</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3>How going viral works <span class="tag new">NEW</span></h3>
+        <ol class="steps">
+          <li><span><b>You post.</b> Pick one of four fixed posts. Nobody types anything, ever, because Roblox filters player text.</span></li>
+          <li><span><b>The roll.</b> Your Aura, your HEAT, the stars on that beat, whether it matches the weekly trend, and the fit you're wearing on camera all tilt hidden odds.</span></li>
+          <li><span><b>The result.</b> A normal post adds followers. WENT VIRAL puts a gold tag over your head and a jump in followers, and the superfan comes back later with the numbers. It can also go wrong: ratio'd, a clip out of context, a beat-stealing accusation. Bad enough, and it starts the cancelled arc.</span></li>
+          <li><span><b>It snowballs.</b> Crossing a fame tier brings new people in: the talk-show booker at 5K, the gossip page at 20K, bigger sponsors.</span></li>
+        </ol>
+      </div>
+      <div class="group">
+        <h3>Real players in your feed</h3>
+        <ul class="feat">
+          <li><span class="tag new">NEW</span><span>Follow other producers. Their airings, hits and posts show up in your feed as fixed-format cards you can FIRE.</span></li>
+          <li><span class="tag checked">CHECKED</span><span>Comments are fixed lines from fictional handles, picked by how the post went.</span></li>
+          <li><span class="tag new">NEW</span><span>Cover art and profile pictures are drawn by the game from shapes and type, so nothing is ever uploaded.</span></li>
+        </ul>
+        <p class="small dim">Limit: inside one server this is fine. A feed that plays other players' beats across servers waits on the open "music library" licence question.</p>
+      </div>
+    </div>
+    <div class="mock">
+      <div class="phones">
+        <div class="phone" aria-label="Mockup of the CLOUT feed">
+          <div class="app-top"><span class="wordmark">CLOUT</span><span class="tabs"><span>FOR YOU</span><span class="on">FOLLOWING</span><span>ME</span></span></div>
+          <div class="post">
+            <div class="post-h"><span class="pfp">KB</span><span class="handle">@kaibeats<small>FAMOUS ✓ · 2H</small></span><span class="viral" style="margin-left: auto;">WENT VIRAL</span></div>
+            <div class="cover" aria-hidden="true"><div class="sun"></div><div class="bars"></div><div class="title">NIGHT<br>SHIFT<small>PROD. KAIBEATS</small></div></div>
+            <div class="nums"><span><b>412K</b> plays</span><span><b>1.9K</b> FIRE</span><span><b>38</b> flips</span></div>
+            <div class="cmt"><b>@loopdigger</b> the 808 on this is unfair</div>
+            <div class="cmt"><b>@mossy_808</b> who let him cook</div>
+          </div>
+        </div>
+        <div class="phone" aria-label="Mockup of the post sheet">
+          <div class="app-top"><span class="sheet-h">NEW POST</span><span class="tabs"><span>CLOSE</span></span></div>
+          <div class="fine">Pick one. No typing.</div>
+          <div class="opt"><span>Studio pic.</span><span class="risk safe">SAFE</span></div>
+          <div class="opt"><span>Snippet of the beat you aired last.</span><span class="risk gamble">A GAMBLE</span></div>
+          <div class="opt"><span>Tease the collab with DOJA BAT.</span><span class="risk gamble">A GAMBLE</span></div>
+          <div class="opt"><span>Hot take: claps are over.</span><span class="risk bold">BOLD</span></div>
+          <div class="fine">Your Aura, HEAT, the beat's stars, this week's trend and your fit tilt the odds. You never see them.</div>
+        </div>
+      </div>
+      <p class="cap">Example screens. The handles are made up, and the cover art is drawn from shapes and type in the game.</p>
+    </div>
+  </div>
+</section>
+
+<section id="sponsors">
+  <div class="head">
+    <div class="eyebrow">Pillar 2 · Sponsors</div>
+    <h2>Status you wear, with strings attached</h2>
+    <p class="dim">Sponsors pay a little, ask for things, show off your status, and leave if your aura drops.</p>
+  </div>
+  <div class="split">
+    <div class="stack">
+      <div class="group">
+        <h3>How a deal goes</h3>
+        <ol class="steps">
+          <li><span>A rep walks in once your Aura meets the brand's floor. <span class="tag built">BUILT</span></span></li>
+          <li><span>He asks one question about the brand. Get it wrong and he walks. <span class="tag checked">CHECKED</span></span></li>
+          <li><span>You sign: weekly pay, one duty and a perk. <span class="tag new">NEW</span> contract shape, <span class="tag checked">CHECKED</span> duties.</span></li>
+          <li><span>Ad gigs come in. Do it straight for sure money, or make it weird for a viral gamble. <span class="tag checked">CHECKED</span></span></li>
+          <li><span>Miss a duty twice and the rep comes with a warning. Fall under the floor and you're dropped. <span class="tag built">BUILT</span> drop, <span class="tag checked">CHECKED</span> strikes.</span></li>
+        </ol>
+      </div>
+      <div class="group">
+        <h3>Tiers and perks</h3>
+        <ul class="feat">
+          <li><span class="tag new">NEW</span><span><b>LOCAL</b> (gum, energy drinks) from Aura 50. <b>MID</b> (headphones, sneakers) from Aura 150 and 5K followers. <b>BIG</b> (watches, streaming) from Aura 300 and 20K. Example numbers.</span></li>
+          <li><span class="tag new">NEW</span><span>One brand per category. A rival brand can try to poach you, and switching costs Aura.</span></li>
+          <li><span class="tag built">BUILT</span><span>Your sponsor's name runs on the lounge TV ticker, and some fits need a sponsor.</span></li>
+          <li><span class="tag new">NEW</span><span>The brand's logo on your studio wall and a SPONSORED title on your nameplate.</span></li>
+        </ul>
+        <p class="small dim">Sponsor pay counts toward the half-of-your-money cap together with walk-ins.</p>
+      </div>
+    </div>
+    <div class="mock">
+      <div class="contract" aria-label="Mockup of a sponsor contract">
+        <div class="brand"><b>THUMPCAN HEADPHONES</b><span>MID TIER · WEEK 2 OF 4</span></div>
+        <div class="crow"><span class="k">PAYS</span><span><span class="ok">$300</span> a week, every Monday</span></div>
+        <div class="crow"><span class="k">KEEP</span><span>Aura at 150 or more · you're at <span class="ok">212 ✓</span></span></div>
+        <div class="crow"><span class="k">DUTY</span><span>Air 3 beats this week with the logo on the monitors · 2 of 3<div class="prog"><i class="on"></i><i class="on"></i><i></i></div></span></div>
+        <div class="crow"><span class="k">PERK</span><span>Cans around your neck, the logo on your studio wall, SPONSORED on your nameplate</span></div>
+        <div class="crow"><span class="k">STRIKES</span><span class="strikes"><i></i><i></i> none yet</span></div>
+        <div class="gig">AD GIG WAITING · SHOOT A 30-SECOND SPOT</div>
+      </div>
+      <p class="cap">Example contract from the DEALS app. THUMPCAN is one of the fictional fallback brands; the pay is an example.</p>
+    </div>
+  </div>
+</section>
+
+<section id="studio">
+  <div class="head">
+    <div class="eyebrow">Pillar 3 · Build</div>
+    <h2>Every server is one building</h2>
+    <p class="dim">The ground floor is shared. Upstairs there are 12 doors, one per producer in the server. Behind yours is your studio, loaded from your save, and it can grow far bigger than the door suggests. <span class="tag new">NEW</span></p>
+  </div>
+  <div class="diagram">
+    <svg viewBox="0 0 960 430" role="img" aria-label="Cross-section of the building. Top floor: two legendary rooms, The Hall and The West Suite. Floors one and two: twelve producer doors. Ground floor: lobby, house studio, lounge with TV, cypher stage. Outside: parking for cars.">
+      <rect x="40" y="40" width="760" height="350" rx="6" class="svg-room"/>
+      <rect x="40" y="40" width="380" height="84" class="svg-legend"/>
+      <rect x="420" y="40" width="380" height="84" class="svg-legend"/>
+      <text x="58" y="70" class="t-ui svg-gold" font-size="14">THE HALL</text>
+      <text x="58" y="92" class="t-body svg-dim" font-size="12">the Abbey Road Studio Two rebuild, renamed</text>
+      <text x="58" y="110" class="t-body svg-dim" font-size="12">opens at 1 placement · 300 Aura · $5,000</text>
+      <text x="438" y="70" class="t-ui svg-gold" font-size="14">THE WEST SUITE</text>
+      <text x="438" y="92" class="t-body svg-dim" font-size="12">the Interscope LA rebuild, renamed, logos removed</text>
+      <text x="438" y="110" class="t-body svg-dim" font-size="12">opens at FAMOUS</text>
+      <line x1="40" y1="124" x2="800" y2="124" class="svg-line"/>
+      <line x1="40" y1="206" x2="800" y2="206" class="svg-line"/>
+      <line x1="40" y1="288" x2="800" y2="288" class="svg-line"/>
+      <text x="48" y="140" class="t-ui svg-dim" font-size="10">FLOOR 2</text>
+      <text x="48" y="222" class="t-ui svg-dim" font-size="10">FLOOR 1</text>
+      <g>
+        <rect x="70" y="148" width="104" height="50" rx="4" class="svg-door"/><text x="122" y="170" text-anchor="middle" class="t-ui svg-ink" font-size="11">@mara</text><text x="122" y="187" text-anchor="middle" class="t-body svg-dim" font-size="10.5">compound</text>
+        <rect x="190" y="148" width="104" height="50" rx="4" class="svg-door"/><text x="242" y="170" text-anchor="middle" class="t-ui svg-ink" font-size="11">@dex</text><text x="242" y="187" text-anchor="middle" class="t-body svg-dim" font-size="10.5">suite</text>
+        <rect x="310" y="148" width="104" height="50" rx="4" class="svg-door"/><text x="362" y="170" text-anchor="middle" class="t-ui svg-ink" font-size="11">@kaibeats</text><text x="362" y="187" text-anchor="middle" class="t-body svg-dim" font-size="10.5">suite</text>
+        <rect x="430" y="148" width="104" height="50" rx="4" class="svg-door"/><text x="482" y="170" text-anchor="middle" class="t-ui svg-ink" font-size="11">@lena</text><text x="482" y="187" text-anchor="middle" class="t-body svg-dim" font-size="10.5">pro room</text>
+        <rect x="550" y="148" width="104" height="50" rx="4" class="svg-door"/><text x="602" y="174" text-anchor="middle" class="t-body svg-dim" font-size="10.5">empty</text>
+        <rect x="670" y="148" width="104" height="50" rx="4" class="svg-door"/><text x="722" y="174" text-anchor="middle" class="t-body svg-dim" font-size="10.5">empty</text>
+        <rect x="70" y="230" width="104" height="50" rx="4" class="svg-door-you"/><text x="122" y="252" text-anchor="middle" class="t-ui svg-neon" font-size="11">YOU</text><text x="122" y="269" text-anchor="middle" class="t-body svg-dim" font-size="10.5">your room</text>
+        <rect x="190" y="230" width="104" height="50" rx="4" class="svg-door"/><text x="242" y="252" text-anchor="middle" class="t-ui svg-ink" font-size="11">@juno_k</text><text x="242" y="269" text-anchor="middle" class="t-body svg-dim" font-size="10.5">your room</text>
+        <rect x="310" y="230" width="104" height="50" rx="4" class="svg-door"/><text x="362" y="252" text-anchor="middle" class="t-ui svg-ink" font-size="11">@tavi</text><text x="362" y="269" text-anchor="middle" class="t-body svg-dim" font-size="10.5">intern</text>
+        <rect x="430" y="230" width="104" height="50" rx="4" class="svg-door"/><text x="482" y="256" text-anchor="middle" class="t-body svg-dim" font-size="10.5">empty</text>
+        <rect x="550" y="230" width="104" height="50" rx="4" class="svg-door"/><text x="602" y="256" text-anchor="middle" class="t-body svg-dim" font-size="10.5">empty</text>
+        <rect x="670" y="230" width="104" height="50" rx="4" class="svg-door"/><text x="722" y="256" text-anchor="middle" class="t-body svg-dim" font-size="10.5">empty</text>
+      </g>
+      <rect x="40" y="288" width="150" height="102" class="svg-shared"/>
+      <rect x="190" y="288" width="230" height="102" class="svg-shared"/>
+      <rect x="420" y="288" width="210" height="102" class="svg-shared"/>
+      <rect x="630" y="288" width="170" height="102" class="svg-shared"/>
+      <text x="56" y="318" class="t-ui svg-ink" font-size="12.5">LOBBY</text>
+      <text x="56" y="337" class="t-body svg-dim" font-size="11">spawn, mail table,</text>
+      <text x="56" y="352" class="t-body svg-dim" font-size="11">the podium</text>
+      <text x="206" y="318" class="t-ui svg-lamp" font-size="12.5">HOUSE STUDIO</text>
+      <text x="206" y="337" class="t-body svg-dim" font-size="11">today's hub: shared stations,</text>
+      <text x="206" y="352" class="t-body svg-dim" font-size="11">the monitors, the vocal booth</text>
+      <text x="206" y="367" class="t-body svg-dim" font-size="11">where every intern starts</text>
+      <text x="436" y="318" class="t-ui svg-ink" font-size="12.5">LOUNGE</text>
+      <text x="436" y="337" class="t-body svg-dim" font-size="11">the TV, charts, plaques,</text>
+      <text x="436" y="352" class="t-body svg-dim" font-size="11">the gear rack</text>
+      <text x="646" y="318" class="t-ui svg-neon" font-size="12.5">CYPHER STAGE</text>
+      <text x="646" y="337" class="t-body svg-dim" font-size="11">rounds, events,</text>
+      <text x="646" y="352" class="t-body svg-dim" font-size="11">awards night</text>
+      <line x1="800" y1="390" x2="940" y2="390" class="svg-line"/>
+      <rect x="818" y="350" width="52" height="30" rx="5" class="svg-door"/>
+      <rect x="878" y="350" width="52" height="30" rx="5" class="svg-door-you"/>
+      <text x="874" y="338" text-anchor="middle" class="t-ui svg-dim" font-size="10">PARKING</text>
+      <text x="874" y="410" text-anchor="middle" class="t-body svg-dim" font-size="11">the whip out front</text>
+      <text x="420" y="414" text-anchor="middle" class="t-body svg-dim" font-size="11">Behind each upstairs door: that producer's studio, loaded from their save.</text>
+    </svg>
+  </div>
+  <div class="split">
+    <div class="stack">
+      <div class="group">
+        <h3>From a desk to a compound <span class="tag new">NEW</span></h3>
+        <ol class="ladder">
+          <li><span class="n">1</span><div><span class="name">HOUSE STUDIO</span><span class="price">FREE · SHARED</span><p>Stations, the monitors, the booth. Today's hub becomes this. <span class="tag built">BUILT</span></p></div></li>
+          <li><span class="n">2</span><div><span class="name">YOUR ROOM</span><span class="price">$1,500</span><p>A desk, a laptop, one monitor, a mattress in the corner. Walk-ins come to you here now.</p></div></li>
+          <li><span class="n">3</span><div><span class="name">PRO ROOM</span><span class="price">$6,000 · 1 PLACEMENT</span><p>Proper monitors, a vocal booth and a couch for visitors.</p></div></li>
+          <li><span class="n">4</span><div><span class="name">YOUR SUITE</span><span class="price">$18,000 · KNOWN</span><p>A control room, a booth and a lounge with your plaques wall.</p></div></li>
+          <li><span class="n">5</span><div><span class="name">THE COMPOUND</span><span class="price">$60,000 · FAMOUS · 3 HITS</span><p>Rooms for artists signed to your camp, a hallway of plaques, your crew's tag on the door.</p></div></li>
+        </ol>
+        <p class="small dim">Prices are examples for the pacing sim to tune. The legendary rooms upstairs are the two real-studio rebuilds you already have, renamed.</p>
+      </div>
+      <div class="group">
+        <h3>What you can change <span class="tag new">NEW</span></h3>
+        <ul class="feat">
+          <li><span class="tag built">BUILT</span><span><b>Gear</b> changes what you can make: kits, voices, Roll FX, swing. Today it lives on the rack; later it sits in your room.</span></li>
+          <li><span class="tag new">NEW</span><span><b>Furniture and acoustics</b>: couches, desks, panels, rugs, plants.</span></li>
+          <li><span class="tag new">NEW</span><span><b>Neon</b>: colour presets and words from a fixed list (COOK, NO SLEEP, ON AIR). Neon glows without adding lights.</span></li>
+          <li><span class="tag new">NEW</span><span><b>Walls</b>: your plaques hang themselves, plus sponsor logos and posters made from in-game cover art.</span></li>
+          <li><span class="tag checked">CHECKED</span><span><b>Trophies and life</b>: artists' mementos, awards, a studio pet, and the whip in the parking bay.</span></li>
+          <li><span class="tag new">NEW</span><span><b>Studio vibe</b>: a score from comfort, gear, style and plaques. A higher vibe brings bigger visitors and the blogger's "studio tour" card, and other producers can walk in and FIRE your room.</span></li>
+        </ul>
+        <p class="small dim">The studio never earns while you're away. Rooms make you better at making money; beats still make it.</p>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="mock">
+        <div class="screen" aria-label="Mockup of build mode in your room">
+          <div style="display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-weight: 900; font-size: 11px; letter-spacing: 0.06em;"><span style="color: var(--lamp);">BUILD MODE · YOUR SUITE</span><span style="color: var(--ui-dim);">PARTS 412 / 600</span></div>
+          <div class="room" aria-hidden="true">
+            <div class="floor-grid"></div>
+            <div class="it" style="left: 0; top: 0; right: 0; height: 7%; background: #2A2220;"></div>
+            <div class="it" style="left: 4%; top: 9%; width: 30%; height: 7%; background: #3A2E1C; color: var(--gold);">PLAQUES</div>
+            <div class="it" style="left: 66%; top: 9%; width: 16%; height: 9%; background: transparent; color: var(--neon); font-size: 14px; font-weight: 900; text-shadow: 0 0 8px rgba(255, 60, 160, 0.7);">COOK</div>
+            <div class="it" style="left: 34%; top: 66%; width: 30%; height: 14%; background: #4A3426;">DESK</div>
+            <div class="it" style="left: 36%; top: 58%; width: 8%; height: 6%; background: #23232B;">MON</div>
+            <div class="it" style="left: 54%; top: 58%; width: 8%; height: 6%; background: #23232B;">MON</div>
+            <div class="it" style="left: 30%; top: 26%; width: 38%; height: 26%; background: #3B1E2C; border-radius: 10px;">RUG</div>
+            <div class="it sel" style="left: 4%; top: 30%; width: 12%; height: 34%; background: #5A2A3E;">VELVET<br>COUCH</div>
+            <div class="it" style="left: 76%; top: 26%; width: 1.4%; height: 66%; background: #4D6A7A;"></div>
+            <div class="it" style="left: 79%; top: 40%; width: 17%; height: 40%; background: #1E1A22;">BOOTH</div>
+            <div class="it" style="left: 88%; top: 84%; width: 7%; height: 11%; background: #24452C; border-radius: 50%;"></div>
+            <div class="it" style="left: 18%; top: 12%; width: 2%; height: 30%; background: #2F2A35;"></div>
+            <div class="it" style="left: 70%; top: 12%; width: 2%; height: 30%; background: #2F2A35;"></div>
+            <div class="hint">R TO TURN · DRAG TO MOVE</div>
+          </div>
+          <div class="cat-tabs"><span>GEAR</span><span class="on">FURNITURE</span><span>ACOUSTIC</span><span>NEON</span><span>WALL</span><span>TROPHIES</span></div>
+          <div class="items">
+            <div class="item"><b>VELVET COUCH</b><span>+4 comfort · visitors sit</span><em>$900</em></div>
+            <div class="item"><b>NEON WORD "NO SLEEP"</b><span>+3 style · no light added</span><em>$400</em></div>
+            <div class="item"><b>IRON KIT</b><span>new drums in the beat maker</span><em>$2,000</em></div>
+          </div>
+          <div class="vibe">
+            <div class="vibe-top"><span>STUDIO VIBE 64</span><span style="color: var(--gold);">70 → the blogger asks for a studio tour</span></div>
+            <div class="vibe-bar"><i></i><u></u></div>
+          </div>
+        </div>
+        <p class="cap">Example build mode. Prices and vibe points are made up for the mockup; the IRON kit price is the real one.</p>
+      </div>
+      <div class="limit">
+        <b>THE BIGGEST TECHNICAL RISK</b>
+        <p>Twelve furnished studios in one server, on phones. The place already has 61 lights against the cap of 36. Rooms have to be lean: neon instead of lights, a part budget per room, and Roblox streaming so a phone only loads what's near. Prove it with a throwaway test (12 furnished rooms on a real phone) before building the rest.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="together">
+  <div class="head">
+    <div class="eyebrow">Pillar 4 · Together</div>
+    <h2>Up to 12 producers, one building</h2>
+    <p class="dim">Everything works alone. More people make it louder: an audience for your beats, rivals, crews, and drama that stays on the lounge TV for minutes.</p>
+  </div>
+  <div class="split">
+    <div class="stack">
+      <div class="group">
+        <h3>In the room</h3>
+        <ul class="feat">
+          <li><span class="tag built">BUILT</span><span>Beats on the monitors with a queue, FIRE, nameplates with rank, producer cards (press G), SAMPLE IT flips.</span></li>
+          <li><span class="tag built">BUILT</span><span>Cypher rounds with 3 or more players (build to one brief, anonymous listen, vote, podium) and head-to-head with 2.</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3>The room reacts</h3>
+        <ul class="feat">
+          <li><span class="tag checked">CHECKED</span><span>Toasts and TV headlines when someone lands a hit or gets dragged, charts for this room, and visitors who greet other producers on the way in.</span></li>
+          <li><span class="tag checked">CHECKED</span><span>A jury poll: while someone's card is open, everyone nearby votes "what would you do?" and then sees what they picked.</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3>Playing off each other</h3>
+        <ul class="feat">
+          <li><span class="tag checked">CHECKED</span><span>Co-produce a walk-in together, pitch a visitor someone else ignored, and every ~45 minutes a headline artist walks in for the whole room.</span></li>
+          <li><span class="tag checked">CHECKED</span><span>Crews: up to 4 producers with a tag on every nameplate and a weekly crew goal. A manager can sign another player to their label for a day.</span></li>
+          <li><span class="tag new">NEW</span><span>Visiting: walk into anyone's studio upstairs, see their plaques, FIRE their room. Join a friend's server from the phone.</span></li>
+        </ul>
+      </div>
+      <div class="group">
+        <h3>On the calendar</h3>
+        <ul class="feat">
+          <li><span class="tag new">NEW</span><span>Friday Night Cypher at a fixed time, with Roblox's "Notify me" RSVP and an event-only nameplate frame.</span></li>
+          <li><span class="tag checked">CHECKED</span><span>Label party weekends, awards night with a room vote, seasonal card decks, weekly charts across servers and a podium of last week's top three.</span></li>
+        </ul>
+      </div>
+      <p class="rule"><b>House rules.</b> No typed text anywhere: fixed lines, fixed posts, fixed names. Votes are anonymous and never for your own beat. Another player can never take your money. Every competitive feature gets a griefing review before it ships.</p>
+    </div>
+    <div class="mock">
+      <div class="tvs" style="width: 100%;" aria-label="Mockup of three lounge TV slides">
+        <div class="tv"><span class="k" style="color: #FF6B6B;">BREAKING</span><span class="v">@mara LANDS A HIT WITH DOJA BAT</span><span class="s">her third this week · premiere on the monitors now</span></div>
+        <div class="tv"><span class="k" style="color: var(--neon);">CYPHER IN 2:40</span><span class="v">90–110 BPM · NO CLAP</span><span class="s">5 producers in · head to the stage</span></div>
+        <div class="tv"><span class="k" style="color: var(--gold);">CHARTS · THIS ROOM</span><span class="v">1. @mara · 3 HITS</span><span class="s">2. @kaibeats · 1 HIT<br>3. @dex · 4 PLACEMENTS</span></div>
+      </div>
+      <div class="plates" aria-label="Example nameplates">
+        <span class="plate">LV 9 · HITMAKER · YEAR 7 · <em>37 FIRE</em> · <span class="crew">NO SLEEP CAMP</span></span>
+        <span class="plate">LV 2 · INTERN · YEAR 1</span>
+        <span class="plate">LV 6 · SPONSORED · YEAR 4 · <em>12 FIRE</em></span>
+      </div>
+      <p class="cap">Example lounge TV slides and nameplates. The handles are made up.</p>
+    </div>
+  </div>
+</section>
+
+<section id="money">
+  <div class="head">
+    <div class="eyebrow">The economy</div>
+    <h2>Where the money comes from and where it goes</h2>
+  </div>
+  <div class="cols">
+    <div class="col">
+      <h3 style="color: var(--money);">MONEY IN</h3>
+      <ul>
+        <li>Session requests, daily requests and the Weekly Single (the main earner)</li>
+        <li>FIRE on your airings, flips of your beats, cypher wins</li>
+        <li>Walk-in outcomes and sponsors (capped together)</li>
+        <li>Royalties and merch drops</li>
+      </ul>
+    </div>
+    <div class="col">
+      <h3 style="color: var(--neon);">MONEY OUT</h3>
+      <ul>
+        <li>Rooms: the big one, from $1,500 to the compound</li>
+        <li>Gear, decor and neon, fits, the whip</li>
+        <li>Life: rent day, studio mishaps, scams you fell for, giving back</li>
+      </ul>
+    </div>
+  </div>
+  <div class="share" aria-label="Walk-in share of a player's money, measured on 24 October">
+    <div class="share-row"><span class="lbl small">Typical player</span><span class="share-track"><i style="width: 39.5%;"></i><u></u></span><span class="v">39.5%</span></div>
+    <div class="share-row"><span class="lbl small">Always picks the best payout</span><span class="share-track"><i style="width: 48.3%;"></i><u></u></span><span class="v">48.3%</span></div>
+    <p class="small dim">Walk-ins' share of a player's money over 60 simulated days (20 players, measured 24 October). The red line is the 50% ceiling. Sponsor pay, royalties and merch have to fit under the same line, so each needs a pacing run before it ships.</p>
+  </div>
+  <p class="rule"><b>Robux is your call.</b> If the game sells anything, the safe line is cosmetics only: fits, neon colours, decor. Never odds, stats, money or speed.</p>
+</section>
+
+<section id="scope">
+  <div class="head">
+    <div class="eyebrow">Completed game versus 1.0</div>
+    <h2>What ships first, and what comes after</h2>
+    <p class="dim">The completed game is everything on this page. A public 1.0 needs much less. Everything after 1.0 ships as weekly and monthly updates to people already playing.</p>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Area</th><th>In the game now</th><th>Add for 1.0</th><th>After 1.0</th></tr></thead>
+      <tbody>
+        <tr><td><b>Make</b></td><td>Beat maker, piano roll, kits, voices, requests, dailies, flips</td><td>Weekly trend</td><td>Song mode, skill cards</td></tr>
+        <tr><td><b>Live</b></td><td>Walk-ins, 6 career stats, Studio Two door, fits, TV ticker</td><td>BitLife waves 1–2: phone pops, life-fit cards, the weird deck, fame tiers, the year counter, the story log</td><td>Relationships, HEAT, manager, label deal, tour, retire and legacy</td></tr>
+        <tr><td><b>Phone &amp; social</b></td><td>Nothing yet (mocked up)</td><td>MESSAGES, NEWS, STORY, CLOUT posting</td><td>The real-player feed, DEALS, BANK</td></tr>
+        <tr><td><b>Sponsors</b></td><td>Rep visits, Aura floors, drops, the TV ticker</td><td>Quiz, duties, ad gigs</td><td>Tiers, poaching, studio branding</td></tr>
+        <tr><td><b>Your studio</b></td><td>The shared hub and two legendary rooms</td><td>The 12-room phone test, then your room and pro room with basic build mode</td><td>Suite, compound, studio vibe, the whip, pets</td></tr>
+        <tr><td><b>Together</b></td><td>Monitors, FIRE, cyphers, head-to-head, flips, producer cards</td><td>Room toasts, TV headlines, room charts</td><td>Crews, labels, co-produce, events, cross-server charts, visiting</td></tr>
+        <tr><td><b>Launch</b></td><td>Saved once, never published</td><td>Name, OK removed, studios renamed, icon, maturity questionnaire, friends test</td><td>Weekly drops, seasons, Friday Night Cypher</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="decisions">
+  <div class="head">
+    <div class="eyebrow">New decisions this raises</div>
+    <h2>Calls only you can make</h2>
+  </div>
+  <ol class="decide">
+    <li><b>The name: decided.</b> Prod Life III (26 October). Still check it isn't taken on Roblox before it goes public.</li>
+    <li><b>Taking OK out: done.</b> OK's credits wall, the plaques, the posters, the signs and the menus now say Prod Life III or name the house studio's artists (26 October, Milestone 9).</li>
+    <li><b>The real studios: done.</b> They're now The Hall and The West Suite on the signs, the door and the Career tab, and the TV recipe no longer draws the label logos (26 October).</li>
+    <li><b>Where studios live.</b> My pick is rooms behind doors in the shared building, which keeps every studio part of the server. The alternative is a private studio server you teleport to, which is easier on phones but lonelier.</li>
+    <li><b>Robux.</b> None, or cosmetics only.</li>
+  </ol>
+  <p class="small dim">Already decided and not asked again: the parody artist names stay, with the fiction switch as a fallback. Still open from before: saving the place, the light budget (which matters more now), the publish plan and the listening checks. They're all in the tracker.</p>
+</section>
+
+<section id="road">
+  <div class="head">
+    <div class="eyebrow">The road there</div>
+    <h2>Seven phases, in order</h2>
+  </div>
+  <ol class="road">
+    <li><span class="p">0</span><span><b>Make it real.</b> Save, publish privately, turn on real saves, test on a phone and with two players, play for 10 minutes, fix what breaks.</span></li>
+    <li><span class="p">1</span><span><b>Clean slate.</b> Pick the name, take OK out, rename the real studios.</span></li>
+    <li><span class="p">2</span><span><b>The career core.</b> BitLife waves 1 and 2, the phone, CLOUT posting, sponsor duties.</span></li>
+    <li><span class="p">3</span><span><b>Your room.</b> The throwaway 12-room phone test first, then the room ladder and build mode.</span></li>
+    <li><span class="p">4</span><span><b>The room reacts.</b> Toasts, TV headlines, room charts, Friday Night Cypher.</span></li>
+    <li><span class="p">5</span><span><b>Launch.</b> Icon and thumbnails (you upload them, checked against Roblox's rules first), the maturity questionnaire, a friends test, then public 1.0.</span></li>
+    <li><span class="p">6</span><span><b>Live.</b> A small update every week, then the rest of this page: relationships, legacy, crews, the compound, cross-server charts.</span></li>
+  </ol>
+</section>
+
+<footer>
+  <span>Built from the game's README (Milestones 1–8), the walk-ins report, the 122-idea BitLife catalog (research/bitlife_ideas_2026-10-24.md) and the 22 October market research.</span>
+  <span>Tracker: OK ROBLOX/roblox_studio_notes/OK_GAME_TRACKER.md · This page's source: OK ROBLOX/roblox_studio_notes/ok_studio/specs/2026-10-26-game-vision.html</span>
+</footer>
+
+</div>
+
+<script>
+// Draw the example beat in the beat-maker mockup: 5 drum rows x 16 steps.
+(function () {
+  var grid = document.getElementById("grid");
+  if (!grid) return;
+  var rows = [
+    ["KICK", "1000001000100000", "#FF3CA0"],
+    ["SNARE", "0000100000001000", "#00AAFF"],
+    ["CLAP", "0000100000001001", "#C84BFF"],
+    ["HAT", "1010101110101011", "#FFC83C"],
+    ["808", "1000000100100000", "#00FF8C"]
+  ];
+  rows.forEach(function (r) {
+    var label = document.createElement("div");
+    label.textContent = r[0];
+    label.style.cssText = "font-weight:900;font-size:8.5px;letter-spacing:0.06em;color:#9696A5;";
+    grid.appendChild(label);
+    for (var i = 0; i < 16; i++) {
+      var c = document.createElement("div");
+      var on = r[1].charAt(i) === "1";
+      c.style.cssText = "aspect-ratio:1;border-radius:3px;" + (on ? "background:" + r[2] + ";" : "background:" + (i % 4 === 0 ? "#22222C" : "#1A1A22") + ";");
+      grid.appendChild(c);
+    }
+  });
+})();
+</script>

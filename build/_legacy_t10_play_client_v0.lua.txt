@@ -1,0 +1,66 @@
+-- Client, during play: open the beat maker at the studio PC, prove samples load and make sound, run the sequencer, save, and reject bad input.
+local Players, RS, CP, SoundService = game:GetService("Players"), game:GetService("ReplicatedStorage"), game:GetService("ContentProvider"), game:GetService("SoundService")
+local player = Players.LocalPlayer; local char = player.Character or player.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart"); local hum = char:WaitForChild("Humanoid"); local cam = workspace.CurrentCamera
+local Cfg = require(RS.OK.Modules.DAWConfig); local SaveFn = RS.OK.Remotes.DAW_Save
+local out = {}
+-- 1) samples: load, length, and loudness of a parented copy
+for _, tr in ipairs(Cfg.Tracks) do
+  local s = RS.OK.Samples[tr.Name]:Clone(); s.Parent = SoundService
+  CP:PreloadAsync({s}); local t0 = os.clock(); while not s.IsLoaded and os.clock() - t0 < 5 do task.wait(0.1) end
+  assert(s.IsLoaded and s.TimeLength > 0, tr.Name .. " did not load")
+  local len = s.TimeLength
+  s:Play(); local peak = 0; local t1 = os.clock(); while os.clock() - t1 < 0.25 do peak = math.max(peak, s.PlaybackLoudness); task.wait() end
+  s:Destroy()
+  assert(peak > 0, tr.Name .. " played silent (PlaybackLoudness 0)")
+  table.insert(out, string.format("sample %-5s loaded len=%.2fs peakLoudness=%.0f", tr.Name, len, peak))
+end
+-- 2) open the beat maker from the studio PC
+local screen = workspace.OKStudio.ControlRoom.Screen_Main
+local prompt = screen:FindFirstChildWhichIsA("ProximityPrompt", true); assert(prompt, "computer prompt missing")
+if hum.Sit then hum.Sit = false; task.wait(0.4) end
+local pos = Vector3.new(72.0, 3.5, -5.5)
+root.CFrame = CFrame.lookAt(pos, Vector3.new(screen.Position.X, pos.Y, screen.Position.Z)); task.wait(1.0)
+cam.CameraType = Enum.CameraType.Scriptable; cam.CFrame = CFrame.lookAt(pos + Vector3.new(-4, 3, 0), screen.Position); task.wait(1.5)
+local gui = player.PlayerGui:WaitForChild("OK_DAW", 5); assert(gui, "OK_DAW gui missing"); local daw = gui:WaitForChild("DAW")
+local opened = false
+for i = 1, 4 do prompt:InputHoldBegin(); task.wait(0.05); prompt:InputHoldEnd(); task.wait(0.8); if daw.Visible then opened = true; break end end
+assert(opened, "beat maker did not open from the studio PC")
+assert(#daw:GetAttribute("Pattern") == 64, "pattern length on open")
+table.insert(out, "beat maker opened, BPM=" .. tostring(daw:GetAttribute("BPM")))
+-- 3) sequencer: kick+snare+clap on step 1, hat on odd steps, 160 BPM, run 2 s
+local pat = "1" .. string.rep("0", 15) .. "1" .. string.rep("0", 15) .. "1" .. string.rep("0", 15) .. string.rep("10", 8)
+daw:SetAttribute("Command", "clear"); task.wait(0.1); assert(daw:GetAttribute("Pattern") == string.rep("0", 64), "clear failed")
+daw:SetAttribute("Pattern", pat); daw:SetAttribute("BPM", 160)
+local hits0 = daw:GetAttribute("Hits")
+daw:SetAttribute("Command", "play"); task.wait(2.0)
+assert(daw:GetAttribute("Playing") == true and player:GetAttribute("DAWPlaying") == true, "not playing")
+local hits = daw:GetAttribute("Hits") - hits0; local step = daw:GetAttribute("Step")
+assert(hits >= 10, "too few hits in 2 s: " .. hits); assert(step >= 1 and step <= 16, "playhead out of range")
+daw:SetAttribute("Command", "stop"); task.wait(0.2)
+assert(daw:GetAttribute("Step") == 0 and player:GetAttribute("DAWPlaying") == false, "stop did not reset")
+table.insert(out, string.format("sequencer: %d hits in 2 s at 160 BPM (22 steps of this pattern = 17 hits), stopped cleanly", hits))
+-- 4) save through the UI, read it back, cooldown
+local prof0 = RS.OK.Remotes.ProfileFunction:InvokeServer()
+daw:SetAttribute("Command", "save"); local t2 = os.clock(); while daw:GetAttribute("LastSave") == "" and os.clock() - t2 < 5 do task.wait(0.1) end
+assert(daw:GetAttribute("LastSave") == "ok", "save failed: " .. tostring(daw:GetAttribute("LastSave")))
+local prof1 = RS.OK.Remotes.ProfileFunction:InvokeServer()
+assert(prof1.daw and prof1.daw.pattern == pat and prof1.daw.bpm == 160, "saved beat not in profile")
+table.insert(out, string.format("save ok: profile has the beat at %d BPM, XP %d -> %d, status '%s'", prof1.daw.bpm, prof0.xp or 0, prof1.xp or 0, daw:GetAttribute("Status")))
+daw:SetAttribute("LastSave", ""); daw:SetAttribute("Command", "save"); local t3 = os.clock(); while daw:GetAttribute("LastSave") == "" and os.clock() - t3 < 5 do task.wait(0.1) end
+assert(daw:GetAttribute("LastSave") == "cooldown", "second save was not rate-limited: " .. tostring(daw:GetAttribute("LastSave")))
+table.insert(out, "immediate second save: rate-limited")
+-- 5) malformed payloads straight at the remote
+for _, case in ipairs({{"abc", 140}, {string.rep("2", 64), 140}, {nil, 140}, {pat, "fast"}, {{}, 140}}) do
+  local r = SaveFn:InvokeServer(case[1], case[2]); assert(type(r) == "table" and r.ok == false and r.reason == "invalid", "malformed payload accepted")
+end
+table.insert(out, "5 malformed payloads rejected as invalid")
+task.wait(3.2); local r = SaveFn:InvokeServer(pat, 9999); assert(r.ok and r.profile.daw.bpm == Cfg.BPM.Max, "bpm not clamped on save")
+table.insert(out, "BPM 9999 clamped to " .. r.profile.daw.bpm)
+-- 6) walking away closes it and stops playback
+daw:SetAttribute("Command", "play"); task.wait(0.3)
+cam.CameraType = Enum.CameraType.Custom
+root.CFrame = CFrame.new(55, 3.5, -5.5); task.wait(0.8)
+assert(not daw.Visible and daw:GetAttribute("Playing") == false, "beat maker did not close on distance")
+table.insert(out, "walking away closes the window and stops playback")
+return "T10 PLAY OK\n" .. table.concat(out, "\n")

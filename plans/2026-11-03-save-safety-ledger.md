@@ -1,0 +1,17 @@
+# SDD ledger — plan: plans/2026-11-03-save-safety.md
+- 2026-11-03 20:44 EST · The user's answers: Wave 2 words approved as built; slower players left; next build = save fixes. Recorded in the tracker (Already decided), copy doc §11 and memory.
+- No ok-projects-* peer is live (ListAgents), so there is no Studio lease to announce. Studio is not open; specs 8/8 after the 11-02 folder move.
+- Advisor (before code): add a writer token (a version check alone misses the reviewer's own repro), deep-copy the snapshot, JSON fake store in a new t74, trial switch outside Config with a guard. All adopted.
+- Ruling: implement inline (one file plus tools, TDD), one fresh reviewer before Studio — the build is small; the reviewer is the independent read.
+- Built: DataService touch()/gen, deep-copy clean(), writer token (load claim, every save, kept on release, refused when foreign or v newer), trial attribute in Init; tools/real_save_on|off|check.lua; guard refuses while the trial is on; build/t74_check.lua. Red run waits for Studio (the place still runs the old DataService).
+- 21:30 EST · Review 1: approved with F1 (copy outside the pcall could throw; latent) plus minors M2 (change during the leave save dropped), M3 (late old-session save clears the new session's dirty flag), M4 (t74 gaps), print nit. All fixed: copy inside the pcall; one more release when dirty; cache[uid] == prof gate; t74 (c2) leave save through the transform, (f) writer asserted, (h) transform twice, (i) leave-save change, (j) late old-session save. Reviewer's CLI harness: t74 and t13 green on the new code, its 7 extra cases green (cycle now returns false, inflight 0); t74 red on the old at (a). Guard left strict on an empty attribute (safer). Studio red run still owed.
+- 2026-11-04 01:17 EST · Studio open. Lease announced to ok-projects-82 (acked). Load 5.4.
+- Studio red: `--edit t74` on the place's old DataService FAILS at (a), line 60: "autosave wrote 0, stored Money 0, want 100" (the harness's own red).
+- Sync: dry run showed only Services/DataService differing (61 unchanged, 0 drift); synced it.
+- Studio green: `--edit t13 t41 t60 t69 t70 t74` 6/6.
+- README: "Save safety (2026-11-04)" section; the trial noted at the DataStore line and in manual step 5 (clear RealSaveTrial before saving).
+- 01:33 EST · Full suite 186/190 (only t03, t04, t05, 09_qa: the light cap, 61 vs 36); no reruns. Was 185/189 + t74.
+- Guard: real_save_on, then `sync.py --dry` REFUSED ("GUARD FAIL real-save trial is on"); real_save_off ("was ProdLife_trial_v1"); `sync.py --dry` 62 unchanged. walkins_pause_off: WALKINS UNPAUSED.
+- Snapshot v37_save_safety (727 parts); export places/export_2026-11-04_0134. Lease released to ok-projects-82.
+- Commit 4c70499 (README + sync manifest). Tracker: status rows, Now, Next up, Needs you (API access item; RealSaveTrial in the pre-save clear), Done log 11-04. Real save and load still owed: needs the user's API access.
+- 01:42 EST · Advisor: done; archive the workspace (ledger to plans/, tarball to checkpoints/, fix the plan's ledger path), then offer the real save. Archived.

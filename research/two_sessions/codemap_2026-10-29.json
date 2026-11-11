@@ -1,0 +1,725 @@
+{
+ "maps": [
+  {
+   "area": "XP and levels: how XP is granted, gated, stored and shown; what levels unlock; what card XP needs on the server; XP and level by day (Prod Life III, ok_studio). Paths are relative to /Users/work/Desktop/OK projects/OK ROBLOX/roblox_studio_notes/ok_studio.",
+   "facts": [
+    {
+     "topic": "Where XP and level live",
+     "fact": "Stored in the profile as prof.xp, prof.level and prof.xpLog. A new profile is DEFAULT = { level = 1, xp = 0, visits = 0 }. prof.level is never trusted from the store: migrate recomputes it every load with prof.level = M.LevelFor(prof.xp), so changing Config.Levels would move existing players' levels. Schema version is M.SchemaVersion = 4. No schema change is needed for a new XP source, because xpLog is a free-form table keyed by source.",
+     "refs": "src/ServerScriptService/OK/Services/DataService.lua:26, :36, :75-96 (xpLog created at :78, level at :95)"
+    },
+    {
+     "topic": "Replicated attributes",
+     "fact": "setAttrs writes the player attributes Level, XP, NextLevelXP (= Config.Levels[level+1] or xp), LevelXP (= Config.Levels[level] or 0) and Cred, plus Aura, Followers, Placements, Hits and Sponsors. The HUD, the nameplate ('LV %d \u00b7 %s' with Config.Ranks[level]) and the public profile card (Profiles.PUBLIC includes level and rank) read them.",
+     "refs": "DataService.lua:46-58; Modules/HUD.lua:155-168, :271; Modules/Nameplate.lua:6-7, :34-40; Systems/Profiles.lua:7, :22-25"
+    },
+    {
+     "topic": "Level curve",
+     "fact": "Config.Levels = { 0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200 }. That gives 10 levels, and the maximum is level 10 at 3200 XP. LevelFor(xp) returns the highest i with xp >= Levels[i]. XP keeps adding past 3200 but buys nothing; the HUD shows '%d XP \u00b7 max level'. Config.lua:43 says: 'Level thresholds are fixed now so levels never shift once real profiles exist.' Config.Ranks (index = level) are INTERN, RUNNER, ASSISTANT, ENGINEER, BEATMAKER, PRODUCER, HITMAKER, HEAD PRODUCER, EXEC PRODUCER, STUDIO LEGEND.",
+     "refs": "src/ReplicatedStorage/OK/Config.lua:42-43, :74, :92; DataService.lua:60-66; HUD.lua:162-168"
+    },
+    {
+     "topic": "The single XP entry point and its gate",
+     "fact": "M.AddXP(p, n, source) -> gained, prof, why. It runs gate(prof, 'xpLog', Config.XP.Sources, Config.XP.GroupDailyCap or {}, source, n), then applyXP. An unknown source pays 0 and warns '[OK][ERR] unknown XP source', which fails tools/test.py. Gate rules:\n- A rule pays a fixed amount from rule.xp or rule.amount. Otherwise it pays math.min(n, rule.max or n), so a rule with no xp, amount or max pays n uncapped.\n- cooldown is in seconds, measured against log.last[source].\n- dailyMax counts AWARDS per UTC day, not XP (log.count[source]).\n- group caps the XP SUM per day across sources (log.group).\n- The day key is M._day() = tonumber(os.date('!%Y%m%d')). log.count and log.group reset on a new day; log.last persists.\n- Refusal reasons are 'unknown', 'cooldown', 'daily' and 'cap'.\nThere is no global daily XP cap and no per-minute limit beyond per-source cooldowns.",
+     "refs": "DataService.lua:335-362 (uncapped n at :348, cooldown :350-351, dailyMax :352, group :353-355), :364-372, :382-388"
+    },
+    {
+     "topic": "GrantXP is a trusted bypass",
+     "fact": "M.GrantXP(p, n, reason) skips the gate entirely. The comment says: 'trusted one-off grants (the tour reward, Studio tests); never wire these to anything a client can trigger at will.' Only Tour (+50 once) and the Studio test hook use it.",
+     "refs": "DataService.lua:397-403; Systems/Tour.lua:13, :54; ServerScriptService/OK/Main.server.lua:22"
+    },
+    {
+     "topic": "Config.XP.Sources today (exact)",
+     "fact": "- Console = { xp = 5, cooldown = 600, group = 'Activity' }\n- Mic = { xp = 10, cooldown = 120, group = 'Activity' }\n- BeatSave = { xp = 10, cooldown = 60, dailyMax = 5 }\n- Delivery = { max = 60, dailyMax = 15 }\n- FireTap = { xp = 2, dailyMax = 15 }\n- Daily = { max = 30, dailyMax = 3 }\n- Weekly = { max = 75, dailyMax = 1 }\n- Cypher = { max = 40, dailyMax = 10 }\n- CypherVote = { xp = 3, dailyMax = 10 }\nGroupDailyCap = { Activity = 30 }. Also Config.XP.Console = 5 and Take = 10, used only as toast copy and as the n passed in. There is NO WalkIn or Phone XP source.",
+     "refs": "Config.lua:44-58"
+    },
+    {
+     "topic": "Every XP grant caller",
+     "fact": "1. InteractionService consolePower: ctx.Data.AddXP(player, Config.XP.Console, 'Console').\n2. InteractionService micTake: AddXP(player, Config.XP.Take, 'Mic').\n3. Systems/DAW DAW_Save: AddXP(player, Cfg.XPPerSave (=10, DAWConfig.lua:23), 'BeatSave'). It pays only with 4+ hits, 4+ cells changed vs that slot's last save, and a pattern not already paid today. DAW's own prof.xpLog.paidDay and paid[pattern] sit beside the gate's fields. Saves also have DAWConfig.SaveCooldown = 3 s.\n4. Systems/Contracts Deliver: AddXP(player, floor(brief.reward.xp * mult + 0.5), 'Delivery'), where mult = 1.5 at 3 stars. It pays the first time per brief only; Contracts.DeliverCooldown = 2.\n5. Systems/Dailies Record: AddXP(floor(Config.Daily.XP(15) * mult + 0.5), 'Daily').\n6. Dailies RecordWeekly: AddXP(floor(Config.Weekly.XP(50) * mult + 0.5), 'Weekly'). It pays once per UTC week via prof.weekly.week.\n7. Systems/BeatBattles reveal: AddXP(o, R.EnterXP = 10, 'Cypher') per entrant, plus AddXP(o, R.WinXP = 30, 'Cypher') for the winner. These are separate awards against dailyMax 10.\n8. BeatBattles Vote: AddXP(owner, VoteXP = 3, 'CypherVote').\n9. Systems/Reactions Give: AddXP(listener, 2, 'FireTap'). The 2 is a literal; Config.Fire.PairDaily = 3 per listener->producer per day.\n10. Tour: GrantXP 50 (ungated).\n11. Studio test hook: AddXP or GrantXP.\nFlips, WalkIns and Phone grant no XP.",
+     "refs": "ServerScriptService/OK/Services/InteractionService.lua:28-31, :54-57; Systems/DAW.lua:163-176; Modules/DAWConfig.lua:22-23; Systems/Contracts.lua:17-18, :145-151; Systems/Dailies.lua:55-62, :97-108; Systems/BeatBattles.lua:179-190, :232; Config.lua:87-88; Systems/Reactions.lua:51-55; Config.lua:90; Tour.lua:50-56; Main.server.lua:22"
+    },
+    {
+     "topic": "Session-request XP pool (finite)",
+     "fact": "21 one-time briefs in Data/Artists.lua:\n- juno j1 25, j2-j5 20 each\n- tavi t1-t2 20, t3-t4 25\n- rue r1-r3 25\n- vesper v1-v3 30\n- nyx n1-n3 35\n- indigo i1-i3 40\nThat is 585 XP at 2 stars and about 882 if all are 3 stars. Repeats pay no XP.",
+     "refs": "src/ReplicatedStorage/OK/Data/Artists.lua:40-93; Contracts.lua:145-151"
+    },
+    {
+     "topic": "Theoretical daily XP ceiling from the caps",
+     "fact": "Repeatable per UTC day:\n- Activity: 30\n- BeatSave: 5 x 10 = 50\n- FireTap: 15 x 2 = 30, needs other players\n- Daily: 3 awards at 15 or 23 each, at most 69\n- Cypher: 10 awards; at most 5 rounds of enter 10 + win 30 = 200; needs MinEntrants = 2\n- CypherVote: 10 x 3 = 30\nTotal is about 409 a day, plus Weekly 75 once a week, the finite delivery pool, and Tour 50 once. A solo player can reach only Activity, BeatSave, Daily, Weekly and deliveries: about 149 a day after the briefs run out, plus 75 a week.",
+     "refs": "Config.lua:44-58, :83-88; Systems/BeatBattles.lua:1-6"
+    },
+    {
+     "topic": "Progress event and LevelUp banner",
+     "fact": "applyXP sets prof.xp and prof.level, marks the profile dirty, calls setAttrs, then notify(p, 'Progress', { gained, xp, level, levelUp = level > before, source }) over RS.OK.Remotes.InteractionEvent. On the client (ClientMain.client.lua:119-121), gained > 0 calls hud.Float('+N XP'), which floats in the Aura pill's column (stat nil). levelUp calls hud.LevelUp(level, Config.Unlocks[level]). The banner is TextLabel 'LevelUp' in OK_UI: 420x64, ZIndex 2, text 'LEVEL n' plus the unlock line, shown 3.5 s, and it sets the OK_UI attribute LastLevelUp. Config.Unlocks has banner text for levels 3-10 only. OK_UI is created in build/01_backup_scaffold.lua:27 with no DisplayOrder (default 0). The walk-in card OK_WalkIn is DisplayOrder 8 and the phone OK_Phone is DisplayOrder 9.",
+     "refs": "DataService.lua:41-45, :364-372; StarterPlayer/StarterPlayerScripts/OK/ClientMain.client.lua:119-121; Modules/HUD.lua:144-149, :257-264; Config.lua:76-81; build/01_backup_scaffold.lua:27; Modules/WalkInUI.lua:71; Modules/PhoneUI.lua:89"
+    },
+    {
+     "topic": "What levels gate (live)",
+     "fact": "- Artist requests: Contracts.Feasible refuses when profile level < artist.level. Artists arrive at JUNO VALE and TAVI GLASS 1, RUE LANTERN 3, SAINT VESPER 5, NYX ARCADE 7, INDIGO RAIL 9.\n- Gear rack tiers: Gear.Buy returns reason 'level' when prof.level < Config.Gear[i].level. Tiers: 808, rollfx and swing at 1; voice_pluck 2; neon_ice and kit_tape 3; voice_chime 4; plate_gold 5; kit_iron 6 (also needs placements 1); neon_gold 7; plate_legend 10 (also needs hits 1, followers 20000 and aura 1000). Fits are level 1 with stat needs.\n- Ranks and banner text: Config.Ranks and Config.Unlocks.\n- Not level-gated: Studio Two (Config.Career.Gates studio_two needs placements 1, aura 300 and $5000, with no level field), sponsor_tv, walk-in and phone cards, and beat-maker features. Features are gear-owned through DAW.UnlockFn -> DAW.Unlocked. DAWConfig.Unlocks = { Bass = 2, Rolls = 3, Swing = 4 } applies only when Validate is passed a number (legacy tests).\n- Gear.state grandfathers old profiles: level >= 3 gets rollfx, level >= 4 gets swing.",
+     "refs": "Systems/Contracts.lua:43-50; Data/Artists.lua:21-33; Systems/Gear.lua:35-39, :107-113; Config.lua:98-113, :137-140; Systems/DAW.lua:20-24, :93; Modules/DAWConfig.lua:33; Systems/Unlocks.lua (no level use)"
+    },
+    {
+     "topic": "Cards cannot grant XP today (every path drops it)",
+     "fact": "- WalkIns header: 'stats through Career.Add \"WalkIn\" / Career.Take. No XP.'\n- WalkInRules.deltasOf builds a fixed { cost, money, aura, followers, placements, hits, sponsors }, so an outcome.xp key is silently dropped.\n- WalkIns.apply loops CareerRules.STATS only.\n- Phone.apply reports any stat other than aura or followers as '(not applied)'. It never sees xp, because deltasOf already removed it.\n- The result chips (WalkIns CHIPS / chipsFor, reused by Phone through M.Chips) and the overhead tag (WalkInRules.TAGS / TagFor) have no XP entry.\n- spec/walkins_data_spec.lua checkOutcome validates only known keys and does not reject unknown ones, so content with xp = N passes every spec and pays nothing.\n- checkPhoneOutcome limits phone outcomes to aura and followers within PHONE_CAPS = { aura = 60, followers = 2000 }.",
+     "refs": "Systems/WalkIns.lua:26-28, :172-189, :238-250; Modules/WalkInRules.lua:17-21, :68-90; Systems/Phone.lua:15-16, :41, :143-166; spec/walkins_data_spec.lua:39, :162-185, :234-246"
+    },
+    {
+     "topic": "XP is not a career stat",
+     "fact": "Career.Add(player, stat, n, source) accepts only Rules.STATS = { 'aura', 'followers', 'placements', 'hits', 'sponsors' }. Its gate is keyed '<source>.<stat>' against Config.Career.Sources in prof.career.careerLog. Career.Add(p, 'xp', ...) would report '[OK][ERR] unknown career source' and pay 0. Config.Career.Sources (WalkIn: aura max 500 / dailyMax 16 etc.; Phone: aura max 60 and followers max 2000, dailyMax 7 = Config.Phone.DailyMax + 1 for the midnight straddle) has no say over XP. XP goes only through DataService.AddXP and Config.XP.Sources.",
+     "refs": "Systems/Career.lua:94-108; Modules/CareerRules.lua:7; Config.lua:114-136 (straddle note :131)"
+    },
+    {
+     "topic": "Readiness inputs available today",
+     "fact": "WalkInRules.gateValue (card needs/under) reads aura, followers, placements, hits, sponsors, money and visits only; level and xp are not gate keys. GATE_KEYS in walkins_data_spec.lua mirrors this. WalkInRules.Chance tilts odds by aura and followers only. CareerRules.Have(prof) returns money and the five stats, not level. The server can read ctx.Data.GetProfile(p).level and the 'Level' attribute. CareerSim keeps sim.level, but pickNext copies only sim.career.",
+     "refs": "Modules/WalkInRules.lua:9-15, :143-166; spec/walkins_data_spec.lua:34; Modules/CareerRules.lua:21-28; Modules/CareerSim.lua:41, :311-318"
+    },
+    {
+     "topic": "CareerSim XP model (the pacing sim)",
+     "fact": "CareerSim models XP but Run does not return it. Per day it adds:\n- activityXP 30 + beatSaveXP 20 (2 saves) + tourXP 50 on day 1\n- up to 3 first-time requests (level- and gear-gated; stars alternate 3/2)\n- 3 dailies (stars alternate)\n- the weekly at 3 stars on day % 7 == 0\n- cypherXP 40 (enter + win) on even days\nFireTap and CypherVote XP are not modelled. CareerSim.apply (card outcomes) never touches sim.xp. economy_fixture.lua pins these numbers, and build/t46_check.lua rebuilds them from live sources and asserts equality.",
+     "refs": "Modules/CareerSim.lua:41, :67-71, :74-80, :106-110, :112-122, :125-145, :184-201, :432-445, :451-466; spec/economy_fixture.lua:51-62; build/t46_check.lua:52-62"
+    },
+    {
+     "topic": "Typical XP and level by day (measured)",
+     "fact": "I ran a scratch copy of CareerSim with the live fixture, deck and pacing inputs, 20 seeds x random/greedy/chaser plus spend-down. The only change to the copy is a refreshLevel and a per-day record after the day's last step, which does not change behaviour. All 63 runs gave the identical XP trajectory, so XP has no rng dependence today.\n\nLevel-up days: LV2 day 1 (249 XP), LV4 day 2 (462), LV5 day 4 (897), LV6 day 5 (1128), LV7 day 7 (1457), LV8 day 10 (1977), LV9 day 14 (2560), LV10 day 18 (3228).\n\nDaily gains:\n- days 1-5: 204-249\n- days 6-15: 111-271 (requests run out on day 15)\n- after that: 111 or 143 alternating, plus 75 on weekly days (about 138 a day on average)\n\nDay 1 ends at 249 XP, one short of LV3 (250). The 2026-10-22 audit figures ('~160 XP day 1', 'level 10 ~day 29', mic cap 60) predate the rebalance and are stale.",
+     "refs": "Scratch: /private/tmp/claude-502/-Users-work-Desktop-OK-projects/bedf590b-998a-4c90-aab6-448bd92d0e37/scratchpad/xpsim/run_xp.lua (copied CareerSim.lua, WalkInRules.lua, CareerRules.lua, WalkIns.lua and economy_fixture.lua in the same folder); research/gameplay_2026-10-22/01_audit.md:15-24 (stale)"
+    },
+    {
+     "topic": "Card XP sensitivity vs the pacing check",
+     "fact": "pacing_spec asserts, per seed for the random policy, that legendDay is nil or >= 15. The greedy, chaser and spend-down blocks bound only steady share. plate_legend in GATES has level = 10, and level 10 is what binds legendDay in 14 of 20 random seeds (legend day 18 = LV10 day).\n\nAdding a flat X XP every day from day 1 (a stand-in for card XP) gives:\n- +5: LV3 moves to day 1, LV10 stays day 18\n- +10: LV10 day 17\n- +15 and +20: day 16\n- +30: day 15 (passes with zero margin)\n- +40: day 14 (FAILS)\n- +60: day 13\nThe response is non-linear: earlier levels open the level 5, 7 and 9 requests sooner, which pulls delivery XP forward. The current specs pass: tools/spec.sh pacing, career_sim and walkins_data all PASS.",
+     "refs": "spec/pacing_spec.lua:19-22, :61-79 (legend assertion :69), :81-109; scratch run_sens.lua in the xpsim folder above"
+    },
+    {
+     "topic": "Standing design call to reverse",
+     "fact": "The walk-ins design made 'no XP' an explicit call. \u00a72 anti-goal: walk-ins supply 'none of the XP that levels you'. \u00a74.3: 'Walk-ins pay **no XP**: levels, artists and rack tiers stay earned by making beats, so there is no Config.XP.Sources.WalkIn and no XP chip on the result card. (call)'. Review Q5: 'Do walk-ins pay XP? No'. The user's 10-29 answer ('cards learn to give XP'; per the memo notes the celebrity gives 'a little XP' too) overrides it. Tests that encode the old call: build/t43_play_server.lua:90-99 asserts 'resolve: walk-ins paid XP' is false for navx_placement. build/t40_check.lua:23 pins XP.Sources.Delivery.max = 60.",
+     "refs": "specs/2026-10-23-walk-ins-design.md:32, :63, :197; OK_GAME_TRACKER.md:139, :150; ~/Downloads/voice_memo_11_notes.md:14-15, :41-42; build/t43_play_server.lua:90-99; build/t40_check.lua:23"
+    },
+    {
+     "topic": "No live XP telemetry",
+     "fact": "Funnel logs onboarding steps, deliveries, FIRE, flips, cypher entries and card events (CardChoice, CardWalkAway, CardNews, CardExpire, CardNote, PhoneOpen, PhoneExpire). It logs no XP or level events, so real players' XP pace is unmeasured.",
+     "refs": "Systems/Funnel.lua:1-12"
+    }
+   ],
+   "designImplications": [
+    "Grant card XP only through ctx.Data.AddXP(p, n, source) with new Config.XP.Sources keys, for example WalkIn and/or Phone (they don't collide with the same-named Config.Career.Sources keys, because xpLog and careerLog are separate). Never use GrantXP: card choices come from client remotes (WalkIn_Choose / Phone_Choose).",
+    "Every new XP source rule must set xp, amount or max. A rule with none of them pays n uncapped (DataService.lua:348). Give it a dailyMax, and for a phone-delivered award use dailyMax = the card's daily cap + 1, as Config.Career.Sources.Phone does for the midnight straddle.",
+    "dailyMax limits how many awards, not how much XP. To bound walk-in and phone card XP together, add a GroupDailyCap group (for example Cards = N) and set group on both rules.",
+    "Plumb xp through every card path:\n- WalkInRules.deltasOf (add an xp field)\n- WalkIns.apply and Phone.apply (call AddXP and record applied.xp from what was actually paid)\n- chipsFor/CHIPS (an XP chip with a kind and colour; Theme.stat has no xp entry, and an unknown kind reads gold)\n- optionally WalkInRules.TagFor\n- walkins_data_spec checkOutcome (validate xp as a whole number within a band) and checkPhoneOutcome (allow xp on phone items under a new PHONE cap)\n- PHONE_CAPS-style literals in walkins_data_spec and build/t46_check.lua",
+    "Make content xp fail loudly until it's plumbed: checkOutcome accepts unknown keys today, so xp = N would pass the specs and pay 0.",
+    "Teach CareerSim card XP: apply() must add d.xp to sim.xp, and economy_fixture.lua plus t46_check.lua need the new source's numbers. Pacing should then get an XP or level statistic per seed, because card XP will be the first rng-dependent XP.",
+    "Budget card XP against the curve, which can't be retuned (Config.lua:43). A flat-rate equivalent of +30 XP a day still keeps random-policy legend day >= 15, with zero margin; +40 a day breaks it. A one-shot or capped hometown award (for example one card a day or week) is far below that. Report it as a flat-rate equivalent.",
+    "Keep card XP off day 1, for example with needs.visits or a minCount. Day 1 ends at 249 XP, one below LV3, so any card XP on day 1 moves RUE LANTERN requests and rack tier 3 to day 1.",
+    "XP is worthless past level 10 (3200 XP, sim day 18), so the hometown pick's 'you learn more' payoff vanishes for veterans. Either accept that, scale the award down by level, or give an alternative payoff (the follow-up, Aura or Followers) past the cap.",
+    "If LV goes into the 'not at that level' blend, plumb it explicitly:\n- a new gate key in WalkInRules.gateValue and the spec's GATE_KEYS, or a separate readiness function fed prof.level / the Level attribute\n- CareerRules.Have and the sim's pickNext career copy, which carry no level today\nLV is also the only readiness input that card XP itself moves, so the hometown pick would raise readiness for the celebrity pick.",
+    "A card-triggered level-up fires the LevelUp banner in OK_UI, which likely draws under OK_WalkIn (DisplayOrder 8) and OK_Phone (9). The '+N XP' float on phones draws under an open card (Wave 1b ruling). Decide whether the result card shows the level-up itself.",
+    "Update the docs and tests that encode 'no XP': WalkIns.lua:27 header, the walk-ins design \u00a72/\u00a74.3/Q5, and t43_play_server.lua:99 if navx_placement or any tested card gains XP. Result chips must show the XP actually applied, since AddXP can return 0 on 'daily' or 'cap'."
+   ],
+   "risks": [
+    "Uncapped payout: a Config.XP.Sources entry written like Delivery but missing max, with n taken from content, pays any n.",
+    "Silent no-op: adding xp to Data/WalkIns outcomes before the plumbing lands passes walkins_data_spec, pacing and t46, and pays nothing.",
+    "Pacing breakage: card XP worth about 40 XP a day (flat-rate equivalent) pulls LV10 to day 14 and fails pacing_spec's 'random seed N: legend day >= 15'. Day-1 XP of even 1 moves LV3 to day 1.",
+    "Reversing the 10-23 'no XP from walk-ins' call weakens its anti-goal that levels stay earned by making beats. Card XP must stay small next to the roughly 110-270 XP a day from beats.",
+    "Midnight straddle: a phone DM opened before UTC midnight and answered after it is awarded against the new day's gate. A dailyMax equal to the card cap could then refuse the second award and show a 0 chip.",
+    "Level-up banner hidden behind the open card, if OK_UI's DisplayOrder is 0 in the live place, so the moment is lost.",
+    "XP past level 10 is dead weight, so the hometown 'learn more' reward reads as nothing to max-level players, who are the majority after about day 18 in the sim.",
+    "The sim player is optimistic: it wins a cypher every other day (needs 2+ entrants), hits the Activity cap daily and delivers 3 requests a day. A solo player levels more slowly, so the margins measured here are optimistic too."
+   ],
+   "unknowns": [
+    "OK_UI's actual DisplayOrder in the live place: build/01_backup_scaffold.lua:27 sets none. I didn't verify it in Studio (no Studio tools used).",
+    "Real players' XP and level by day: no XP telemetry exists (Funnel has none). All day figures come from CareerSim on the fixture, not live data.",
+    "XP amounts for the hometown and celebrity picks, and the readiness-blend weights: not decided by the user.",
+    "Whether the session resolves on the phone card itself (phone outcomes limited to Aura and Followers today) or as a walk-in or follow-up visit, which decides whether Phone.apply, WalkIns.apply or both need XP.",
+    "Whether the user wants card XP to show as a chip or a level-up on the result card, or only as the HUD float.",
+    "How a hidden pacing assertion would treat card XP once CareerSim models it: no XP or level assertion exists today beyond the indirect legend-day >= 15."
+   ]
+  },
+  {
+   "area": "Card schema and outcomes for \"two sessions, same day\". All refs are relative to /Users/work/Desktop/OK projects/OK ROBLOX/roblox_studio_notes/ok_studio. I edited nothing in the project and ran no Studio tool, sync.py or test.py. I ran `sh tools/spec.sh walkins_data walkin_rules pacing`, and all three PASS on the current tree. The experiments labelled \"probe\" and \"V1-V8\" ran on copies in my scratchpad: /private/tmp/claude-502/-Users-work-Desktop-OK-projects/bedf590b-998a-4c90-aab6-448bd92d0e37/scratchpad/{probe,tree,variants.py}.",
+   "facts": [
+    {
+     "topic": "Card fields",
+     "fact": "Required: id, visitor (a W.Visitors id), tag (CAPS once {tokens} are stripped), line (lowercase; the bubble, or the DM text), choices. Optional: source (\"walkin\" by default, or \"phone\"); app (phone only and required there: MESSAGES | NEWS | STUDIO; forbidden on walk-ins); news (true only; must be a phone card with app NEWS and exactly one choice that is sure, with no cost and no rare); needs and under ({GateKey = whole number >= 0}); cap ({ group = string, per = \"day\" | \"week\", max = whole number >= 1 }); first (true); aired (true); sponsor (a sponsor id; rep cards must have it and when = \"unsponsored\"); when (\"unsponsored\" | \"sponsored\"); weight (whole number >= 1, default 1); minCount (whole number >= 0). Live content never uses weight, minCount, when = \"sponsored\" or an outcome cooldown (grep found none).",
+     "refs": "spec/walkins_data_spec.lua:282-326; src/ReplicatedStorage/OK/Modules/WalkInRules.lua:222-240"
+    },
+    {
+     "topic": "How a card is picked",
+     "fact": "Pick(state, deck, opts): a due follow-up of opts.source wins first. Then, when opts.career.visits == 0, the first eligible card with `first` wins with no rng draw. Otherwise the pick is weighted among the least-seen eligible cards. cardEligible checks, in order: minCount, the artist cooldown (state.count - state.last[visitor] < opts.cooldown blocks; Config.WalkIns.ArtistCooldown = 3), the sponsor Aura floor, source, GateOk, CapOk, aired, exclude, when. Seed runs before Pick so a newly eligible card joins at the lowest seen count. MarkSent (when a phone pop is sent) sets the cooldown only for visitors of kind \"artist\".",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:222-305; src/ReplicatedStorage/OK/Config.lua:158"
+    },
+    {
+     "topic": "Choice fields",
+     "fact": "text; cost (1..1500, paid first through DataService.SpendCred; the UI shows it, so the copy never types it); sure (boolean: good outcome, no roll); odds (1..100, and 10..90 under the content validator; Resolve defaults it to 50); good (required); bad (required unless sure; when missing, Resolve uses good); rare and rareOdds always together (rareOdds 1..100, rolled first). A non-news card or follow-up has 2..4 choices and at least one choice with no cost. A sure choice that pays money must quote Format.Money(good.money) in its text, and every \"$N\" in a text must equal good.money or the cost (quiz_* cards are exempt).",
+     "refs": "spec/walkins_data_spec.lua:196-233; src/ReplicatedStorage/OK/Modules/WalkInRules.lua:23-41"
+    },
+    {
+     "topic": "Outcome fields and bands",
+     "fact": "Required: key, headline (CAPS), text, line (lowercase), tone (win | loss | neutral). Optional, all whole numbers: money (-300..2000), aura (|n| <= 500), followers (|n| <= 20000), placements, hits and sponsors (|n| <= 1). Also optional: note (string), cooldown (1..50), plant ({ id = a follow-up id, at = {lo, hi} with 1 <= lo <= hi }; never sponsor_drop), sponsor (an id, or \"drop\"). A `tag` field is forbidden (tags come from TagFor). Cards: hits must be 0, placements 0 or +1, no sponsor drop, and a sponsor only on unsponsored cards (equal to card.sponsor, with sponsors = 1). Follow-ups: resolve.odds 10..90; hits 0 or +1, and a hit pays money 1000..2000; placements 0, -1 (visitor kind rival only) or +1 (only in resolve news of an id matching ^payback_). Mom cards, `first` cards and mom follow-ups have no cost, never take money and never use tone loss. checkOutcome IGNORES unknown keys.",
+     "refs": "spec/walkins_data_spec.lua:162-185, 253-267, 341-356, 360-410"
+    },
+    {
+     "topic": "Rolls (Resolve / ResolveNews)",
+     "fact": "Resolve(choice, career, odds, rng) refuses first when career.money < cost and returns { ok = false, reason = \"afford\" }. Then, in order: if choice.rare and rng(1,100) <= rareOdds, roll \"rare\"; elseif sure, \"sure\"; elseif rng(1,100) <= Chance(odds or 50), \"good\"; else \"bad\" (falling back to good). It returns { ok, outcome, roll, chance, deltas }. deltas = { cost, money, aura, followers, placements, hits, sponsors }, raw and unclamped, and holds no other key. ResolveNews(followup, ...) runs Resolve on { odds = resolve.odds, good, bad } and never has a cost.",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:17-47"
+    },
+    {
+     "topic": "Hidden odds tilt (Aura and Followers)",
+     "fact": "Chance(base, career, odds) = clamp(base + clamp(floor(aura / auraPer), -auraCap, auraCap) + min(floor(followers / followersPer), followersCap), min, max). The config is Config.WalkIns.Odds = { auraPer = 20, auraCap = 15, followersPer = 1000, followersCap = 10, min = 10, max = 90 }, so the tilt runs from -15 to +25 and stops growing at Aura 300 and 10,000 Followers. Probe: Chance(30) gives 30 at (Aura 0, Followers 0), 36 at (100, 1000), 55 at (300, 10000), still 55 at (1000, 50000), and 15 at Aura -300. The data file says the bonus is maxed for most players within the first two weeks. The odds stay hidden: the footer reads \"Your Aura and Followers tilt the odds. You never see them.\"",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:9-15; src/ReplicatedStorage/OK/Config.lua:159; src/ReplicatedStorage/OK/Data/WalkIns.lua:1763-1766; src/ReplicatedStorage/OK/Modules/Format.lua:82-87; scratch probe"
+    },
+    {
+     "topic": "Tone, overhead tag, chips, sounds",
+     "fact": "TagFor(applied, Format, tone) checks amounts in priority order: hits, placements, sponsors, aura, followers, money. For tone win or loss it takes the first non-zero amount whose sign matches; a loss counts the cost as money lost. Otherwise it takes the first non-zero amount, and with none it returns nil. The validator's checkTag requires every win or loss outcome to produce a tag in its own tone, so a win that moves no tagged stat fails. Chips (chipsFor) are, in order: -$cost, \u00b1money, then aura, followers, placements, hits and sponsors, with zeros left out. UITheme.stat colours only the kinds money, aura, followers, placements, hits and sponsors; any other kind reads gold, and a label starting with '-' reads cold. CardFeel plays Win or Loss by tone (nothing for neutral), Money for a '+' money chip and Plant when `planted`. None of TAGS, CHIPS or Theme.stat has an xp entry.",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:64-90; src/ReplicatedStorage/OK/Systems/WalkIns.lua:172-196; src/ReplicatedStorage/OK/Modules/UITheme.lua:10; src/ReplicatedStorage/OK/Modules/PhoneUI.lua:178-181; src/ReplicatedStorage/OK/Modules/CardFeel.lua:6-7,147-153; spec/walkins_data_spec.lua:412-431"
+    },
+    {
+     "topic": "Result payload and note",
+     "fact": "resultOf returns { token, key, headline, text, tone, chips = chipsFor(applied), note = fill(outcome.note), planted }; the phone version adds source = \"phone\". The note is always shown, even when Plant refused the follow-up because its id was already queued (planted false, Plant returning nil).",
+     "refs": "src/ReplicatedStorage/OK/Systems/WalkIns.lua:191-196; src/ReplicatedStorage/OK/Systems/Phone.lua:121-126; src/ReplicatedStorage/OK/Modules/WalkInRules.lua:132-141"
+    },
+    {
+     "topic": "WalkIns server apply",
+     "fact": "Choose(player, token, index): index 0 = WALK AWAY, which changes nothing. Otherwise it calls Resolve(choices[index], Career.Get(player), W.Odds, rng), pays SpendCred(cost) and then apply(p, res, item, cost). apply: money > 0 goes through ctx.Data.AddCred(p, n, \"WalkIn\") and money < 0 through TakeCred. Each of CareerRules.STATS (aura, followers, placements, hits, sponsors) goes through Career.Add(p, stat, n, \"WalkIn\") when positive or Career.Take when negative. sponsor \"drop\" calls SetSponsor(nil) and a string calls SetSponsor(id). plant calls Rules.Plant(st, o.plant, W.FollowupAt, rng, { sponsor = item.sponsor }), skipped for a phone-source follow-up while Config.Phone.Enabled == false. The first HIT plants mom_plaque at {1, 2}. cooldown sets st.last[visitor] = (last or count) + cooldown. It shows the overhead tag. The header says \"No XP.\" A follow-up's resolve is rolled and applied on arrival (onArrive) with Career.Get(p).",
+     "refs": "src/ReplicatedStorage/OK/Systems/WalkIns.lua:26-28, 232-264, 417-456, 497-539"
+    },
+    {
+     "topic": "Phone server apply",
+     "fact": "Phone.Choose: index 0 = dismiss, which removes the pop, clears PhoneBusy and logs CardWalkAway with no stat change; the pop was already counted at open. Otherwise it calls Resolve(choices[index], Career.Get(player), W.Odds, rng) and SpendCred(cost). apply never applies the outcome's money: any non-zero money is reported as [OK][ERR]. Only aura and followers move, through Career.Add(p, stat, n, \"Phone\") or Career.Take. placements, hits, sponsors and sponsor are reported and not applied. plant and cooldown work as in WalkIns (Plant at W.FollowupAt). On open, a DM counts (phone.today, phone.count, seen, cap) and holds PhoneBusy until it is answered; a NEWS card resolves at open. A phone pop sends no `tag`: popOf sends { id, app, line, choices, news, sender = { name, color } }. A phone follow-up pops as NEWS and its choices are never sent.",
+     "refs": "src/ReplicatedStorage/OK/Systems/Phone.lua:15-16, 128-166, 193-246"
+    },
+    {
+     "topic": "Config caps (sources)",
+     "fact": "Config.Career.Sources.WalkIn = { aura = {max 500, dailyMax 16}, followers = {max 20000, dailyMax 16}, placements / hits / sponsors = {max 1, dailyMax 8} }. Config.Career.Sources.Phone = { aura = {max 60, dailyMax 7}, followers = {max 2000, dailyMax 7} }. AuraHeal = { aura = {max 5, dailyMax 1} }. Config.Cred.Sources.WalkIn = { max = 2000, dailyMax = 16 }. There is no Cred.Sources.Phone. Config.XP.Sources has Console, Mic, BeatSave, Delivery, FireTap, Daily, Weekly, Cypher and CypherVote, and no WalkIn or Phone. How the gate works: the award is min(n, max), so an amount over max is cut down, not refused. dailyMax counts awards per \"<source>.<stat>\" per UTC day. An unknown source pays 0 and reports [OK][ERR], which fails the suite.",
+     "refs": "src/ReplicatedStorage/OK/Config.lua:44-58, 61-73, 119-136; src/ServerScriptService/OK/Services/DataService.lua:335-361, 382-388"
+    },
+    {
+     "topic": "Validator: phone limits (PHONE_CAPS)",
+     "fact": "PHONE_CAPS = { aura = 60, followers = 2000 }. Every outcome of a phone card or phone follow-up must have money 0, placements, hits and sponsors at 0, no sponsor, aura <= 60 and followers <= 2000 (gains only; losses keep the general bands). build/t46_check.lua asserts that Config.Career.Sources.Phone registers only aura and followers, with max equal to PHONE_CAPS and dailyMax = Config.Phone.DailyMax + 1 (= 7). The data file's phone section says: \"Aura and Followers only (design 4.8): money only as a choice's cost, no placement, at most +60 Aura and +2,000 Followers an outcome\". V7 (celebrity outcome aura 80) fails with \"aura <= Phone.max 60\".",
+     "refs": "spec/walkins_data_spec.lua:37-39, 235-251, 376-384; build/t46_check.lua:159-172; src/ReplicatedStorage/OK/Data/WalkIns.lua:1429-1432; scratch V7"
+    },
+    {
+     "topic": "Gates today (needs/under)",
+     "fact": "GateOk(card, career, visits): `needs` requires every key at have >= n (AND); `under` requires every key at have < n (also AND). The GateKey set is { aura, followers, placements, hits, sponsors, money, visits } (visits = the walk-in count). A key outside it is never eligible, and the validator rejects it (V8: needs = { level = 3 } fails \"key level is a GateKey\"). Gates have no weights or blends and are checked only at pick time, never at Resolve. \"Not at that level\" (NOT all of the needs) is an OR, which a single card's AND `under` can't express. Probe: under {followers 5000, aura 300} at followers 6000 and aura 100 returns false. Today's thresholds: under visits 1 (gentle_first); under followers 1000 (rookie_*); needs followers 2000 (hacked, news_dance, news_comments), 5000 (booker_*, news_radio), 10000 (trending), 20000 (manager_offer, famous_*); needs money 500 (giveback_*); needs placements 1 (ghost_gig).",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:143-165; spec/walkins_data_spec.lua:33, 269-278; src/ReplicatedStorage/OK/Data/WalkIns.lua:959,984,1059,1083,1107,1125,1226,1285,1353,1561,1604,1689,1722,1747; scratch V8 and probe"
+    },
+    {
+     "topic": "Career table seen by Resolve and Pick",
+     "fact": "Career.Get returns CareerRules.Have(prof) = { money, aura, followers, placements, hits, sponsors, sponsor, showSponsor, gates }. It has no xp, no level and no visits. WalkIns.Choose and Phone.Choose pass it straight to Resolve. The Pick opts clone it and add visits = st.count, the walk-in count for both sources. CareerSim keeps xp and level as sim.xp and sim.level, outside sim.career. XP level is prof.level = LevelFor(prof.xp) over Config.Levels = {0,100,250,450,700,1000,1400,1900,2500,3200}.",
+     "refs": "src/ReplicatedStorage/OK/Modules/CareerRules.lua:21-28; src/ReplicatedStorage/OK/Systems/Career.lua:75; src/ReplicatedStorage/OK/Systems/WalkIns.lua:302-308,514; src/ReplicatedStorage/OK/Systems/Phone.lua:238,291-301; src/ReplicatedStorage/OK/Modules/CareerSim.lua:37-41; src/ServerScriptService/OK/Services/DataService.lua:60-66; src/ReplicatedStorage/OK/Config.lua:74"
+    },
+    {
+     "topic": "Follow-ups (the comeback mechanism)",
+     "fact": "Shape: { id, visitor, tag, line, resolve = { odds, good, bad }, choices?, source? }. Plant queues { id, at = state.count + rng(at[1], at[2]), ctx }, with Config.WalkIns.FollowupAt = {2, 4} by default, and refuses an id that is already queued. `at` counts walk-in visits only: a phone open bumps phone.count, never state.count. So a DM planting at {15, 25} means 15-25 walk-ins later, about 2-3 capped days at DailyMax 8. dueEntry checks only at <= count + 1, source and exclude. It ignores needs, under, caps and the cooldown, so a comeback can't be gated by level. A walk-in follow-up arrives with its resolve rolled and applied as news (with the Chance tilt), then offers its choices (the navx_single and rumour pattern). A phone follow-up is news only. The plant graph must be acyclic, depth < 3, and every follow-up not planted by the system must be planted by some outcome and reachable from a card.",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:132-141, 207-220, 261-268; src/ReplicatedStorage/OK/Systems/WalkIns.lua:417-456; src/ReplicatedStorage/OK/Systems/Phone.lua:128-139, 200-205; spec/walkins_data_spec.lua:449-499; src/ReplicatedStorage/OK/Config.lua:158"
+    },
+    {
+     "topic": "PhoneUI: a DM with two choices plus DISMISS",
+     "fact": "The card has 4 choice slots (Choice1..4). Each button is 44 px tall (MIN) with a 6 px gap (CGAP). The label is 13 px and drops to 11 px when its text needs more than two lines. A paid choice gets an 88 px cost column showing \"$N\", plus \"\u00b7 can't afford\" in grey when the player is short. The header row shows the app label over the sender's name in the visitor's colour, then the line in quotes; no tag is shown. The footer holds the Aura band text and a 104 px DISMISS button, which reads \"OK\" on NEWS. DISMISS sends Phone_Choose(token, 0). The result shows inline (headline coloured by tone, text, chips, note), the button becomes NICE on a win and OK otherwise, and the card closes after RESULT_SECONDS = 8. While a DM is open it holds PhoneBusy, which also holds the walk-in scheduler, until the player answers or OpenExpireSeconds = 300 pass (counted as a dismiss). Two choices with DISMISS is valid content (2..4 choices, at least one free); V2 passes.",
+     "refs": "src/ReplicatedStorage/OK/Modules/PhoneUI.lua:11-14, 31-34, 58-72, 145-171, 270-332, 435-464, 502-552; src/ReplicatedStorage/OK/Config.lua:186-187; scratch V2"
+    },
+    {
+     "topic": "Visitor constraints",
+     "fact": "KINDS = artist, rep, blogger, fan, rival, manager, mom, booker, coordinator, weird, critter, local, sender. The validator requires exactly 9 artists, each parody artist name in the APPROVED nine, and a `check` matching ^research/wave1_names_2026-10-27.md#.+ on every visitor added since the original 14. V5 (a tenth artist) fails \"9 artists\" and \"parody artist name approved\". V6 (check pointing at a later research file) fails the check pattern. blockkid already exists as kind \"local\" (\"A KID FROM THE BLOCK\"), so MarkSent's artist cooldown doesn't apply to it. The REAL and TITLES lists block real names and song titles anywhere in the module.",
+     "refs": "spec/walkins_data_spec.lua:26-50, 84-145, 674-695; src/ReplicatedStorage/OK/Data/WalkIns.lua:69-70; src/ReplicatedStorage/OK/Modules/WalkInRules.lua:298-305; scratch V5, V6"
+    },
+    {
+     "topic": "XP today: cards can't give it",
+     "fact": "The Outcome schema has no xp key. deltasOf drops it (probe: an outcome with xp = 20 gives deltas keys aura, cost, followers, hits, money, placements, sponsors). Neither apply reads it. The validator lets it through: V1 (xp = 20 on rookie_block) and V2 both PASS. So an xp field today would be a silent no-op. An xp-only win fails checkTag (V3: \"tag nil in tone win\"). No-XP was an earlier Claude call, not the user's: walk-ins design \u00a74.3 says \"Walk-ins pay no XP ... no Config.XP.Sources.WalkIn and no XP chip on the result card. (call)\", and its anti-goal says walk-ins supply \"none of the XP that levels you\". t43_play_server.lua:99 asserts XP unchanged only after navx_placement's choice 1. AddXP fires notify \"Progress\", which drives the HUD's +XP float and LEVEL UP banner. Levels gate artist requests (Config.Unlocks) and rack tiers (Config.Gear level).",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:17-21; specs/2026-10-23-walk-ins-design.md:32,63,197; plans/2026-10-23-walk-ins.md:32; build/t43_play_server.lua:90-99; src/ServerScriptService/OK/Services/DataService.lua:364-388; src/ReplicatedStorage/OK/Modules/HUD.lua:1-11; src/ReplicatedStorage/OK/Config.lua:74-81,98-113; scratch probe, V1, V3"
+    },
+    {
+     "topic": "Pacing coupling",
+     "fact": "CareerSim.apply moves money and the 5 stats, sets the sponsor and plants. It ignores xp, yet sim.level drives buyGear and the plate_legend gate (level 10). expectedMoney, the greedy policy, calls rules.Chance directly, not Resolve. pacing_spec checks: random Studio Two median day 4..6 (needs placements 1, aura 300, $5,000); legendDay nil or >= 15; steady walk-in share <= 0.50 on every seed and median 0.35..0.50; phone pops a day > 0; net phone Aura a day <= 15. The same holds for greedy, chaser and spend-down (share <= 0.50). CareerSim mirrors the phone's no-money rule (ApplyMoney with money 0 for phone).",
+     "refs": "src/ReplicatedStorage/OK/Modules/CareerSim.lua:179-201, 244-284, 372-391, 409-420; spec/pacing_spec.lua:4-6, 57-107"
+    },
+    {
+     "topic": "Closest card 1: the free pitch that comes back big (opens doors)",
+     "fact": "dojabat_pitch, choice 1: { text = \"Send her the weirdest beat you've got. Free.\", odds = 60, good = { key = \"placement\", headline = \"PLACEMENT\", tone = \"win\", placements = 1, followers = 500, aura = 10, ..., note = \"Artists remember who helped them early. Expect her back.\", plant = { id = \"payback_dojabat\", at = { 15, 25 } } } }. Its follow-up: payback_dojabat, line \"album's out. track one is yours. remember the haunted arcade beat?\", resolve = { odds = 60, good = { key = \"trackone\", headline = \"TRACK ONE\", tone = \"win\", placements = 1, aura = 15, followers = 1000 }, bad = { key = \"smaller\", headline = \"DELUXE EDITION\", tone = \"neutral\", followers = 300 } }. The +1 placement is legal only because the id starts with payback_ (V4: the same follow-up under another id fails).",
+     "refs": "src/ReplicatedStorage/OK/Data/WalkIns.lua:174-184, 1901-1911; spec/walkins_data_spec.lua:386-401; scratch V4"
+    },
+    {
+     "topic": "Closest card 2: the hometown kid",
+     "fact": "rookie_block, visitor blockkid (kind local), under = { followers = 1000 }, tag \"THE BLOCK \u00b7 FIRST SONG\", line \"everybody on my street raps. i'm the only one with no beat. help me out\". Choices: \"Make him a beat. Free.\" (sure: BLOCK LOVE, aura 10, followers 100); \"Teach him to make one himself.\" (odds 60: FIRST STUDENT, aura 15 / TOO SOON, neutral); \"Tell him to come back when he's serious.\" (sure: COLD, loss, aura -5). The block has 3 such cards (rookie_block, rookie_corner, rookie_open), all with no money. None plants a comeback today.",
+     "refs": "src/ReplicatedStorage/OK/Data/WalkIns.lua:1225-1282"
+    },
+    {
+     "topic": "Closest card 3: notoriety that backfires",
+     "fact": "trending (phone DM, visitor blogger, needs = { followers = 10000 }): line \"you're trending rn. one line from you. go\"; choice \"Say something wild.\", odds = 40, good = { key = \"quote\", headline = \"QUOTE OF THE DAY\", tone = \"win\", followers = 2000, aura = 5 }, bad = { key = \"toowild\", headline = \"TOO WILD\", tone = \"loss\", aura = -20, line = \"oh no. delete it. too late\" }. For a delayed backfire, the existing pattern is a bad outcome planting a follow-up: booker_couch's \"rambled\" plants clip_context, a phone news item (OUT OF CONTEXT, aura -20), and ghost_gig's sure choice plants ghost_out. famous_stadium's win line reads \"told you. this is your level now\".",
+     "refs": "src/ReplicatedStorage/OK/Data/WalkIns.lua:1603-1623, 1059-1070, 2003-2011, 1285-1295, 1353-1360, 1967-1976"
+    },
+    {
+     "topic": "Phone DM shape for comparison",
+     "fact": "dm_navx: { id = \"dm_navx\", visitor = \"navx\", source = \"phone\", app = \"MESSAGES\", tag = \"COUNTRY TRAP \u00b7 DM\", line = \"yo you got a banjo loop? need it for a freestyle tonight\", choices = 3 (a sure free send: followers 200; odds 50: followers 500, aura 5 / aura -5; \"Leave him on read.\": sure loss, aura -5) }. Every live DM has 3 choices, none pays money, and none plants a walk-in follow-up. The only phone cards that plant are the mishap_* cards, which plant the phone follow-up mishap_owe.",
+     "refs": "src/ReplicatedStorage/OK/Data/WalkIns.lua:1433-1508, 1625-1685, 1980-1988"
+    }
+   ],
+   "designImplications": [
+    "XP needs new plumbing end to end. Add an outcome key `xp` with validator bounds, and carry it in deltasOf so CareerSim, TagFor and checkTag see it. Register a Config.XP.Sources entry for each source that pays (WalkIn and/or Phone) with max and dailyMax; without one, AddXP pays 0 and reports [OK][ERR]. Call ctx.Data.AddXP in WalkIns.apply and/or Phone.apply. Add an xp chip row (chipsFor) and an xp TAGS entry; otherwise an xp-only win fails checkTag. Optionally add Theme.stat.xp (unknown kinds read gold). Have CareerSim apply sim.xp and refresh the level. Without a validator check, an `xp` field is a silent no-op today.",
+    "Tell the user this reverses an earlier Claude call. Walk-ins design \u00a74.3 and its anti-goal say walk-ins pay no XP, and Data/WalkIns.lua:1430 says phone pops move Aura and Followers only. t43:99 stays green unless navx_placement's choice 1 changes.",
+    "Decide the source. As a phone DM, the framing must fit in `line` plus two choice texts, because the phone shows no tag. Each outcome is capped at +60 Aura and +2,000 Followers, money is never applied, and the deck must stay within net phone Aura <= +15 a day. Two choices plus DISMISS (index 0) is valid content. DISMISS changes no stats, but the pop counts at open.",
+    "Hometown comeback ('opens doors'): use the payback pattern, a free choice that plants a follow-up with an explicit `at` (for example {15, 25} walk-in visits). If the comeback grants +1 Placement, its id must start with payback_, or the validator rule (spec:400-401) must be widened. A walk-in follow-up can offer choices; a phone follow-up is news only. Follow-ups bypass gates, caps and the cooldown.",
+    "A planted Placement from a free phone choice reaches Studio Two (needs placements 1) sooner. The pacing median must still land on day 4..6, and the steady share must stay <= 0.50 under every policy.",
+    "'Not at that level' can't be a blend with today's gates. needs and under are per-key AND thresholds, checked at pick time, with no weights and no level key. One option is a pick-side split (a ready card and a not-ready card), which only expresses AND, so the user's blend is lost. The other is an outcome-side readiness check: a new choice field (or a Config-defined blend, e.g. Config.WalkIns.Readiness with weights) evaluated in one shared pure helper. Both Resolve and CareerSim.expectedMoney must call that helper, ideally folded into or next to Chance, and the validator must check the new field.",
+    "If the blend uses XP level (or visits), the career table passed to Resolve needs it. Career.Get / CareerRules.Have has no xp, level or visits; add them at both Choose call sites and in CareerSim, where xp and level live outside sim.career.",
+    "The odds tilt alone can't measure 'level' past the early game. It saturates at Aura 300 and 10,000 Followers (+25 at most), so (300, 10K) and (1000, 50K) roll the same. A readiness blend must use its own scale (placements, hits, sponsors, level, followers past 10K) to separate mid-game from late-game.",
+    "Choose when the backfire lands. It can be immediate (the celebrity choice's bad outcome, more likely when not ready) or delayed: a bad or good outcome plants a follow-up whose news resolves later, the clip_context and ghost_out pattern, and its odds could also use readiness. 'A bit of notoriety now' maps to an Aura gain on the immediate outcome.",
+    "Visitors: reusing blockkid (kind local) for the hometown artist avoids the 9-artist check, the approved-name check and the artist cooldown. A new celebrity visitor should not be kind \"artist\" unless the spec changes. Any new visitor needs a `check` anchor in research/wave1_names_2026-10-27.md, or CHECK_PATTERN must be widened (spec:32). Parody names must avoid the REAL and TITLES lists.",
+    "A repeatable DM can show a note promising a comeback that never comes: resultOf always shows the note, while Plant refuses an id already queued. Limit the card with a cap group (e.g. per week, max 1) or an under/needs gate, or plant only once.",
+    "Keep the copy rules: a sure payout quotes $N (phone choices pay none), headlines are CAPS, lines lowercase, display names only through {name:<id>}, and odds stay within 10..90."
+   ],
+   "risks": [
+    "XP awarded by cards shifts level pacing: rack tiers (Config.Gear level), artist request unlocks (Config.Unlocks) and plate_legend at level 10. CareerSim ignores xp today, so pacing_spec's legendDay >= 15 check would not catch it unless the sim applies card XP.",
+    "A readiness rule added only to Resolve would make CareerSim's greedy expectedMoney (which calls Chance directly) misjudge the choice, and the pacing checks would then test a different game than the server plays.",
+    "A phone DM planting a payback_* walk-in follow-up with +1 Placement is a new path: no phone card plants a walk-in follow-up today. Placements feed Studio Two (median day 4..6) and kit_iron and fit_cuban.",
+    "Adding a Config.XP.Sources entry for Phone is separate from Config.Career.Sources.Phone. t46 pins the career source to aura and followers only; putting xp there would fail t46, and the reward gate's dailyMax rules differ between the two.",
+    "Silent no-ops: unknown fields (xp, a readiness field) pass walkins_data_spec today. Content could ship with them before the code reads them.",
+    "The celebrity's notoriety Aura on a phone outcome counts toward the net phone Aura budget (<= +15 a day, averaged over seeds). An immediate +Aura that outweighs the backfire could break it.",
+    "Pick-side gating (needs/under) shows or hides the offer itself. A player 'not at that level' would then never see the celebrity choice, which defeats the trap the user wants.",
+    "Follow-ups ignore every gate, the cooldown and the caps, so a comeback can arrive at any career state, even after the player has outgrown the hometown framing."
+   ],
+   "unknowns": [
+    "The user hasn't set the readiness blend's weights or threshold, or which stats it uses (level? placements? hits? followers past 10K? sponsors?).",
+    "XP amounts per card and their daily cap. Also whether XP comes from the DM itself (phone source) or only from walk-ins, and whether the comeback also pays XP.",
+    "Whether the offer is a phone DM (the user said 'a phone text'; then money is never paid, gains are capped at 60 Aura and 2,000 Followers, and no tag shows) or a walk-in card.",
+    "Whether the comeback is a walk-in follow-up (news, then choices) or phone news, and whether it grants +1 Placement (which needs the payback_ id rule).",
+    "Whether the celebrity's backfire is immediate (the bad roll) or delayed (a planted follow-up), and whether readiness also scales the backfire size or only its chance.",
+    "Whether the hometown artist reuses blockkid (kind local, its rookie cards gated under followers 1000) or is a new visitor that needs a names web-check entry.",
+    "Not verified: no Studio Play run (t43, t46 and t52 not run); PhoneUI rendering of a two-choice DM not seen on screen; HUD +XP float behaviour during a phone result only read from code; how XP from cards would affect level unlocks only reasoned, not simulated."
+   ]
+  },
+  {
+   "area": "Follow-ups (Plant, FollowupAt, delivery by walk-in or phone, threads that come back bigger, caps and cooldowns) and the stats a readiness blend could use: where each lives, typical day 1/5/15/30 ranges, and existing composites and tiers. Refs are relative to /Users/work/Desktop/OK projects/OK ROBLOX/roblox_studio_notes/ok_studio unless absolute. Verified means I read the code; the sim ranges are model output from a scratch copy of CareerSim at /private/tmp/claude-502/-Users-work-Desktop-OK-projects/bedf590b-998a-4c90-aab6-448bd92d0e37/scratchpad/sim/snap.lua and legend.lua. Nothing in the project was edited.",
+   "facts": [
+    {
+     "topic": "Plant: signature and semantics (verified)",
+     "fact": "`function M.Plant(state, plant, defaultAt, rng, ctx)`. It first scans state.queue and returns nil, queuing nothing, if an entry with the same id is already there. Otherwise it takes `at = plant.at or defaultAt` and inserts `{ id = plant.id, at = state.count + rng(at[1], at[2]), ctx = ctx }`, then returns that entry. TakeQueued removes an entry by identity or id; ids are unique in the queue.",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:132-141, 307-316"
+    },
+    {
+     "topic": "Config keys for follow-ups and walk-ins (verified)",
+     "fact": "Config.WalkIns has `FollowupAt = { 2, 4 }`, `DropAt = { 1, 1 }`, `ArtistCooldown = 3`, `DailyMax = 8` and `MaxWalking = 3`. `FirstDelay = { 60, 120 }` and `Gap = { 240, 360 }` are presence seconds in the hub. `Odds = { auraPer = 20, auraCap = 15, followersPer = 1000, followersCap = 10, min = 10, max = 90 }`. `Rush = { Chance = 0.15, Size = { 2, 3 }, Short = { 10, 20 } }` keeps the same average pace. Config.Phone has `DailyMax = 6`, `FirstDelay = { 90, 150 }`, `Gap = { 120, 180 }`, `MaxWaiting = 2` and `ExpireSeconds = 600`.",
+     "refs": "src/ReplicatedStorage/OK/Config.lua:143-159, 166, 186-187"
+    },
+    {
+     "topic": "The follow-up clock is walk-in arrivals only (verified)",
+     "fact": "`state.count` (prof.walkins.count) goes up only when a walk-in visitor arrives (`st.count += 1` in onArrive). A phone open bumps `st.phone.today` and `st.phone.count` instead, never st.count. dueEntry fires an entry when `q.at <= state.count + 1`. So walk-in and phone follow-ups both wait on walk-ins. A player who never stands in the hub never advances any fuse. Arithmetic, not measured: at 8 walk-ins a day (60-120 s + 7 x 240-360 s, about 29-44 min of hub presence), FollowupAt {2,4} usually lands the same session, and a {15,25} fuse is about 2-3 full days.",
+     "refs": "src/ReplicatedStorage/OK/Systems/WalkIns.lua:424-427; src/ReplicatedStorage/OK/Systems/Phone.lua:206-209; src/ReplicatedStorage/OK/Modules/WalkInRules.lua:214"
+    },
+    {
+     "topic": "Who plants (sources) (verified)",
+     "fact": "1. Content: any outcome with `plant = { id, at? }`. That covers card choice outcomes and follow-up resolve or choice outcomes.\n   - Live walk-ins: WalkIns.apply plants with `ctx = { sponsor = item.sponsor }`. It skips a follow-up whose source is phone while `Config.Phone.Enabled == false`.\n   - Live phone: Phone.apply plants with the same ctx and has no phone-off check.\n2. System plants:\n   - mom_plaque at {1,2} on the first HIT (hits going from 0 to more).\n   - sponsor_drop at DropAt {1,1} on a walk-in arrival when Aura is under the current sponsor's floor.\n3. The Studio hook `Plant` at {0,0}.\n\nCareerSim mirrors all of these.",
+     "refs": "src/ReplicatedStorage/OK/Systems/WalkIns.lua:232-264, 449, 812-815; src/ReplicatedStorage/OK/Systems/Phone.lua:143-166; src/ReplicatedStorage/OK/Modules/CareerSim.lua:183-201, 236-242"
+    },
+    {
+     "topic": "The planted flag (verified)",
+     "fact": "`planted = Rules.Plant(...) ~= nil`, and the ResultPayload carries `planted = planted or nil`. Phone results carry the same plus `source = \"phone\"`. On the client, CardFeel plays Config.SFX.Plant (`rbxassetid://9120131970`, volume 0.35) 0.5 s after the result when `r.planted` is set. A refused duplicate plant leaves planted nil, so no blip plays, but the outcome's `note` text still shows.",
+     "refs": "src/ReplicatedStorage/OK/Systems/WalkIns.lua:191-196, 252-260; src/ReplicatedStorage/OK/Systems/Phone.lua:121-126, 162; src/ReplicatedStorage/OK/Modules/CardFeel.lua:31, 153; src/ReplicatedStorage/OK/Config.lua:39"
+    },
+    {
+     "topic": "Follow-up shape and news roll (verified)",
+     "fact": "A follow-up is `{ id, visitor, tag, line, source? (\"walkin\" default | \"phone\"), resolve = { odds, good, bad }, choices? }`. On arrival `ResolveNews(followup, career, odds, rng)` runs Resolve on `{ odds = r.odds, good = r.good, bad = r.bad }`. There is no cost, and the odds tilt by Aura and Followers through Chance. Follow-ups have no needs, under or cap fields. The data header says follow-ups come back at visit count + 2..4, or at the plant's own `at`, and resolve the old thread first.",
+     "refs": "src/ReplicatedStorage/OK/Data/WalkIns.lua:1758-1767; src/ReplicatedStorage/OK/Modules/WalkInRules.lua:43-47"
+    },
+    {
+     "topic": "Picking a due follow-up bypasses card filters (verified)",
+     "fact": "`Pick` returns a due follow-up before it considers any card. dueEntry takes the lowest `at` among entries that meet all of these:\n- `at <= count + 1`\n- the id is known to the deck\n- `(f.source or \"walkin\") == opts.source`\n- the id is not in opts.exclude\n\nArtistCooldown, needs/under gates, caps, minCount, aired, the sponsor floor and `when` are checked only in cardEligible, so follow-ups skip all of them. Only one follow-up comes per visit, and a backlog uses consecutive walk-in slots out of DailyMax 8 (or phone slots out of 6).",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:207-220, 222-240, 261-268"
+    },
+    {
+     "topic": "Delivery as a walk-in (verified)",
+     "fact": "The pick is stored as prof.walkins.next and survives a respawn. On arrival it runs:\n1. TakeQueued.\n2. ResolveNews.\n3. apply. That pays money through AddCred \"WalkIn\" and stats through Career.Add \"WalkIn\", and can plant again.\n4. The news result rides on the arrive payload as `news`, and the visitor says the news line.\n5. The card's own choices, if any, are offered as a normal card.\n\nA stale sponsor_drop applies nothing.",
+     "refs": "src/ReplicatedStorage/OK/Systems/WalkIns.lua:200-206, 310-329, 419-456"
+    },
+    {
+     "topic": "Delivery as a phone pop (verified)",
+     "fact": "A `source = \"phone\"` follow-up is picked by the phone scheduler (Pick with source \"phone\"). It is always kind \"news\". popOf leaves out choices for queued entries and shows app \"NEWS\". At first open it must still be queued (TakeQueued), or it is dropped as \"taken\". ResolveNews applies at open. It counts against Phone DailyMax 6. Phone.apply applies only aura and followers; money, placements, hits, sponsors and a sponsor deal are reported as [OK][ERR] and not applied. So a phone follow-up can never offer a choice or pay XP, money or placements.",
+     "refs": "src/ReplicatedStorage/OK/Systems/Phone.lua:128-139, 147-161, 193-220, 309-322"
+    },
+    {
+     "topic": "A phone DM can plant a walk-in follow-up (verified)",
+     "fact": "Phone.apply calls `Rules.Plant(st, o.plant, W.FollowupAt, ...)` on the shared prof.walkins.queue (`st = WalkIns.State(p)`). A phone DM outcome can therefore plant a default-source walk-in follow-up, which then walks in with choices and walk-in stat rules. No content does this today: the only phone-card plants are mishap_* planting the phone follow-up mishap_owe. I found no data-spec rule that forbids it.",
+     "refs": "src/ReplicatedStorage/OK/Systems/Phone.lua:149, 162; src/ReplicatedStorage/OK/Data/WalkIns.lua:1644, 1664, 1684, 1980; spec/walkins_data_spec.lua:177-182, 280-345"
+    },
+    {
+     "topic": "Data-spec rules any new thread must pass (verified)",
+     "fact": "1. Plants and graph:\n   - `plant.at` is whole with 1 <= at[1] <= at[2].\n   - No content plants sponsor_drop.\n   - The plant graph is acyclic with depth < 3 (at most a two-step chain).\n   - Every follow-up except sponsor_drop and mom_plaque is reachable from a card. Phone cards count as cards.\n2. Odds and choices:\n   - Follow-up resolve odds are 10..90.\n   - A card or follow-up has 2..4 choices, at least one without a cost.\n3. Outcome bands: money -300..2000, |aura| <= 500, |followers| <= 20000, and placements, hits and sponsors within 1.\n4. Hits and placements:\n   - Hits appear only in follow-ups, as 0 or +1, with a royalty of 1000..2000.\n   - Follow-up placements are 0, -1 (rival only) or +1. The +1 is allowed only in the news of an id matching `^payback_`.\n5. Phone items: aura <= 60, followers <= 2000 (`PHONE_CAPS`), money 0, no placements, hits or sponsors.\n6. New visitors: each needs `check` matching `^research/wave1_names_2026%-10%-27%.md#.+`.\n7. XP: an outcome `xp` field is not validated, and deltasOf would drop it silently.",
+     "refs": "spec/walkins_data_spec.lua:32-39, 162-232, 235-245, 340-345, 359-401, 449-498; src/ReplicatedStorage/OK/Modules/WalkInRules.lua:17-21"
+    },
+    {
+     "topic": "Quoted thread that comes back bigger: day-one payback (verified)",
+     "fact": "The trigger is dojabat_pitch, choice 1, \"Send her the weirdest beat you've got. Free.\" (odds 60). Its good outcome is PLACEMENT: placements 1, followers 500, aura 10, with `note = \"Artists remember who helped them early. Expect her back.\", plant = { id = \"payback_dojabat\", at = { 15, 25 } }`.\n\nThe follow-up is payback_dojabat:\n- tag \"CHAOTIC POP RAP \u00b7 TRACK ONE\"\n- line \"album's out. track one is yours. remember the haunted arcade beat?\"\n- `resolve = { odds = 60, good = { key = \"trackone\", headline = \"TRACK ONE\", tone = \"win\", placements = 1, aura = 15, followers = 1000 }, bad = { key = \"smaller\", headline = \"DELUXE EDITION\", tone = \"neutral\", followers = 300 } }`\n- no choices\n\nSeven payback_* follow-ups are planted the same way at {15,25}: dojabat, icespike, charti, scoot, llama, drizzle and eyelash.",
+     "refs": "src/ReplicatedStorage/OK/Data/WalkIns.lua:174-181, 256, 331, 406, 482, 632, 708, 1901-1965"
+    },
+    {
+     "topic": "Two-step chain (verified)",
+     "fact": "navx_placement's free choice plants `{ id = \"navx_single\" }` at the default {2,4}. navx_single's resolve has odds 20: HIT gives hits 1, money 1000, followers 3000, aura 40; FLOP gives aura -15, followers 200. Its choice \"Sign on for the whole album.\" (odds 25) plants navx_album. navx_album's resolve has odds 15: ALBUM HIT gives hits 1, money 1200, followers 5000, aura 60; SHELVED gives aura -20, money -100. The walk-ins design says follow-ups chain once more and then stop.",
+     "refs": "src/ReplicatedStorage/OK/Data/WalkIns.lua:99-106, 1768-1803; specs/2026-10-23-walk-ins-design.md:66-68"
+    },
+    {
+     "topic": "Caps and cooldowns that apply (verified)",
+     "fact": "1. Card caps: `cap = { group, per = \"day\"|\"week\", max }`, checked by CapOk and counted by CountCap at walk-in arrival or phone open. Cap keys are UTC epoch day and day//7. Groups:\n   - mom: week, 2\n   - big (booker, give-back, famous_*): week, 1\n   - weird: day, 1\n   - quiz: week, 1\n\n   Follow-ups have no cap.\n2. ArtistCooldown is 3 walk-ins and applies to cards only. MarkSent starts it at the phone send, and only for visitor kind \"artist\"; kind \"local\" (blockkid) and \"sender\" never get it.\n3. An outcome-level `cooldown` (1..50) is supported but unused in content.\n4. Reward gates (Career.Sources and Cred.Sources):\n   - WalkIn: aura max 500, dailyMax 16; followers max 20000, dailyMax 16; placements, hits and sponsors max 1, dailyMax 8; Cred max 2000, dailyMax 16.\n   - Phone: aura max 60, dailyMax 7; followers max 2000, dailyMax 7; no Cred source.\n5. Daily caps: walk-ins DailyMax 8, phone DailyMax 6, at most 2 pops waiting, and pending ids are excluded from the pick.",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:167-205, 298-305; src/ReplicatedStorage/OK/Data/WalkIns.lua:1005, 1059, 1107, 1145, 1377; src/ReplicatedStorage/OK/Config.lua:70, 121-136, 186-187; src/ReplicatedStorage/OK/Systems/WalkIns.lua:261"
+    },
+    {
+     "topic": "Threads can repeat, and renamed ids are dropped (verified)",
+     "fact": "Nothing marks a thread as done for good: Plant refuses an id only while it is queued, and a card can be seen again. So a payback can be planted again after the first one resolves. WalkIns state() deletes queued entries whose id the deck no longer knows, so renaming a follow-up id silently drops threads already saved in profiles.",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:133-136; src/ReplicatedStorage/OK/Systems/WalkIns.lua:154-160"
+    },
+    {
+     "topic": "LV and XP: where they live (verified)",
+     "fact": "prof.xp and prof.level, with `DataService.LevelFor(xp)` over `Config.Levels = { 0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200 }`, so levels run 1..10. Ranks go INTERN..STUDIO LEGEND. The player attributes are Level, XP, LevelXP and NextLevelXP. XP is added only through `DataService.AddXP(p, n, source)` against Config.XP.Sources: Console, Mic, BeatSave, Delivery, FireTap, Daily, Weekly, Cypher and CypherVote. An unknown source pays 0 and reports [OK][ERR], which fails the suite. GrantXP is for trusted one-off grants. The walk-ins header says \"No XP\". Career.Get/Have returns no level and no xp.",
+     "refs": "src/ReplicatedStorage/OK/Config.lua:42-58, 74, 92; src/ServerScriptService/OK/Services/DataService.lua:36, 46-51, 60-66, 93-95, 382-403; src/ReplicatedStorage/OK/Systems/WalkIns.lua:26-28; src/ReplicatedStorage/OK/Modules/CareerRules.lua:22-28"
+    },
+    {
+     "topic": "Career stats and money: where they live (verified)",
+     "fact": "prof.career = `{ aura, followers, placements, hits, sponsors, sponsor, showSponsor, gates, careerLog }`. `CareerRules.STATS = { \"aura\", \"followers\", \"placements\", \"hits\", \"sponsors\" }`. Aura may go negative; the other stats floor at 0. `Career.Get(p)` returns money (prof.cred), the five stats, sponsor and gates. Gains go through Career.Add(player, stat, n, source), which is gated; losses go through Career.Take, which is not. Money is prof.cred at the x10 scale and never below 0 (AddCred / SpendCred / TakeCred). The daily Aura heal moves negative Aura up to 5 toward 0. Sponsors is effectively 0 or 1: reps come only while unsponsored, signing is +1 and a drop is -1.",
+     "refs": "src/ReplicatedStorage/OK/Modules/CareerRules.lua:7-28, 49-52; src/ReplicatedStorage/OK/Systems/Career.lua:74-129; src/ReplicatedStorage/OK/Config.lua:135; src/ServerScriptService/OK/Services/DataService.lua:88-94, 389-430"
+    },
+    {
+     "topic": "Visits versus sessions versus days (verified)",
+     "fact": "The gate key `visits` is prof.walkins.count, the lifetime walk-in arrivals. pickOpts sets `career.visits = st.count` in both WalkIns and Phone. prof.visits is a different counter: it counts profile loads (sessions), `prof.visits = (tonumber(prof.visits) or 0) + 1`. prof.walkins.phone.count is the lifetime number of phone pops opened. Days played is not stored anywhere. The day counter is part of the schema v5 bump at the start of Wave 2. The proxies today are prof.daily = { day, streak, done } (the streak counts consecutive UTC days with a delivery), prof.walkins.day/today, prof.fireTotal and prof.sessions.deliveries.",
+     "refs": "src/ReplicatedStorage/OK/Systems/WalkIns.lua:302-308; src/ReplicatedStorage/OK/Systems/Phone.lua:291-301; src/ServerScriptService/OK/Services/DataService.lua:201; src/ReplicatedStorage/OK/Systems/Dailies.lua:4, 24-34; specs/2026-10-26-wave1-life-happens-design.md:54; /Users/work/Desktop/OK projects/OK ROBLOX/roblox_studio_notes/OK_GAME_TRACKER.md:151"
+    },
+    {
+     "topic": "What a card can gate on today (verified)",
+     "fact": "CAREER_GATES are aura, followers, placements, hits, sponsors and money, plus visits (the walk-in count). GateOk is an AND of `needs` (have >= n) and `under` (have < n); an unknown key is never eligible. Level and XP cannot be gated. Gates decide only whether a card shows up. How it turns out is shaped only by Chance (Aura and Followers).",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:143-165; spec/walkins_data_spec.lua:33, 269-276"
+    },
+    {
+     "topic": "Existing composite: Chance, the only stat blend in code (verified, plus sim)",
+     "fact": "`Chance(base, career, odds) = clamp(base + clamp(floor(aura/20), -15, 15) + min(floor(followers/1000), 10), 10, 90)`. The bonus maxes at +25 once Aura >= 300 and Followers >= 10K. The data comment says the bonus \"is maxed for most players within the first two weeks\". The sim for random play shows Chance(20) = 26 on day 1, 35 on day 2, 42 on day 3 and 45, the maximum, on all 20 seeds from day 5 on.",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:9-15; src/ReplicatedStorage/OK/Data/WalkIns.lua:1763-1766; scratchpad sim/snap.lua"
+    },
+    {
+     "topic": "Other existing tiers and multi-stat checks (verified)",
+     "fact": "1. Format.AuraFooter bands Aura as <0, 0..299 and >=300.\n2. Multi-stat AND gates:\n   - The Hall: studio_two needs { placements = 1, aura = 300 }, cost 5000.\n   - Gear: kit_iron needs placements 1 (level 6); fit_cuban needs placements 2 and followers 5000; fit_snapback needs sponsors 1; fit_shades needs aura 500.\n   - plate_legend is the only check that mixes level with stats: hits 1, followers 20000, aura 1000 and level 10. Career.State reports `levelOk = (prof.level or 1) >= it.level` with Check.\n3. Card follower gates follow the fame lines: rookie under 1000; hacked and news 2000; booker 5000; trending 10000; manager and famous 20000.",
+     "refs": "src/ReplicatedStorage/OK/Modules/Format.lua:82-87; src/ReplicatedStorage/OK/Config.lua:107-112, 137-140; src/ReplicatedStorage/OK/Systems/Career.lua:141-147; src/ReplicatedStorage/OK/Data/WalkIns.lua:959, 1059, 1226, 1285, 1561, 1604, 1689"
+    },
+    {
+     "topic": "Planned fame tiers for Wave 2 (verified docs)",
+     "fact": "Fame tiers depend on Followers only: \"Your followers set your fame tier\": LOCAL 0 \u00b7 BUZZING 1K \u00b7 KNOWN 5K \u00b7 FAMOUS 20K \u00b7 ICON 100K. Fame tiers as named titles are a Wave 1 non-goal. The vision page also proposes (marked NEW, \"Example numbers\") sponsor tiers: LOCAL from Aura 50, MID from Aura 150 and 5K followers, BIG from Aura 300 and 20K. It also proposes that \"under -100 you're cancelled\", which is not built. The tracker puts fame tiers in Wave 2 with the save-format bump.",
+     "refs": "specs/2026-10-26-wave1-life-happens-design.md:54-62, 142; specs/2026-10-26-game-vision.html:356-385, 574, 668-672; /Users/work/Desktop/OK projects/OK ROBLOX/roblox_studio_notes/OK_GAME_TRACKER.md:151"
+    },
+    {
+     "topic": "How the sim snapshot was made (method)",
+     "fact": "I copied CareerSim.lua, WalkInRules, CareerRules, Data/WalkIns and economy_fixture into the scratchpad. The only change is a longer Run return (sim.career, sim.xp, sim.level, walkins.count). The inputs equal pacing_spec.lua's run(): 8 walk-ins and 6 pops a day, followupAt {2,4}, cooldown 3, auraHeal 5, the same GATES, Sim.Seeds (20). Each value is end of day N, given as median [p10..p90]. This is a fully engaged daily player: every request and daily, the weekly every 7th day, a cypher win every 2nd day, 4 FIRE a day, and tool gear bought as soon as it can. There is no real telemetry; the game has never been published.",
+     "refs": "src/ReplicatedStorage/OK/Modules/CareerSim.lua:27, 432-464; spec/pacing_spec.lua:18-29; /private/tmp/claude-502/-Users-work-Desktop-OK-projects/bedf590b-998a-4c90-aab6-448bd92d0e37/scratchpad/sim/snap.lua"
+    },
+    {
+     "topic": "Typical ranges, random policy (the typical player) (sim)",
+     "fact": "Day 1:\n- LV 2 (XP 249)\n- Money $1,295 [195..1,945]\n- Aura 63 [25..90]\n- Followers 3,300 [1,500..5,300]\n- Placements 0 [0..1]\n- Hits 0\n- Sponsors 0\n- 8 walk-ins, 6 pops\n\nDay 5:\n- LV 6 (1,128)\n- Money $5,965 [4,925..8,405]\n- Aura 400 [340..490]\n- Followers 24,830 [18,780..29,880]\n- Placements 3 [0..4]\n- Hits 0\n- Sponsors 1\n- 40 walk-ins, 30 pops\n- The Hall open on 18 of 20 seeds\n\nDay 15:\n- LV 9 (2,831)\n- Money $25,380 [23,430..26,860]\n- Aura 1,285 [1,085..1,480]\n- Followers 79,500 [69,200..84,200]\n- Placements 10 [5..15]\n- Hits 1 [0..1]\n- Sponsors 1\n- 120 walk-ins, 90 pops\n\nDay 30:\n- LV 10 (4,902)\n- Money $42,520 [38,240..44,740]\n- Aura 2,480 [2,270..2,810]\n- Followers 157,900 [141,100..172,300]\n- Placements 22.5 [16..28]\n- Hits 2 [0..2]\n- Sponsors 1\n- 240 walk-ins, 180 pops\n\nFollower crossings (median): 1K during day 1; 5K on day 2 (7,540); 10K on day 3 (12,940); 20K by day 5; 100K by day 20 (105,260). Aura passes 300 between day 3 (242) and day 5.",
+     "refs": "scratchpad sim/snap.lua output (random policy)"
+    },
+    {
+     "topic": "Typical ranges, chaser and greedy (sim)",
+     "fact": "| Day | Policy | Aura | Followers | Placements | Hits | Money |\n|---|---|---|---|---|---|---|\n| 5 | chaser | 555 | 28,330 | 7 | 1 | |\n| 15 | chaser | 1,610 | 85,150 | 25.5 | 2 | |\n| 30 | chaser | 3,190 | 182,300 | 55 | 4.5 | |\n| 30 | greedy | 2,343 | | 10.5 | 6 | $61,550 |\n\nChaser takes every placement or plant it can, which is the closest to \"take the small artist and chase threads\". XP and level are identical across seeds and policies because walk-ins pay no XP.",
+     "refs": "scratchpad sim/snap.lua output"
+    },
+    {
+     "topic": "Pacing guardrails today (run 2026-10-29, sh tools/spec.sh pacing: PASS)",
+     "fact": "Results: \"Studio Two median day 4 (p10 4, p90 5); random share median 0.354; greedy max 0.426; chaser max 0.337; spend-down max 0.223; legend earliest day 18; phone pops/day 6.00; phone aura/day 11.04\".\n\nTargets:\n- random median share 0.35..0.50\n- every seed's share <= 0.50\n- Hall median day 4..6, p10 >= 3, p90 <= 7\n- random legendDay >= 15 on every seed\n- phone Aura <= 15 a day\n\nThe vision page's 39.5% / 48.3% shares were measured 24 October and are out of date.",
+     "refs": "spec/pacing_spec.lua:57-79, 105-109; specs/2026-10-26-game-vision.html:~900"
+    },
+    {
+     "topic": "Legend's earliest day is set by level (sim)",
+     "fact": "Sim XP at the end of each day:\n\n| Day | 13 | 14 | 15 | 16 | 17 | 18 | 19 | 20 |\n|---|---|---|---|---|---|---|---|---|\n| XP | 2,342 | 2,560 | 2,831 | 2,974 | 3,085 | 3,228 | 3,339 | 3,482 |\n\nLevel 10 (3,200) arrives at the end of day 18. It is the last Legend need met on 12/20 random seeds, 20/20 greedy and 18/20 chaser, and the earliest Legend day is 18 for all three. So added card XP moves the earliest Legend day one-for-one.\n\nBudget before pacing_spec.lua:67 (random legendDay >= 15) fails: about 3,200 - 2,560 = 640 extra XP over the first ~14 engaged days, about 45 XP a day.\n\nThe sim refreshes level only in gainActivityXP and buyGear, both before runVisits. XP added inside visit apply would count toward unlockGates only the next day unless the sim change refreshes it.",
+     "refs": "/private/tmp/claude-502/-Users-work-Desktop-OK-projects/bedf590b-998a-4c90-aab6-448bd92d0e37/scratchpad/sim/legend.lua; src/ReplicatedStorage/OK/Modules/CareerSim.lua:95-101, 113-117, 161-175, 409-421, 432-446; spec/pacing_spec.lua:67"
+    },
+    {
+     "topic": "Older XP estimate (dated)",
+     "fact": "The 10-22 audit says \"Day 1 tops out around 160 XP and later days give about 110\", with \"level 10 arrives around day 29\". That predates the sim's current economy; the sim gives 249 on day 1 and level 10 on day 18.",
+     "refs": "research/gameplay_2026-10-22/01_audit.md:22-24"
+    },
+    {
+     "topic": "Existing hometown-like content (verified, plus sim)",
+     "fact": "Visitor `blockkid`: kind \"local\", names \"A KID FROM THE BLOCK\" / \"A KID FROM DOWN THE STREET\", style \"up and coming\", sig cap. Its cards are rookie_block, rookie_corner and rookie_open, all `under = { followers = 1000 }` with no money. The engaged sim median passes 1K followers within day 1, so these cards disappear after day 1 for that player. weird_nextkid's \"i'll remember this when i'm famous\" plants nothing.",
+     "refs": "src/ReplicatedStorage/OK/Data/WalkIns.lua:69-70, 1145-1163, 1225-1282"
+    },
+    {
+     "topic": "User decisions on this feature (verified docs)",
+     "fact": "From the 10-29 answers:\n1. Notoriety is Aura; there is no new stat.\n2. The hometown pick gives XP now (cards learn to give XP) and comes back bigger later as a follow-up.\n3. \"Not at that level\" is a blend of several things. In the notes' words, \"likely LV, Followers, placements and Aura together, with the exact weights to be decided.\"\n4. It ships in the next content wave after 1b, with its own plan and tests.\n\nThe notes' \"How it could fit the game today\" section is Claude's read, not a decision.",
+     "refs": "/Users/work/Downloads/voice_memo_11_notes.md:31-41; /Users/work/Desktop/OK projects/OK ROBLOX/roblox_studio_notes/OK_GAME_TRACKER.md:66, 139, 150"
+    }
+   ],
+   "designImplications": [
+    "The follow-up fuse counts walk-in arrivals, not days or phone pops. Pick `at` in walk-ins. A payback-style {15,25} is about 2-3 engaged days; {2,4} is the same session. A player who only uses the phone, or skips the hub, never gets the comeback. If 'he comes back bigger later' must happen by date, a new clock is needed (none exists before the Wave 2 day counter).",
+    "Choose the delivery path on purpose:\n- **Phone DM offer.** It can carry only Aura (<= 60) and Followers (<= 2000) and no money. Phone.apply would also need new code to award XP, plus a Config.XP.Sources entry; an unknown source fails the suite.\n- **Phone follow-up.** It can never show choices or give a placement.\n- **Walk-in follow-up** (default source), planted from a phone DM or a walk-in card. This is the only way 'bigger later' can carry choices, money, a placement (only under a `payback_` id) or hits (1000..2000 royalty).",
+    "Use one follow-up id per branch, for example `hometown_*` and `celebrity_*`. Plant refuses an id that is already queued (planted stays nil, so no Plant blip plays). Nothing stops a thread from repeating after it resolves; if it should come back once ever, the design needs a done flag that defaults when missing (no schema bump in this wave). Never rename a shipped follow-up id, because state() drops unknown queued ids.",
+    "A due follow-up skips ArtistCooldown, gates, caps and the sponsor floor, and it uses one of the 8 walk-in (or 6 phone) daily slots. It cannot re-check readiness on arrival except through its resolve odds (Chance). A readiness-dependent payoff later needs either the stats stored in the plant's ctx (ctx is free-form) or a new check at arrival.",
+    "Readiness needs new code in three places:\n- **Gates.** They are per-stat AND thresholds, not a blend, and they choose which card shows rather than how it turns out.\n- **Level and XP.** Career.Get/Have and GateKey don't include them. The blend must read prof.level (or prof.xp) alongside Career.Get, and Resolve/Chance would need it passed in, the way pickOpts already adds visits to a copy of the career.\n- **Outcomes.** Today's only stat effect on an outcome is Chance.",
+    "Don't build the backfire on Chance alone. Its bonus maxes at Aura 300 and Followers 10K, which the sim's engaged player reaches by day 5 on every seed. After that, Aura and Followers on the same scale say nothing.",
+    "Weights and scales for the blend should come from measured ranges. For the engaged sim player, median at day 1 / 5 / 15 / 30:\n- LV: 2 / 6 / 9 / 10\n- Followers: 3.3K / 25K / 80K / 158K\n- Aura: 63 / 400 / 1.3K / 2.5K\n- Placements: 0 / 3 / 10 / 22\n- Hits: 0 / 0 / 1 / 2\n- Sponsors: 0 / 1 / 1 / 1\n\nLevel saturates at 10 on about day 18. Sponsors is 0 or 1. Hits are rare. Money is skewed by purchases (the Hall's 5000, Legend's 4000). Placements and Followers keep growing. Anchoring on the fame lines (1K/5K/20K/100K) or the sponsor-tier example numbers would make an engaged player 'ready' within a week.",
+    "Name the inputs carefully. The gate key `visits` is prof.walkins.count (walk-ins ever); prof.visits is profile loads. Days played does not exist. Use walkins.count, walkins.phone.count or daily.streak as proxies, or wait for the schema v5 day counter.",
+    "The XP budget is tight. Level 10 is what sets the earliest Legend day (day 18 today), and pacing_spec requires day >= 15 for random play. Card XP over the first ~14 engaged days must total under about 640 (about 45 a day across all cards), unless the Legend target changes. CareerSim must learn card XP and refresh level after visits, and pacing_spec.lua and build/t46_check.lua must cover the new card, its XP and its follow-up.",
+    "Use the hometown-artist precedent. blockkid (kind \"local\", \"A KID FROM THE BLOCK\") is an existing visitor whose cards vanish above 1K followers. Reusing it, or adding a new visitor with a `check` web-check entry, decides whether the artist cooldown applies: kind \"artist\" turns on MarkSent and ArtistCooldown, kind \"local\" turns on neither."
+   ],
+   "risks": [
+    "**Pacing.** The floor binds now, not the ceiling. The random median share is 0.354 against a 0.35 floor; greedy is 0.426. A walk-in follow-up that pays no money takes a paying card's slot and pushes the share toward the floor. Card XP unlocks higher-level requests earlier (the CareerSim canTake level check), which moves money outside walk-ins and possibly the Hall day (target median 4-6, p10 >= 3). The direction of both effects is unmeasured. The '1.7 points of headroom' in the design and the 39.5%/48.3% on the vision page are out of date.",
+    "**Legend.** Card XP moves the earliest Legend day (now 18; spec minimum 15) one-for-one, because level 10 is the last need met on most seeds.",
+    "**Phone path.** A phone DM (the voice-memo shape) can't carry XP or money in today's code. Phone.apply reports any other stat as [OK][ERR] and the data spec fails it. An `xp` key on an outcome is dropped silently by deltasOf and isn't validated, so content could claim XP that never pays.",
+    "**Timing.** A follow-up planted from a phone DM waits on walk-in count. Phone-heavy or hub-light players may never see it, and a stored queue entry can sit for days.",
+    "**Due follow-ups.** They bypass cooldown, caps and gates, and win over cards. Several threads due together, such as payback plus the new comeback plus mom_plaque, use up consecutive daily walk-in slots.",
+    "**Readiness saturates.** For an engaged player, a blend built from Followers and Aura (the fame-tier and sponsor-tier lines) reads as 'ready' by about day 5-7. Level stops at 10 around day 18. The celebrity backfire would then only hit in the first few days.",
+    "**No real data.** Every range here is a model of a fully engaged daily player (8 walk-ins and 6 pops a day, every request, daily and cypher). Real players will be slower. The game has never been published, so there is no telemetry to check against.",
+    "**Counter confusion.** prof.visits (sessions) and the gate key `visits` (walk-ins) are different counters. Using the wrong one in a blend would mismeasure readiness."
+   ],
+   "unknowns": [
+    "The readiness weights and thresholds. The user said 'blend' and 'likely LV, Followers, placements and Aura', and left the weights undecided.",
+    "Whether the offer is a phone DM, as in the voice memo, or a walk-in card. That decides whether the XP code goes in Phone.apply, WalkIns.apply or both, and what the XP source name is in Config.XP.Sources. That area is outside this report.",
+    "Real-player stat ranges. There is no telemetry export in the repo and the game is unpublished. Funnel events exist but I saw no data.",
+    "Whether 'comes back bigger later' should happen once per career or can repeat. There is no existing done-once mechanism for threads.",
+    "Whether the comeback should check readiness at arrival, which needs ctx or new code, or only at the original choice.",
+    "How the sim's money compares with real play. The sim buys only tool gear, the Hall and Legend, and no fits or cosmetics.",
+    "I didn't run build/t46_check.lua (Studio). The live Config values were confirmed equal to the fixture by reading Config.lua, not by running t46."
+   ]
+  },
+  {
+   "area": "Economy guardrails and the CareerSim pacing sim. Covers what \"two sessions, same day\" changes: a new phone card, XP as a card outcome, and an Aura-loss backfire. Everything here was read from the code and checked with the CLI only. No project file was edited, and no Studio tool, sync.py or test.py was run. What-if probes ran on scratch copies under /private/tmp/claude-502/-Users-work-Desktop-OK-projects/bedf590b-998a-4c90-aab6-448bd92d0e37/scratchpad/twosess_econ/. The instrumented sim is src/ReplicatedStorage/OK/Modules/CareerSimX.lua. The probe scripts are spec/traj.lua, xpday.lua, stats.lua, whatif.lua, robust.lua, blend.lua, red.lua, exact.lua, exact2.lua and exact_null.lua. Every probe card value is a scratch placeholder, not a proposal.",
+   "facts": [
+    {
+     "topic": "Asserted pacing targets (what actually fails the suite)",
+     "fact": "Each target applies to the policy named:\n- **Random player:** THE HALL median day 4..6, p10 >= 3 and p90 <= 7. Steady share <= 0.50 on every seed, and the median in 0.35..0.50. Legend `res.legendDay == nil or >= 15` on every seed.\n- **Random player, once the deck has a phone card** (`card.source == \"phone\"`): phone pops a day > 0 and net phone Aura a day <= 15, each the mean over seeds.\n- **Greedy, chaser and spend-down:** steady share <= 0.50 on every seed, and nothing else.\n\nSo the Legend floor, THE HALL targets and the phone Aura budget are checked on the random player only. The pops check is `> 0`. The 6 is an input (`phonePerDay = 6`), not an assertion. Order statistics: median of 20 = mean of the 10th and 11th; a percentile is the nearest rank `ceil(k/100*n)`; a never-unlocked day counts as +infinity.",
+     "refs": "spec/pacing_spec.lua:57-79 (random), 82-87 (greedy), 90-95 (chaser), 98-103 (spend-down), 34-53 (stats); build/t46_check.lua:207-239 (verbatim twin)"
+    },
+    {
+     "topic": "Legend: asserted floor vs reported day",
+     "fact": "- **Enforced floor:** Legend >= day 15. The design says \"not before week 3\".\n- **Day 18 is a measurement, not a bound.** It is the earliest day across seeds, quoted to the user as \"Legend never comes before day 18\".\n- Note that the brief for this task treats 18 as the target; it is not.",
+     "refs": "spec/pacing_spec.lua:67; build/t46_check.lua:215; specs/2026-10-26-wave1-life-happens-design.md:282,324; plans/2026-10-27-wave1a-life-happens.md:43; WAVE1A_REPORT.md:31; WAVE1B_REPORT.md:52; README.md:104,140"
+    },
+    {
+     "topic": "Current pacing line (verified today)",
+     "fact": "I ran `sh tools/spec.sh pacing career_sim walkins_data`, and all three PASS. The pacing line: \"Studio Two median day 4 (p10 4, p90 5); random share median 0.354; greedy max 0.426; chaser max 0.337; spend-down max 0.223; legend earliest day 18; phone pops/day 6.00; phone aura/day 11.04\". This matches README and both wave reports.\n\nI split the phone Aura myself: the +11.04 net is about +18.6 gained and -7.6 lost a day.",
+     "refs": "spec/pacing_spec.lua:105-109; README.md:104; WAVE1A_REPORT.md:29-33; WAVE1B_REPORT.md:50-55"
+    },
+    {
+     "topic": "How CareerSim models XP and levels",
+     "fact": "**Sources.** XP comes only from the beat loop. Cards and the phone give none: `apply()` loops `careerRules.STATS` (aura, followers, placements, hits, sponsors) and never touches `sim.xp`. The beat-loop sources:\n- `gainActivityXP`: `activityXP` 30 + `beatSaveXP` 20 a day, plus `tourXP` 50 on day 1.\n- `deliver()`: session requests (`REQUESTS_PER_DAY = 3`, first time only), 3 dailies, the weekly on day % 7, all x1.5 at 3 stars.\n- `winCypher`: 40 XP every second day.\n\n**Level refresh.** `refreshLevel` runs only in `gainActivityXP` (day start) and `buyGear` (before visits). The server levels up on every award (`DataService.applyXP` sets `prof.level = LevelFor(xp)` at once). So XP gained during visits or pops would reach the sim's level a day late unless `apply` refreshes it.\n\n**What level gates in the sim:**\n- request availability: `canTake`, artist levels 1/3/5/7/9\n- the Legend gate: `level = 10` in `tryUnlock`\n- `buyGear`: the fixture's gear is only the three level-1 tools, so cosmetic level tiers aren't modelled\n\n**Levels.** `Config.Levels = { 0, 100, 250, 450, 700, 1000, 1400, 1900, 2500, 3200 }`. There is no level above 10, so XP after level 10 does nothing.",
+     "refs": "src/ReplicatedStorage/OK/Modules/CareerSim.lua:9,67-71,81-86,113-117,119-152,162-175,183-201,410-421,432-446; src/ServerScriptService/OK/Services/DataService.lua:59-65,365-373; src/ReplicatedStorage/OK/Config.lua:74"
+    },
+    {
+     "topic": "XP curve is deterministic; level 10 binds the Legend",
+     "fact": "The sim's XP by day is identical on all 20 seeds and for random, greedy and chaser:\n- d1 249 (L2), d4 897 (L5), d7 1457 (L7)\n- d14 2560 (L9), d15 2831, d16 2974, d17 3085\n- d18 3228 (L10)\n\nLevel 10 arrives on day 18 on every seed. Every other Legend need is met earlier (random player):\n- HIT: median day 12.5, earliest 3\n- 20K followers: median day 5, earliest 3\n- 1000 Aura: median day 12.5, earliest 9\n\nSo card XP moves the Legend day one-for-one through level 10. Thresholds, as cumulative card XP:\n- **Legend <= 14 (breaks the asserted >= 15):** >= 640 by the end of day 14\n- **Legend <= 15:** >= 369 by day 15\n- **Legend <= 16:** >= 226 by day 16\n- **Legend <= 17 (breaks the reported 18):** >= 115 by day 17",
+     "refs": "probe: scratchpad/twosess_econ/spec/xpday.lua, traj.lua (instrumented copy CareerSimX.lua)"
+    },
+    {
+     "topic": "How CareerSim models cards and the phone",
+     "fact": "**Walk-ins:**\n- Up to `walkinsPerDay = 8` visits a day (`CanSchedule`).\n- Each visit runs `pickNext`, which is `Seed` then `Pick` with the server's opts: source, career + visits, day, week, aired, sponsored, aura.\n- Then `arrive`, then `readNews` for a follow-up, then `checkSponsorFloor`, then `chooseByPolicy`, then `Resolve`, then `apply`.\n- Walk-in money goes through `ApplyMoney` into `walkGained`.\n\n**steadyShare** = sum of `walkGained` / sum of `dayGained` over days 8..60 (`STEADY_FROM = 8`), counting money gained only.\n\n**Phone (`runPhone`):** runs after the day's visits, up to `phonePerDay` pops, on its own stream `Lcg(phoneSeed + 100003)`.\n- `pop()` applies with `phone = true`, so outcome money is passed as 0 and only the cost moves money.\n- `phoneAura` accumulates the clamped Aura delta of each pop.\n- A pop never runs `checkSponsorFloor`; the next walk-in visit does.\n- `healAura` (up to `auraHeal = 5` toward 0) runs at day start, outside `phoneAura`.",
+     "refs": "src/ReplicatedStorage/OK/Modules/CareerSim.lua:10,13,105-111,183-201,205-242,323-353,357-405,424-430"
+    },
+    {
+     "topic": "Policies",
+     "fact": "- **greedy:** the most `expectedMoney`, counting money only, including planted follow-ups and rare outcomes. Ties go to the first listed choice.\n- **chaser:** the first affordable choice whose good outcome has placements > 0 or a plant; otherwise random.\n- **random:** uniform among affordable choices.\n- **spend-down:** random, with money set to 0 before each walk-in visit (not before pops).\n\nNo policy values XP or Aura. With no money on either session, greedy always takes choice 1. Chaser takes whichever choice plants a follow-up. Nobody models always taking the celebrity.",
+     "refs": "src/ReplicatedStorage/OK/Modules/CareerSim.lua:249-311,333"
+    },
+    {
+     "topic": "Literal Config copies the checks pin",
+     "fact": "t46 rebuilds these from live Config and asserts they equal its literals:\n\n**FIXTURE** (= spec/economy_fixture.lua):\n- `requests` from `A.Briefs`\n- `daily {cred 200, xp 15, count 3}`, `weekly {cred 800, xp 50}`\n- `cypherWinCred 500`, `cypherXP 40` (EnterXP 10 + WinXP 30), `tourXP 50`\n- `streakBonus {[3]=300, [7]=600}`, `fireCred 30`, `firePerDay 4` (a sim-only assumption that t46 skips)\n- `levels`, `activityXP 30` (= `XP.GroupDailyCap.Activity`), `beatSaveXP 20` (= 2 x `BeatSave.xp`)\n- `gear`: 808 $0, rollfx $250, swing $350\n- `feeds`: delivery [2] {aura 5, followers 40}, [3] {aura 10, followers 120}; plaque {aura 40, followers 300}; cypher {aura 25}; fire {followers 10}\n\n**PACING:**\n- `odds = {auraPer 20, auraCap 15, followersPer 1000, followersCap 10, min 10, max 90}`\n- `followupAt {2,4}`, `dropAt {1,1}`, `cooldown 3`, `walkinsPerDay 8`\n- `phonePerDay 6` (= `Config.Phone.DailyMax`), `auraHeal 5` (= `Career.Sources.AuraHeal.aura.max`)\n- `gates`: studio_two {placements 1, aura 300, cost 5000}; plate_legend {hits 1, followers 20000, aura 1000, cost 4000, level 10}\n\n**PHONE_CAPS = {aura 60, followers 2000}:** `Config.Career.Sources.Phone` registers Aura and Followers only at these maxes, and each `dailyMax` = `DailyMax + 1` = 7.\n\n**RUSH_SPEC** is also pinned.\n\nNo XP-source caps are pinned. No WalkIn or Phone XP source exists anywhere in the fixture or in Config.",
+     "refs": "build/t46_check.lua:28-90,106-172; spec/economy_fixture.lua:5-57; spec/walkins_data_spec.lua:39; src/ReplicatedStorage/OK/Config.lua:44-58,83-88,119-141,157-159,186-187"
+    },
+    {
+     "topic": "XP as a card outcome: where it is silently dropped today",
+     "fact": "- **`WalkInRules.deltasOf`** returns cost, money, aura, followers, placements, hits and sponsors. There is no xp.\n- **Server walk-ins:** `Systems/WalkIns` `apply` loops `CareerRules.STATS`, and its header says \"No XP\".\n- **Server phone:** `Systems/Phone` `apply` loops STATS and reports only non-Aura/Followers stats. So an `xp` key in content is ignored with no `[OK][ERR]`.\n- **The sim:** its `apply` loops STATS too.\n- **Granting XP:** it must go through `DataService.AddXP(p, n, source)`, gated by `Config.XP.Sources[source]`. An unknown source pays 0 and reports \"unknown XP source\", which fails `tools/test.py`. `Config.XP.Sources` today has Console, Mic, BeatSave, Delivery (max 60, dailyMax 15), FireTap, Daily, Weekly, Cypher and CypherVote. There is no WalkIn or Phone entry.\n- **No XP loss:** XP only goes up (there is no TakeXP), so a backfire can't take XP away.",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:18-21; src/ReplicatedStorage/OK/Systems/WalkIns.lua:27,238-262; src/ReplicatedStorage/OK/Systems/Phone.lua:15-16,147-166; src/ReplicatedStorage/OK/Modules/CareerSim.lua:190; src/ServerScriptService/OK/Services/DataService.lua:338-363,382-387; src/ReplicatedStorage/OK/Config.lua:44-58"
+    },
+    {
+     "topic": "XP and the content validator",
+     "fact": "- `checkOutcome` has no xp band and doesn't reject unknown keys.\n- `checkPhoneOutcome` neither caps nor forbids xp.\n- **Concrete failure:** `TagFor`'s TAGS has no xp entry. A \"win\" outcome whose only gain is XP gets a nil tag, so `walkins_data_spec`'s `checkTag` fails it (\"tag nil in tone win\"). That hits an XP-only hometown pick.",
+     "refs": "spec/walkins_data_spec.lua:162-185,239-246,414-421; src/ReplicatedStorage/OK/Modules/WalkInRules.lua:68-90"
+    },
+    {
+     "topic": "Probe A: one non-paying phone card breaks the share floor",
+     "fact": "I ran the **unmodified** pacing_spec and CareerSim on the live deck plus one scratch 3-choice phone DM:\n- home: sure, nothing\n- celebrity: odds 50, +g / -b Aura\n- neither: sure, nothing\n\nThe result is FAIL for every Aura size I tried, from +0/-0 to +40/-60: \"random: steady share median 0.344 in 0.35..0.50\" (0.345 at +10/-10). Every other target held: Hall 4 (p10 3, p90 5-6), greedy 0.434, chaser 0.351-0.356, spend-down 0.237, Legend 18, pops 6.00, Aura a day 10.53-12.35.\n\n**Seed noise, not a trend.** A 2-choice no-op DM passes at 0.355. On 200 other seeds (100000 + 7919*i) there is no systematic drop: baseline median 0.3459, with the card 0.3466. So the 20-seed median sits on the floor, and any change to the phone rng stream flips it.\n- My 200-seed baseline (34.6%) differs from WAVE1A's \"35.0% on 200 other seeds\". The seed sets differ, and the report doesn't record its seeds.\n- WAVE1A warned: \"A future content change that adds non-paying cards will need the next lever.\"",
+     "refs": "probes: scratchpad/twosess_econ/spec/exact.lua, exact2.lua, exact_null.lua, robust.lua; WAVE1A_REPORT.md:56-61"
+    },
+    {
+     "topic": "Probe B: XP amounts vs the Legend floor",
+     "fact": "I used the instrumented sim, with outcome xp applied and the level refreshed at once.\n\n**Frequency.** Uncapped, the card is seen about 15.8 times in 60 days, about 0.26 a day. With a 1-a-week cap it is seen 9 times.\n\n**Random player** (takes hometown 1/3 of the time), uncapped:\n- xp 50: Legend 17\n- xp 100: Legend 16\n- xp 200: Legend 14 (**FAILS** >= 15)\n\n**Always-hometown** (forced; this is what greedy does when choice 1 is hometown and nothing pays money):\n- xp 50: Legend 17\n- xp 100: Legend 15\n- xp 150: Legend 14 (**FAILS**)\n\n**Capped 1 a week:** xp 50 keeps Legend at 18.\n\nXP left THE HALL unchanged, and moved the shares only within noise (greedy 0.434 to 0.440).",
+     "refs": "probes: scratchpad/twosess_econ/spec/whatif.lua, blend.lua"
+    },
+    {
+     "topic": "Probe C: the hometown follow-up (\"comes back bigger\")",
+     "fact": "I planted a walk-in follow-up at {15,25} visits (like the existing `payback_*` follow-ups).\n\n| Follow-up | Random share | Greedy max | Chaser max | Spend-down max |\n|---|---|---|---|---|\n| +1 placement (`payback_*`-style) | \u2014 | 0.439 | \u2014 | \u2014 |\n| pays $500 | 0.355 | 0.465 | 0.380 | \u2014 |\n| pays $1000 | 0.368 | 0.488 | 0.403 | 0.298 |\n\nMoney passes the share floor but eats nearly all of the greedy headroom (ceiling 0.50).\n\nAs a phone NEWS follow-up (+15 Aura, +1000 followers): phone Aura a day 12.15, random share 0.331.",
+     "refs": "probe: scratchpad/twosess_econ/spec/whatif.lua"
+    },
+    {
+     "topic": "Probe D: Aura-loss backfire",
+     "fact": "I used placeholder blend odds: good chance = 10 + 80 x readiness, where readiness = 0.4 x min(aura/1000, 1) + 0.3 x min(placements/5, 1) + 0.3 x min(hits, 1).\n\n**What limits the backfire is THE HALL's p90** (its `aura = 300` need), not the Aura budget:\n- random, +60/-200: Hall p90 7 (at the limit)\n- random, +60/-300: Hall median 6, p90 8 (**FAILS** <= 7)\n- always-celebrity, +60/-200: Hall median 7, p90 13\n- always-celebrity, +60/-300: Hall median 10, p90 21\n\n**The phone Aura budget is net and measured on the random player only:**\n- always-celebrity, +40/-60: 15.75 a day\n- always-celebrity, +60/-100: 18.62 a day\n- random, celebrity +60 sure with no backfire: 15.23 a day (**FAILS**)\n- random, +60/-300: 8.02 a day. A bigger loss makes the budget easier to pass.\n\n**Days in the red** (Aura < 0 at day end, out of 1,180 player-days): 0 at baseline, 25 for random at -300, 92 for always-celebrity at -300. WAVE1B said the heal almost never mattered (1 of 4,800).",
+     "refs": "probes: scratchpad/twosess_econ/spec/blend.lua, red.lua; WAVE1B_REPORT.md:55; plans/2026-10-27-wave1a-life-happens.md:46"
+    },
+    {
+     "topic": "Existing odds already blend Aura and Followers, and saturate early",
+     "fact": "`Chance(base, career, odds)` = base + clamp(floor(aura/20), -15, 15) + min(floor(followers/1000), 10), held to [10, 90]. The random player's medians reach Aura 337 and followers 18,780 by day 4, so the tilt is maxed at +25 from day 4.\n\nRandom-player stats by day, as p10 / median / p90:\n- **day 1:** Aura 25/62/90; followers 1500/3300/5300\n- **day 4:** Aura 250/337/400; followers 14480/18780/23780\n- **day 7:** Aura 520/640/715; followers 27360/35310/42360; placements median 4 (p10 1)\n- **day 14:** Aura 985/1192/1425; placements median 9 (p10 4); hits median 1\n\nLevels: L5 on day 4, L7 day 7, L9 day 14, L10 day 18.\n\nThe career table passed to Resolve and Pick (`CareerRules.Have` / `sim.career`) has no xp or level, and GateKey has no level. `needs`/`under` check each key on its own (AND), not a weighted blend.",
+     "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:11-15,26-47,143-165; src/ReplicatedStorage/OK/Modules/CareerRules.lua:7,22-28; spec/walkins_data_spec.lua:33; probe: scratchpad/twosess_econ/spec/stats.lua"
+    },
+    {
+     "topic": "Phone outcome rules and follow-up mechanics",
+     "fact": "**Phone items**, under Shared shapes \"Outcomes\":\n- Aura and Followers only; outcome money 0 (money moves only through a choice's cost)\n- placements, hits and sponsors 0; no sponsor\n- positive Aura <= 60 and positive followers <= 2000\n- losses go through `Career.Take`, ungated, bounded only by `checkOutcome`'s |aura| <= 500\n\n**Follow-ups:**\n- `Plant` times a follow-up in walk-in visits (`state.count + rng(at)`). Phone pops never advance `count`, so a planted follow-up, phone ones included, waits on walk-ins.\n- `Plant` refuses a second entry with an id already queued.\n- A +1 placement in a follow-up is allowed only in a `payback_*` follow-up's news. Those stay walk-in.\n- Plant-graph depth must be < 3.\n- The existing `payback_*` follow-ups (planted at {15,25} by the artists' pitch cards) are the closest prior art for \"he comes back bigger\": odds 60, good = +15 Aura, +1000 followers, +1 placement.",
+     "refs": "plans/2026-10-27-wave1a-life-happens.md:132-134,432; spec/walkins_data_spec.lua:169-173,239-246,386-402,453-499; src/ReplicatedStorage/OK/Modules/WalkInRules.lua:133-141,207-220; src/ReplicatedStorage/OK/Data/WalkIns.lua:181"
+    },
+    {
+     "topic": "Approval items that touch this",
+     "fact": "- **WAVE1A \"Try it\" 3 (line 9):** \"Phone items never pay money; they only move Aura and Followers.\" This is a switchable Claude call in the Wave 1 design (\u00a74.8, design \u00a79 calls). XP on a phone card breaks the second half of the sentence; the \"never pay money\" half survives only if the follow-up's money isn't on the phone.\n- **WAVE1A Needs you item 4 (economy changes), still open in the tracker's Decisions:**\n  - the `big` weekly cap\n  - the rival story moved to the phone\n  - rookie cards gated only\n  - the quiz's $300 quote\n  - the margin note: 35.4% on the spec's seeds, 35.0% on 200 others, and \"a future content change that adds non-paying cards will need the next lever\"\n- **WAVE1A item 5 calls:**\n  - the artist cooldown runs from when a DM is sent\n  - the phone can award seven times a day (`dailyMax` = `DailyMax + 1`)\n  - `Config.Phone.Enabled = false` hides every phone card, while \"the pacing numbers assume the phone is on\"\n- **WAVE1B:** the heal leaves the pacing unchanged only because players almost never start a day in the red (1 of 4,800). Item 6 names this card as the next wave.\n- **Tracker:** the HIT economy decision is open.\n- **Design levers, in order:** rate-limit non-paying walk-in cards; move non-paying stories to the phone; then small sure payouts of $100\u2013200 on one or two walk-in cards, reported. The slowest cap the rules can express is 1 a week.",
+     "refs": "WAVE1A_REPORT.md:9,56-61,63-73; WAVE1B_REPORT.md:55,80; ../OK_GAME_TRACKER.md:70-76,100,113,139; specs/2026-10-26-wave1-life-happens-design.md:205-216,316-330; research/wave1_names_2026-10-27.md:931"
+    }
+   ],
+   "designImplications": [
+    "Plan for the share floor before anything else. With a non-paying phone card on the deck, today's pacing_spec fails at 0.344, because the 20-seed median sits on the floor. The design has to pick one of three:\n- a design \u00a78.1 lever 3 payout\n- a frequency cap\n- a deliberate user-approved change to how the floor is measured (the user hasn't been asked)\nIt should report results on a larger seed set as well as the spec's 20.",
+    "Decide the card's source. As a phone DM (\"a phone text\"), XP breaks the Shared shapes rule \"Aura and Followers only\" and the WAVE1A promise that phone items \"only move Aura and Followers\". Both need the user's OK. The follow-up's money, if it pays any, must come through a walk-in follow-up, where it counts in the walk-in share.",
+    "Teaching cards to give XP touches every layer:\n- an `xp` delta in `WalkInRules.deltasOf`\n- the server applies in `Systems/WalkIns` and `Systems/Phone` calling `DataService.AddXP` with a new `Config.XP.Sources` entry (WalkIn and/or Phone) that has `max` and `dailyMax`\n- CareerSim `apply` adding xp and calling `refreshLevel` at once, to mirror `applyXP`\n- a CareerSim result key such as cardXP\n- an `xp` band in walkins_data_spec, and a Phone XP cap if it is a phone item\n- a literal copy of the new XP caps that t46 checks against Config, like PHONE_CAPS\n- an xp entry in `TagFor`/TAGS, or the hometown win must carry another stat so `checkTag` passes",
+    "Size the XP to the Legend floor. Cumulative card XP by the end of day 14 must stay under about 640 for every player who could chase it. Probes break it at 150 XP a pick for always-hometown and 200 for random, uncapped at about 0.26 cards a day. A 1-a-week cap allows at most 3 picks by day 14. Any XP at all (>= 115 by day 17) changes the reported \"Legend never before day 18\", so the report line to the user will change.",
+    "Decide who the Legend floor must hold for. Today it is asserted on the random player only. Greedy (ties go to choice 1) and chaser (takes the plant) both act as always-hometown, and no XP-chasing or Aura-chasing policy exists. The plan should say whether to measure always-hometown and always-celebrity players too.",
+    "Keep \"comes back bigger\" off money, or budget it tightly. A `payback_*`-style follow-up (placement, Aura, followers; greedy 0.439) is safer than cash: $500 gives greedy 0.465 and $1000 gives 0.488, against a 0.50 ceiling. A placement on the follow-up is legal only as a `payback_*` walk-in follow-up's news. Its timing is in walk-in visits, not days, and `Plant` refuses a second copy while one is queued, which matters if the card can repeat.",
+    "Bound the backfire by THE HALL, not by the Aura budget:\n- losses landing on days 1\u20135 hold back the 300-Aura door; -300 fails the random player's p90\n- the +15 Aura budget is net, so a big backfire makes it easier to pass\n- an Aura gain of +60 a pick with no backfire breaks it\nDecide the backfire's size, whether it can push Aura below 0 (heal +5 a day; drops a sponsor through `sponsor_drop` on the next walk-in; up to a -15 odds penalty on every card), and whether the card waits for a `needs` gate.",
+    "The readiness blend needs a new pure rule in WalkInRules, called by both the server's Resolve path and CareerSim. Greedy's `expectedMoney` calls `Chance` today. `Chance` can't stand in for the blend: its Aura+Followers tilt maxes out at +25 by about day 4. If level or XP is in the blend, both the server and the sim must pass level into the career table (it carries none today, and `GateKey` has no level). Placements, hits and Aura keep growing past day 4, so they discriminate longer than followers."
+   ],
+   "risks": [
+    "The random share floor (0.35) is within seed noise. Today's margin is 0.354 on the spec's 20 seeds, and 0.346 on my 200 other seeds. Adding this card turns the spec red (0.344) even if the card does nothing.",
+    "XP put into card content today is silently dropped by both server systems and the sim, and `[OK][ERR]` doesn't catch it, so a half-wired build could ship cards that promise XP and pay none. An XP-only win outcome fails `walkins_data_spec`'s `checkTag`.",
+    "XP-chasing players are unmeasured. The asserted Legend floor (>= 15) breaks at 100\u2013150 XP a pick for always-hometown. Greedy and chaser behave exactly like that, but the Legend floor isn't asserted for them.",
+    "Money on the hometown follow-up eats the greedy headroom (0.426 now, 0.488 with $1000), and the guardrail is \"trim paying cards, never the ceiling\".",
+    "A large Aura backfire can push THE HALL past day 7 (p90 8 at -300 for random; 13\u201321 for always-celebrity). It also puts players in the red, where the daily heal (+5 a day) is slow, and can drop a sponsor on the next walk-in. The net phone Aura check doesn't catch any of this.",
+    "Without an immediate level refresh in `CareerSim.apply`, the sim lags the server by up to a day on card XP. At the Legend thresholds that is a 1-day measurement error.",
+    "XP after level 10 (3200, about day 18) does nothing, so \"XP now\" is a dead reward for late-game players unless levels are extended.",
+    "A phone-only card disappears when `Config.Phone.Enabled = false`, while the pacing still assumes the phone is on.",
+    "`Plant`'s duplicate refusal means a second hometown pick, while his follow-up is still queued, gives XP but no second follow-up. Follow-up timing waits on walk-ins, so a player who stays in THE HALL never sees the follow-up."
+   ],
+   "unknowns": [
+    "The voice-memo notes (~/Downloads/voice_memo_11_notes.md) were not read: permission was denied. The user's answers come from the tracker (line 139) and ledger line 66 only.",
+    "The readiness-blend weights are undecided. Probe D used placeholder weights, as a scratch illustration only.",
+    "Whether the celebrity pick is one roll (+Aura on good, -Aura on bad) or a sure +Aura now with a backfire follow-up later. A follow-up would be timed in walk-in visits and resolved through `ResolveNews`/`Chance`, unless the blend rule covers follow-ups too.",
+    "Whether the hometown follow-up is a walk-in or phone item, and whether it pays money, a placement, XP or Aura/Followers. Each lands differently (Probe C).",
+    "Which 200 seeds WAVE1A used for its 35.0%. My seed set gives 34.6% for the unchanged deck.",
+    "Not verified in Studio. By instruction, t46 was not run; it is the Studio twin of pacing_spec and uses the same assertions.",
+    "Out of my area and not verified: how XP would show on cards (`WalkIns.Chips`, `CardFeel` result chips, overhead tags), and whether DataService's XP gate has other callers that enumerate `Config.XP.Sources`. t13, t21, t22, t40 and t46 read specific keys only."
+   ]
+  }
+ ],
+ "critic": {
+  "area": "gaps",
+  "facts": [
+   {
+    "topic": "SETTLED CONTRADICTION: the XP budget for the Legend floor",
+    "fact": "Maps 3 and 4 put the budget at about 640 extra XP by the end of day 14 (about 45 a day). That is the static figure 3200 - 2560, and it assumes card XP feeds nothing back. Map 1 measured +30 a day as passing with zero margin and +40 a day as failing.\n\nI reran Map 1's probe. The scratch copy matches the live CareerSim except for a per-day record; WalkInRules, CareerRules, the deck and the fixture are byte-identical.\n\n| Extra XP a day | LV10 day | Random legendDay min | Result |\n|---|---|---|---|\n| 0 | 18 | 18 | pass |\n| 10 | 17 | 17 | pass |\n| 15 or 20 | 16 | 16 | pass |\n| 30 | 15 | 15 | pass, zero margin |\n| 40 | 14 | 14 | FAILS pacing_spec.lua:67 |\n| 60 | 13 | 13 | fails |\n\n40 x 14 = 560 is under 640, so the static figure overstates the budget by at least 80 XP. The feedback works like this: earlier levels open the level 5, 7 and 9 artist requests sooner (Contracts.Feasible; CareerSim canTake), which pulls delivery XP forward.\n\nUse the measured line: below about 30 XP a day flat from day 1, or below about 420 cumulative by day 14. Treat 640 as an upper bound, not a budget.",
+    "refs": "/private/tmp/claude-502/-Users-work-Desktop-OK-projects/bedf590b-998a-4c90-aab6-448bd92d0e37/scratchpad/xpsim/run_sens.lua (rerun 2026-10-29); spec/pacing_spec.lua:67; src/ReplicatedStorage/OK/Systems/Contracts.lua:43-50; src/ReplicatedStorage/OK/Data/Artists.lua:21-33"
+   },
+   {
+    "topic": "SETTLED CONTRADICTION: how many seeds level 10 binds",
+    "fact": "Map 1 says level 10 binds legendDay on 14 of 20 random seeds. Map 3 says 12 of 20.\n\nThe rerun's baseline random legend days per seed are 18,18,31,22,39,18,18,18,18,18,18,18,28,24,18,18,18,24,21,18. That is 13 seeds on day 18. At +10 XP a day, 12 of them move to day 17, and seed 10 stays on day 18 because another need binds it.\n\nSo level binds 12 of 20 seeds; Map 3 is right. The other 8 seeds are bound by HIT or Aura 1000, on days 18-39.",
+    "refs": "run_sens.lua output (same scratch path as above)"
+   },
+   {
+    "topic": "SETTLED CONTRADICTION: the 3-visit cooldown also applies to non-artists",
+    "fact": "Map 3 says kind local (blockkid) and sender 'never get' the cooldown. Map 2 says reusing blockkid 'avoids ... the artist cooldown'. Both are only half right.\n- MarkSent, the phone send, is artist-only (WalkInRules.lua:301-305).\n- But every walk-in arrival sets st.last[visitor] = st.count for any kind (WalkIns.lua:427; CareerSim.lua:211).\n- cardEligible checks st.last for every card's visitor, whatever its kind (WalkInRules.lua:227-228, opts.cooldown = Config.WalkIns.ArtistCooldown = 3).\n\nSo a blockkid DM is ineligible for 3 walk-ins after blockkid walks in. That includes the hometown comeback, if it is a blockkid walk-in follow-up.",
+    "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:226-240, 301-305; src/ReplicatedStorage/OK/Systems/WalkIns.lua:427; src/ReplicatedStorage/OK/Modules/CareerSim.lua:211; src/ReplicatedStorage/OK/Config.lua:158"
+   },
+   {
+    "topic": "SETTLED CONTRADICTION: a cap does not fix the share floor (verified load-bearing)",
+    "fact": "I verified the claim first. Adding one money-free 3-choice phone DM to the live deck turns the unmodified pacing_spec red: random steady share median 0.344, under the 0.35 floor (spec:108). Every other target held.\n\nMap 4 offers 'a frequency cap' as one fix. I ran my own variants: a 2-choice money-free DM (home: sure, nothing; celeb: odds 50, +10 / -30 Aura), on live copies.\n\n| Variant | Random share median | Greedy max | Result |\n|---|---|---|---|\n| uncapped | 0.348 | | FAIL |\n| cap 1/week | 0.340 | 0.432 | FAIL (worse) |\n| cap 1/day | 0.348 | | FAIL |\n| minCount 9 | 0.348 | | FAIL |\n| needs followers 2000 | 0.350 | 0.461 (from 0.434) | PASS, exactly on the floor |\n\nThe visitor (blockkid vs unknown) made no difference.\n\nThe floor trips on rng-stream perturbation, not on economics. Map 4's 200-seed run shows no systematic drop. No cap fixes it on the spec's 20 seeds. The remaining options are:\n- a design \u00a78.1 lever-3 payout\n- a gate (its effect is knife-edge and costs greedy headroom)\n- a user-approved change to how the floor is measured",
+    "refs": "my probes: /private/tmp/claude-502/-Users-work-Desktop-OK-projects/bedf590b-998a-4c90-aab6-448bd92d0e37/scratchpad/gaps_probe/spec/v_*.lua; rerun of /private/tmp/claude-502/-Users-work-Desktop-OK-projects/bedf590b-998a-4c90-aab6-448bd92d0e37/scratchpad/twosess_econ/spec/exact.lua; spec/pacing_spec.lua:57-79,108; WAVE1A_REPORT.md:56-61"
+   },
+   {
+    "topic": "SETTLED: Config.Unlocks is banner text, not a gate",
+    "fact": "Map 2 says levels gate artist requests 'through Config.Unlocks'. Config.Unlocks is only the LevelUp banner text, for levels 3-10. The gate is the artist's `level` in Data/Artists, checked by Contracts.Feasible.",
+    "refs": "src/ReplicatedStorage/OK/Config.lua:75-81; Systems/Contracts.lua:43-50"
+   },
+   {
+    "topic": "Closes Map 4's unknown: what the voice memo actually says",
+    "fact": "I read both the notes and the transcript. Map 4 could not.\n- **Exclusivity:** notes:7 says 'you can only take one'.\n- **XP for both picks:** notes:14-15 say the hometown pick gives 'more XP', and the celebrity gives 'a little XP and a little notoriety'. Transcript line 19 [0:31] says the same: 'little XP, a little bit of notoriety'. The tracker's summary (tracker:139, :150) drops the celebrity's XP.\n- **The not-ready backfire:** transcript line 23 [0:57] says 'you gain nothing and you look stupid 'cause you're not ready'. So the not-ready branch implies zero XP plus an Aura loss, not only an Aura loss.\n- **The user's answers:** notes:38-43. The blend is 'likely LV, Followers, placements and Aura', with weights to be decided. The notes' 'How it could fit' section (:27-36) is Claude's reading, not a decision.",
+    "refs": "/Users/work/Downloads/voice_memo_11_notes.md:7,14-15,19-21,27-43; /Users/work/Downloads/voice_memo_11_transcript.md:9,19,23; /Users/work/Desktop/OK projects/OK ROBLOX/roblox_studio_notes/OK_GAME_TRACKER.md:139,150"
+   },
+   {
+    "topic": "VERIFIED (load-bearing): an xp key is dropped silently and passes the validator",
+    "fact": "Every path drops an `xp` key without an error:\n- **deltasOf** returns only cost, money, aura, followers, placements, hits and sponsors.\n- **WalkIns.apply** loops CareerRules.STATS.\n- **Phone.apply** loops STATS and reports, through report() = warn('[OK][ERR] phone: ...'), only money and non-Aura/Followers stats. It never sees xp, so it reports nothing.\n- **checkOutcome** checks only its named keys and never rejects unknown ones; checkPhoneOutcome caps only aura and followers.\n\nAn outcome with `xp = N` therefore passes every spec and pays 0.\n\nAddXP's gate pays `rule.xp or rule.amount or math.min(n, rule.max or n)`. A Config.XP.Sources rule without xp, amount or max pays n uncapped.",
+    "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:18-21; Systems/WalkIns.lua:238-264; Systems/Phone.lua:52,147-166; spec/walkins_data_spec.lua:162-185,239-246; src/ServerScriptService/OK/Services/DataService.lua:338-361,382-388"
+   },
+   {
+    "topic": "VERIFIED (load-bearing): the follow-up clock and the shared queue",
+    "fact": "- Plant sets `at = state.count + rng(at)` (WalkInRules.lua:138), and dueEntry fires when `q.at <= state.count + 1` (:214).\n- state.count goes up only on a walk-in arrival (WalkIns.lua:426).\n- A phone open bumps st.phone.today and st.phone.count instead (Phone.lua:208-209).\n- Phone.apply plants into WalkIns.State(p).queue, the same queue walk-ins use (Phone.lua:149,162).\n\nSo a DM can plant a walk-in follow-up, and its fuse counts walk-ins only.\n\nThe plant's `at` draw comes from the PHONE's rng (rngFor, Phone.lua:68-75, with its own forced list and drawRng), not WalkIns'. A test that forces the comeback's timing must use _StudioPhoneHook SetRng, or advance the clock with _StudioWalkInHook AdvanceVisits.",
+    "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:132-141,207-220; Systems/WalkIns.lua:419-431,793; Systems/Phone.lua:68-75,147-166,206-210"
+   },
+   {
+    "topic": "Uncovered: phone DailyMax / MaxWaiting / expiry interplay",
+    "fact": "**Send gate (canSend):** unopened < MaxWaiting (2), and phone.today (OPENED pops) + unopened < DailyMax (6) (Phone.lua:338-346). The timer runs only in eligible time:\n- tour done\n- cypher idle\n- no walk-in in flight or due within WalkInDueSeconds 60\n- no PhoneBusy\n(:348-353)\n\n**Counting:** a pop counts at OPEN, not at send (:193-215). At open it bumps today, count, seen and the cap group (CountCap). MarkSent, however, runs at SEND (:319), so an artist sender's cooldown starts even when the DM is never opened.\n\n**Consequences:**\n- **Ignored DM:** an un-opened DM expires after ExpireSeconds 600 as PhoneExpire 'waited'. It is uncounted and not seen, and it does not use the cap (:252-269). It stays least-seen, so the 'two sessions' offer comes back soon, and a weekly cap is not spent by ignoring it.\n- **Opened, unanswered:** a DM opened and left for OpenExpireSeconds 300 is dropped as PhoneExpire 'opened'. It stays counted (seen and cap) and applies nothing.\n- **DISMISS:** index 0 logs CardWalkAway and applies nothing (:232-237). It is always on the card (PhoneUI.lua:169-171). 'Took neither' is therefore a built-in third path that costs nothing, against the memo's 'you can only take one'.\n- **One DM at a time:** an open DM sets PhoneBusy. That blocks a second DM from opening (:198) and holds the walk-in scheduler.\n- **Respawn:** a respawn drops every pending pop with no telemetry (:272-278, :383).\n\nCareerSim models none of this. Every pop opens and is answered by the policy, with no dismiss, no expiry and no PhoneBusy stall, and runPhone runs after the day's walk-ins (CareerSim.lua:372-405).",
+    "refs": "src/ReplicatedStorage/OK/Systems/Phone.lua:1-26,193-278,309-353,383; src/ReplicatedStorage/OK/Config.lua:175-187; src/ReplicatedStorage/OK/Modules/PhoneUI.lua:31,169-171; src/ReplicatedStorage/OK/Modules/CareerSim.lua:355-405"
+   },
+   {
+    "topic": "Uncovered: telemetry for the new card",
+    "fact": "Funnel.Event(player, name, value, fields) maps exactly three fields to AnalyticsService CustomField01..03: source, card, detail (Funnel.lua:14-18).\n\nCard events:\n- CardChoice detail = '<index>:<outcome key>', from both sources (WalkIns.lua:535; Phone.lua:243).\n- PhoneOpen detail = the app.\n- PhoneExpire detail = waited | opened | taken.\n- CardWalkAway carries no detail.\n\nThe card callers pass value = nil, so it defaults to 1 (Phone.lua:55; WalkIns.lua:93). The numeric `value` is free to carry a readiness score or the XP paid.\n\nWhat is missing or limited:\n- No XP, level, roll or chance is logged anywhere.\n- Readiness becomes measurable at no cost only if the ready and not-ready branches use distinct outcome keys.\n- Analytics reports only from a published place (Funnel.lua:5). In Studio, events go to Funnel._events, read through _StudioTestHook FunnelEvents/ResetFunnelEvents (Main.server.lua:48-58).\n- The game is unpublished.",
+    "refs": "src/ReplicatedStorage/OK/Systems/Funnel.lua:1-18,46-61; Systems/Phone.lua:21-22,54-56,214,219,235,243,264; Systems/WalkIns.lua:29-30,91-94,535; src/ServerScriptService/OK/Main.server.lua:46-58"
+   },
+   {
+    "topic": "Uncovered: Studio test hooks a test would need",
+    "fact": "**_StudioPhoneHook:**\n- Quiet, Reset, Pending, Open, Choose, Age, SetRemaining/GetRemaining, SetToday, SetDay, State, Busy, SetRng, Sent, Tick.\n- Pop(id) sends a named phone card past the timer, the eligibility checks and DailyMax (not MaxWaiting). It runs no needs, under or cap check (Phone.lua:397-420), so tests of the card's gating must go through Tick, not Pop(id).\n\n**_StudioWalkInHook:**\n- Pause, Spawn, Choose, Pending, SetRng, AdvanceVisits(n), Plant(id) (due now, at {0,0}), SetCaps/Caps, Reset, SetToday, SetDay.\n\n**_StudioCareerHook:**\n- Set covers money and the five stats, the sponsor and showSponsor. It has no xp or level (Career.lua:204-216).\n\n**_StudioTestHook:**\n- AddXP(n) with no source is GrantXP (ungated). AddXP(n, source) passes the gate and uses up that source's dailyMax for the UTC day.\n- GetProfile returns a copy across the Bindable, so changing it does nothing.\n\n**What's missing:**\n- No hook lowers XP or sets a level. Existing tests only read XP deltas (t17_play_server.lua:7; t22c_play_server.lua:9).\n- No server test requires DataService directly (grep).\n- A readiness test at a low level must therefore run before any XP is granted in that Play session, or a new hook is needed.",
+    "refs": "src/ReplicatedStorage/OK/Systems/Phone.lua:395-460; Systems/WalkIns.lua:756-830; Systems/Career.lua:187-221; src/ServerScriptService/OK/Main.server.lua:16-62; build/t17_play_server.lua:1-8; build/t22c_play_server.lua:9"
+   },
+   {
+    "topic": "Uncovered: tests that pin today's behaviour, and the baseline",
+    "fact": "Tests that pin or read the current behaviour:\n- t43_play_server.lua:99 asserts walk-ins paid no XP, for navx_placement choice 1 only.\n- t40_check.lua:23 pins XP.Sources.Delivery.max = 60.\n- t46 pins FIXTURE, PACING, PHONE_CAPS and RUSH_SPEC.\n- Files that read XP.Sources by name: t13, t21, t22, t40, t46 and spec/economy_fixture.lua.\n- Nothing enumerates Config.XP.Sources with pairs, so adding a source key breaks no enumeration.\n\nThe baseline:\n- The last full run was 165 of 169. The 4 failures are pre-existing light-cap checks that stay red until the light budget is decided.\n- Play runs must follow the Studio lease protocol shared with other sessions.\n- The tracker notes Studio Play sessions stalling under memory load.",
+    "refs": "build/t43_play_server.lua:90-99; build/t40_check.lua:23; build/t46_check.lua:28-172; grep over build/*.lua and spec/*.lua; OK_GAME_TRACKER.md:65,85,101; memory studio-lease-protocol.md"
+   },
+   {
+    "topic": "Uncovered: name, roster and content rules for the two new people",
+    "fact": "**Visitor kinds:**\n- KINDS is a fixed set: artist, rep, blogger, fan, rival, manager, mom, booker, coordinator, weird, critter, local, sender.\n- Exactly 9 artists are allowed, all with APPROVED parody names (spec:106, :135-145). So the washed celebrity cannot be kind artist without a spec change.\n- Kind changes behaviour: artist (MarkSent and the test-hook decoys), critter (no walker), sender (sig 'none', no figure, so a sender can't sensibly walk in as a comeback), mom (gentle rules), rep (sponsor rules), rival (allows -1 placement).\n\n**Every new visitor needs:**\n- both roster names, unique within each roster, with fiction never equal to any parody name (spec:95, :121-158)\n- a sig from Visitor.SIGS (spec:23-25, :97)\n- `check` matching ^research/wave1_names_2026-10-27.md#.+ (spec:32, :101-104), so a next-wave names file fails unless the pattern widens\n\n**Card text rules:**\n- Content text never types a display name as a lowercase substring. For example, 'a kid from the block' is blockkid's name (spec:663-672). Use {name:<id>}.\n- REAL and TITLES are substring bans; BLOCK is a whole-word ban (spec:43-49, :674-695).\n- BLOCK includes shoot, bet, lean, kill, gun, drug, perc and xan. That rules out 'video shoot', 'bet' as slang and 'lean on'.\n- t50 bans substrings such as OK STUDIO (so 'book studio time' fails), STUDIO TWO and the whole word INTERSCOPE.\n- t40 bans CRED in player copy, which also catches INCREDIBLE and CREDIT.\n\n**The design rule:** names are 'role names or animals: no real people, no brands', and each is web-checked. A 'washed one-hit rapper' must be a role name checked against real one-hit acts and their song titles. 'The projects' and the memo's profanity need kid-safe copy; the publish plan expects a 13+ rating.",
+    "refs": "spec/walkins_data_spec.lua:23-50,84-158,401,663-695; build/t50_check.lua:11-12; build/t40_check.lua:4-6,78-87; research/wave1_names_2026-10-27.md:12-41,43-72; specs/2026-10-26-wave1-life-happens-design.md:148; plans/2026-10-27-wave1a-life-happens.md:55; src/ReplicatedStorage/OK/Systems/WalkIns.lua:72-73,465; OK_GAME_TRACKER.md:115"
+   },
+   {
+    "topic": "Uncovered: approval state of what the maps propose to reuse",
+    "fact": "Still pending the user's approval:\n- blockkid's names ('A KID FROM THE BLOCK' / 'A KID FROM DOWN THE STREET') and the rookie_* lines are among the Wave 1a names and lines awaiting approval (tracker:96).\n- The 'Fiction fallback' question is open (tracker:105): the fiction roster swaps names but the text still nods at real artists.\n- WAVE1A Needs-you items 2-5 are open, including the margin note on non-paying cards.\n\nBuilding the hometown thread on blockkid builds on names the user hasn't approved.",
+    "refs": "OK_GAME_TRACKER.md:96,103,105; research/wave1_names_2026-10-27.md:293-303; WAVE1A_REPORT.md:56-73"
+   },
+   {
+    "topic": "Uncovered: wave placement and save format",
+    "fact": "The roadmap lists this feature after Wave 1 and before Wave 2 (tracker:149-151). Wave 2 carries 'one save-format bump: day counter, story log, fame tiers...'. The Wave 1 design keeps the schema v5 bump (day counter, per-artist history, firsts) at the start of Wave 2 (design:57). DataService.SchemaVersion = 4.\n\nUnless the user moves it, this wave has:\n- no days-played counter\n- no per-artist history\n- no 'thread done once' store\n\nThe only option is fields that default when missing, inside prof.walkins (normalised in WalkIns state(), :140-161).",
+    "refs": "OK_GAME_TRACKER.md:149-151; specs/2026-10-26-wave1-life-happens-design.md:57,270; src/ServerScriptService/OK/Services/DataService.lua:26,74; src/ReplicatedStorage/OK/Systems/WalkIns.lua:150-161"
+   },
+   {
+    "topic": "Uncovered: choice order and the rng draw count are pacing decisions",
+    "fact": "**Choice order:**\n- greedy takes the most expected money and breaks ties to the FIRST affordable choice (CareerSim.lua:297-303). With money 0 on both picks, greedy always takes choice 1.\n- chaser takes the first choice whose good outcome has a placement or a plant (:287-288, :305-309), which is the hometown pick.\n- random is uniform.\n- No policy values XP or Aura, and none dismisses.\n\nSo which pick is listed first decides what the greedy player does.\n\n**Draw count:** Resolve draws once for rare (only when rare is set) and once for a non-sure roll (WalkInRules.lua:31-39). A readiness rule that adds or removes a draw shifts every downstream draw:\n- every CareerSim seed trajectory, while the share floor already sits within noise\n- every SetRng-forced test sequence (Phone and WalkIns hooks)\n\nThe rule should only change `chance`, not the number of draws.",
+    "refs": "src/ReplicatedStorage/OK/Modules/CareerSim.lua:286-316; src/ReplicatedStorage/OK/Modules/WalkInRules.lua:26-41; Systems/Phone.lua:66-75"
+   },
+   {
+    "topic": "Uncovered: minCount and a needs gate both read the walk-in count",
+    "fact": "cardEligible refuses a card when `(card.minCount or 0) > state.count + 1` (WalkInRules.lua:226). The `visits` gate key is also state.count (Phone.lua:295; WalkIns pickOpts). So 'keep it off day 1' for a PHONE card is still measured in walk-ins. A phone-heavy or hub-light player stays at a low count.\n\nLive content uses none of weight, minCount, when = 'sponsored' or outcome cooldown. I grepped Data/WalkIns.lua and found no matches; Map 2 cited no line for this.",
+    "refs": "src/ReplicatedStorage/OK/Modules/WalkInRules.lua:222-240; Systems/Phone.lua:291-301; grep of src/ReplicatedStorage/OK/Data/WalkIns.lua"
+   },
+   {
+    "topic": "Refs for claims the maps left without one",
+    "fact": "Map 1's 'the +N XP float draws under an open card on phones (Wave 1b ruling)' is the user-approved 1b ruling at tracker:138 and :140.\n\nMap 1's OK_UI with no DisplayOrder is confirmed: build/01_backup_scaffold.lua:27 creates the ScreenGui with Name, Enabled and ResetOnSpawn only. The LevelUp banner is centred at y 70 (HUD.lua:146). OK_WalkIn is DisplayOrder 8 (WalkInUI.lua:71), OK_Phone is 9 (PhoneUI.lua:89), and the DAW is 5 (DAWClient.client.lua:36).\n\nMap 3's '29-44 min of hub presence' for 8 walk-ins is arithmetic from FirstDelay {60,120} + 7 x Gap {240,360} (Config.lua:157). It ignores walk time, card time and PhoneBusy holds.",
+    "refs": "OK_GAME_TRACKER.md:138,140; build/01_backup_scaffold.lua:27; src/ReplicatedStorage/OK/Modules/HUD.lua:146,257-264; Modules/WalkInUI.lua:71; Modules/PhoneUI.lua:89; StarterPlayer/StarterPlayerScripts/OK/DAWClient.client.lua:36; Config.lua:157"
+   }
+  ],
+  "designImplications": [
+   "Budget card XP against the measured feedback line: flat 30 a day from day 1 passes with zero margin and 40 fails, so stay below about 420 cumulative by day 14. Don't use the static 640. Report the result as a flat-rate equivalent, and rerun run_sens-style probes once CareerSim applies card XP.",
+   "Plan the share floor explicitly. Any money-free phone card turns pacing_spec red on the 20 seeds, and a weekly cap makes it worse (0.340). Pick one of three and put it to the user:\n- a \u00a78.1 lever-3 payout\n- a gate (needs followers 2000 passed at exactly 0.350 but took greedy to 0.461)\n- a change to how the floor is measured (more seeds)\nA cap alone won't do it.",
+   "Write both picks as the memo says:\n- hometown: more XP now, plus the comeback\n- celebrity when ready: a little XP and some Aura\n- celebrity when not ready: zero XP and an Aura loss ('you gain nothing and you look stupid')\nSay that the tracker's summary left out the celebrity's XP.",
+   "Name the third path. DISMISS (index 0) and a 300 s unanswered open both resolve as 'took neither' with no effect. An ignored, un-opened DM expires after 600 s uncharged: no seen, no cap. Decide whether 'neither' is fine, given the memo's 'you can only take one'. Note the card returns quickly after an ignored pop.",
+   "Give the ready and not-ready branches distinct outcome keys so CardChoice telemetry measures the backfire rate at no cost. Put a numeric readiness score (or the XP paid) in Funnel.Event's free `value` instead of a new field. There are only three custom fields.",
+   "Keep the readiness rule to the same number of rng draws as Resolve: change `chance`, never add a draw. Otherwise every CareerSim seed and every SetRng-forced test shifts, and the share floor is already within noise.",
+   "Choice order is a pacing input, because greedy takes choice 1 on ties and chaser takes the plant. State which pick is listed first and why, and consider an always-celebrity policy check for the Aura and THE HALL p90.",
+   "If the hometown comeback is a blockkid walk-in follow-up, account for the 3-walk-in cooldown that any blockkid walk-in starts. It applies to every visitor kind on arrival, not only artists. Also note that blockkid's names are still unapproved.",
+   "A new celebrity visitor must not be kind 'artist', which is capped at 9. It needs:\n- a role name in both rosters, web-checked against real one-hit acts and their song titles\n- a sig from Visitor.SIGS\n- a check anchor, which today's CHECK_PATTERN only allows in research/wave1_names_2026-10-27.md (or the spec is widened)\nThe copy must also clear REAL/TITLES (substring), BLOCK (whole word: shoot, bet, lean...), t50 (OK STUDIO, STUDIO TWO, INTERSCOPE...) and the CRED ban.",
+   "Ship without a schema bump: no days-played counter, so 'later' is counted in walk-ins. Any 'thread done once' flag is a field that defaults when missing under prof.walkins.",
+   "Plan the tests around the existing hooks:\n- Phone Pop(id) skips gates and caps, so gate tests use Tick.\n- Use phone SetRng for the plant's `at` draw.\n- WalkIn AdvanceVisits/Plant bring the comeback due.\n- Career Set covers the stat inputs.\n- XP can only go up and level can't be set, so run low-level readiness cases first in the Play session, or add a hook.\nCount the 4 light-cap failures as baseline.",
+   "Update the pinned tests: t43:99 if a tested card gains XP, plus t40, t46 and the economy fixture for any new XP source literal. Add a validator rule that rejects unknown outcome keys, or at least `xp` until it's plumbed, so content can't promise XP that pays nothing."
+  ],
+  "risks": [
+   "The share floor fails on the spec's 20 seeds for any money-free phone card, including the gated and capped variants. A 'passing' gate variant sits exactly on 0.350, so the next content edit can flip it.",
+   "Using the static 640 XP budget would ship card XP that breaks pacing_spec.lua:67. The feedback through earlier request unlocks makes about 40 a day already fail.",
+   "The not-ready celebrity branch could pay XP by default (the tracker summary) when the user said 'you gain nothing'.",
+   "Players can sidestep the dilemma: DISMISS, letting an opened DM time out, or ignoring the pop. Ignoring it costs nothing and re-offers the card soon (unseen, uncapped).",
+   "A readiness rule that adds an rng draw reshuffles every sim seed and every forced-rng Studio test. That causes broad, hard-to-attribute failures.",
+   "Readiness can't be tuned from data: card telemetry carries no XP, level, roll or chance, and nothing reports until the place is published.",
+   "New names can pass the local specs and still fail review. The design rule bans real people. The check-anchor pattern is locked to the 10-27 file. 'The projects' and the memo's profanity need kid-safe wording for a 13+ audience.",
+   "Building on blockkid builds on unapproved names (tracker:96), and its walk-ins start the 3-visit cooldown on its own DMs and comebacks.",
+   "Tests can't lower XP or set a level, so readiness tests depend on order within a Play session, which already stalls under Studio memory load."
+  ],
+  "unknowns": [
+   "AnalyticsService custom-event limits (field-value cardinality, events per minute). Nothing in the repo documents them and I didn't look them up. They decide whether a continuous readiness score in `detail` is safe; `value` avoids the question.",
+   "Whether this wave may bump the save schema (tracker:149-151 puts it before Wave 2's v5 bump). That decides whether a days-played or done-once store exists.",
+   "Whether the user accepts 'took neither' (DISMISS, or an opened DM timing out) as a third path.",
+   "Whether the design \u00a74.3 naming rule ('role names or animals: no real people') formally binds the next wave. It is written for Wave 1, and the plan for this wave would have to carry it over.",
+   "Whether the floor-measurement change (more seeds) is acceptable to the user. WAVE1A's 200-seed 35.0% can't be reproduced because its seeds aren't recorded, and Map 4's 200 seeds give 34.6%.",
+   "OK_UI's live DisplayOrder, and whether a card-triggered LevelUp banner (y 70, centred) is hidden by OK_Phone (9) or OK_WalkIn (8). Not checked in Studio.",
+   "Whether the 4 light-cap failures are still the only red tests: no Studio run was done (read-only).",
+   "My probe cards are placeholders (no XP, no plants, neutral tones). A real card's plants and Aura change the phone stream differently, so its floor result has to be measured, not inferred."
+  ]
+ }
+}

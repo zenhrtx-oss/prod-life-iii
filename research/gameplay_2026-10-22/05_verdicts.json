@@ -1,0 +1,203 @@
+[
+  {
+    "lens": "fun",
+    "scores": [
+      {
+        "proposal": "CAREER",
+        "score": 8,
+        "strengths": [
+          "Its core loop fully works for one player alone: a fictional artist request, a beat that ticks green as you tap, DELIVER, stars and a reaction, Cred, XP and a credit. Most early servers hold 1-3 players, so this is the right foundation.",
+          "The first 5 minutes have a clear goal by 1:00, a payoff at 3:00 (listen-back plus NPC reaction card) and a purchase at 4:00 (808 Module). That fixes the audit's weakest point, the first impression.",
+          "Getting better at the game means getting better at beats. XP and Cred come from music, not from mic spam.",
+          "The return hooks work alone: 3 requests per UTC day (the same in every server, no cross-server service needed), a streak, a gear goal, a Weekly Single with plaques, and a new artist per level. That finally gives levels 5-10 content.",
+          "Weekly content is cheap. A new artist or brief is a table entry in Data/Artists.lua, which suits the user-plus-agent team.",
+          "Show-off: a rank nameplate (Intern up to Studio Legend), a personal credits list ('Night Shift \u00b7 NOVA KAY \u00b7 prod. you') that mirrors OK's wall, and FIRE from listeners.",
+          "Its engineering order is sound. The session lock and schema v2 go in before the first publish, when nothing needs migrating. The gear rack uses the Tycoon stub and InteractionService.Register.",
+          "Respects every constraint: fictional artists, no OK IP, no images, no new lights, no music beds, nothing cross-server, so the music-library clause is not triggered."
+        ],
+        "weaknesses": [
+          "It puts MonitorService in B1, yet its own A6 FIRE loop and deliveries send more traffic to the single NowPlaying slot. That slot refuses with 'busy' and has no queue (DAW.lua tryBroadcast). With 2 players, the second is still an obstacle.",
+          "FIRE 'after loop 1' sits on a fixed 4-loop airing of one bar each, about 6.8 s at 142 BPM (DAWConfig.lua:41, DAW.lua:172). That leaves a window of a few seconds.",
+          "There is a 'homework' risk, and players will hunt for the smallest beat that passes. Mitigations (2-3 asks, optional bonus asks) are only sketched.",
+          "Cred has few sinks: a handful of gear items, then nothing. Retention in week 2 and later depends on sinks it doesn't name (decor, neon finishes, extra slots, kits).",
+          "Rolls cost 120 Cred and become 'tomorrow's goal'. A genre-defining feature stays locked on day 1.",
+          "It is thin socially. Players beside you are mostly bystanders until B; there is no flip, no co-op and no group mode.",
+          "It adds new user approvals (4 artist names, about 15 song titles, currency and rank names) and the fictional names must be checked against real artists."
+        ]
+      },
+      {
+        "proposal": "SOCIAL",
+        "score": 6,
+        "strengths": [
+          "It has the strongest show-off and drama: an anonymous Cypher runway with a reveal, a podium, a Neon lighting preset and an overhead title. It is the proven Dress to Impress loop.",
+          "A1 MonitorService with a queue goes first ('#2 in line' instead of refused). This is the right fix for multiplayer contention and is the best engineering ordering of the three.",
+          "Its 3 beat stations remove the single-chair and single-PC bottleneck cheaply (~60 parts, 0 lights).",
+          "It rewards entering and voting, not only winning, so losers and listeners still progress.",
+          "Its multiplayer test hooks (EnqueueAs, FakeFire, FakeVote, FakeEntry) make social features testable automatically.",
+          "Neon pulsing on BeatBus.Step adds polish with no parts and no lights; FIRE is positive-only; nothing is player-written, so there is no TextService exposure.",
+          "The Friday Night Cypher with a 'Notify Me' RSVP is a good later tool for filling a server."
+        ],
+        "weaknesses": [
+          "Its core loop needs 2 or more players. The 1-3 player reality is handled by a Solo Brief fallback, which is a star grade with no currency, no story and no reason to repeat it. That is exactly the 'voting dies in empty servers' failure the market research warned about.",
+          "Voting with 2 players is degenerate. 'One pick, never your own' means each player picks the other, every round ties, and the tie goes to brief score. With 3 entries, anonymity barely exists.",
+          "The round cadence (3 min build plus listen plus reveal, about 5 min) keeps a lone player waiting on a HUD countdown ('CYPHER IN 2:40') with nobody to play against.",
+          "Levels 5-10 become titles and producer tags, which is status with little new to play. There is no currency or goal to save toward.",
+          "It contradicts ROADMAP 'Not now' (battles and daily challenge after launch) and needs a user decision to override it.",
+          "It targets 10-16 while creation may force a 13+ rating, and the explicit titles are still on by default."
+        ]
+      },
+      {
+        "proposal": "CREATIVE",
+        "score": 6,
+        "strengths": [
+          "It has the best instant start. Three starter presets play a sound within 60 s, and the 808, rolls and swing work at level 1. This fixes the 'genre locked at level 1' first impression directly.",
+          "It raises the instrument's ceiling (Pattern B, an AABA chain, kits). That addresses the audit's finding that the instrument is used up in about 15 minutes.",
+          "SAMPLE IT / flip with an author credit chain ('prod. Maya \u00b7 flip of you') is a clever social mechanic that already works with 2 players and pays the original author.",
+          "Its daily cards are date-seeded and need no cross-server service. Its XP rebalance (mic and console cap down to 30, XP for music actions) fixes the mic-spam strategy.",
+          "The Weekly Flip is an async battle that suits low-population servers, with good anti-spite voting (full play required, no self-votes, trimmed mean).",
+          "Its careful details include never showing raw beat strings (the 808 alphabet a-y can spell words) and comparing an untouched save against every preset."
+        ],
+        "weaknesses": [
+          "Format v3 comes first. That touches about 850 lines of DAWUI/DAWClient and every DAW test before a player sees any new gameplay. It is the highest-risk and slowest route to fun.",
+          "Its melody/Perc row depends on partner pitched samples that the research did not find (no APM/PSE chromatic notes). It may ship unpitched, which removes much of the promised depth.",
+          "It is a sandbox at heart. The proposal itself admits pure music makers stay niche on Roblox. Goals are cards and XP with no currency, story or concrete thing to save toward.",
+          "Session-locked saves are deferred to B1, while streaks and flip XP persist in A.",
+          "Nameplates are deferred to B4, which weakens show-off in the first weeks.",
+          "The Weekly Flip storage (weekly DataStore plus a MemoryStore map) runs straight into the unanswered Licensed Music 'music library' clause.",
+          "Minor: the new 'Perc' row label echoes the drug-slang flag already raised for 'Perc Soda'."
+        ]
+      }
+    ],
+    "winner": "CAREER",
+    "graft": [
+      "One shared brief/rule engine. Career's BriefCheck, Social's cypher brief rules and Creative's ChallengeRules are the same pure, unit-tested module. Ship it once (Modules/BriefCheck.lua) and reuse it for artist requests, daily cards, the Weekly Single and any later cypher or flip.",
+      "From SOCIAL: pull MonitorService plus the queue (A1) into Milestone A, before Career's A6 FIRE. Move token, lastBroadcastEnd, finish and setScreens out of DAW.lua into Services/MonitorService.lua, exposed as ctx.Monitor. Use a FIFO of 4-6 with one entry per player, show '#n in line' instead of 'busy', and put UP NEXT on the screens.",
+      "From SOCIAL: the multiplayer test hooks (EnqueueAs, FakeFire, FakeVote) in _StudioTestHook, so the queue, FIRE and caps are covered by automated play tests, not only by 2-player local tests.",
+      "From SOCIAL: positive-only FIRE; existing neon pulses on BeatBus.Step while a beat airs (no new parts or lights); LightingService.Apply('Neon') for big moments; nameplate MaxDistance.",
+      "From SOCIAL: 2-3 extra beat stations (Kind='BeatStation' via a new Systems/Stations.lua that opens the DAW standing, without re-registering Computer). Two players can then work on requests at once instead of fighting over one Chair_Seat.",
+      "From CREATIVE: 2-3 starter presets so a player hears a beat within 60 s. Requests can start from a preset or a blank session.",
+      "From CREATIVE: get the 808, rolls and swing into the first session. Either they work at level 1, or the 808 Module, Roll FX and Swing are all affordable from the first 2-3 deliveries. Gear then sells kits, slots and finishes instead of the genre basics.",
+      "From CREATIVE: the XP rebalance. Lower the Activity (mic/console) cap and move XP to music actions (deliveries, fires received, flips of you).",
+      "From CREATIVE: SAMPLE IT / flip with an author credit chain as Career's first social feature in B (copy the airing beat into an empty slot, it airs only after 8+ changed cells, the original author gets capped XP/Cred). It works with 2 players and fits the 'credits' fantasy.",
+      "From CREATIVE: never display raw beat strings; auto-name songs (e.g. 'Night Shift \u00b7 142 BPM'); compare an untouched save against DefaultPattern, every preset and the player's last delivery.",
+      "From CREATIVE (later, gated): the async Weekly Flip with anti-spite voting (full play required, no self or party votes, trimmed mean). This waits on the user's answer about the Licensed Music 'music library' clause.",
+      "From SOCIAL (later, B or after): an opt-in live Cypher that runs only with 3+ players present and reuses the brief engine plus MonitorService; Friday Night Cypher with an Experience Events RSVP; participation and vote XP so losers progress. Keep it off the critical path, since early servers will be nearly empty.",
+      "From SOCIAL: a funnel built from existing events (InteractionService.Used, DAW.Saved, DAW.BroadcastTried, plus delivery and fire events), so the 10-minute play test and a later publish show where players drop off."
+    ],
+    "must_fix": [
+      "1. Close the tour/XP exploit (confirmed in code). CellsDiffer(nil, p) returns #p, i.e. 80 (DAW.lua:39-40), so the first save of the untouched DefaultPattern pays +10 XP. DAW.Saved also advances the tour 'beat' step on any save (Tour.lua Init). Compare against DefaultPattern, every starter preset and the player's previous delivery, and make the tour step 'deliver a request', not 'press SAVE'.",
+      "2. Make airings longer and time-based. Broadcast is a fixed 4 loops of one bar (DAWConfig.lua:41, DAW.lua:172), which is about 6.8 s at 142 BPM and ranges from about 4.8 s to 16 s across BPM. Target about 15-20 s, capped, so FIRE 'after loop 1', listen-backs and any later voting have a real window.",
+      "3. Ship the monitor queue in Milestone A, before FIRE. tryBroadcast refuses with 'busy' and keeps the token and cooldowns as module locals (DAW.lua:12-13, 158-165). Career's deliveries and FIRE would add more traffic to a slot that turns a second player away.",
+      "4. Put Cred to work for weeks, not days. Name the sinks up front: studio decor through the Tycoon stub, neon finishes on air, extra slots, licensed kits, nameplate colours. All of it earned, no Robux.",
+      "5. Don't lock genre basics behind a 'tomorrow' goal. Rolls at 120 Cred and swing at level 4 keep the trap sound locked on day 1. The 808, rolls and swing must be reachable within the first session.",
+      "6. Rebalance XP away from button presses. Today the best strategy is spamming a mic that records nothing (Mic 10 XP every 120 s into the Activity cap of 60; Config.lua:28-33). Cut the Activity cap, pay for deliveries, fires received and flips, and give levels 5-10 real content (artists, ranks, gear tiers).",
+      "7. Keep briefs from becoming homework. Use 2-3 required asks plus optional bonus asks for the 3rd star. Run a CellsDiffer anti-copy check against presets, DefaultPattern, your last delivery and the currently airing beat (so a flip can't be resubmitted as a request). Starter requests pay once ever and dailies once per day. Judge it in the user's 10-minute play test.",
+      "8. Abuse caps on FIRE and listen rewards. No self-fire. Only listeners in range of the airing count, and only after loop 1. One fire per listener per airing. At most 3 per listener-author pair per day, plus a daily author cap, to limit friend and alt farming.",
+      "9. If any vote or cypher mode is grafted in, never use voting with 2 players. Each player picks the other, so every round ties. At 2 players use brief stars or head-to-head on brief score; use voting only at 3+.",
+      "10. Build the session-locked save (UpdateAsync honouring _old with a JobId and timestamp lock, takeover only when stale) and its fake-store tests before Cred, streaks or plaques exist. Then the user publishes privately with API access and MaxPlayers \u226412. Until then nothing persists and no retention work can be tested.",
+      "11. Engineering prerequisites. New remotes go in the build scripts (06_runtime.lua or 10_daw.lua), not in src. PanelUI tabs must become data-driven before a Gear tab is added. ctx needs Monitor (and anything else new) wired through Main. All new UI (brief strip, DELIVER, gear) is checked at 844\u00d7390 with controls \u226544 px and then on a real phone. The light count stays at 21/24 and the part budget stays logged.",
+      "12. Keep everything in-server. No cross-server library, chart, beat of the day or Weekly Flip storage until the user answers the Licensed Music 'music library' clause. All samples stay APM/PSE, checked by t14, with no looped stings acting as beds.",
+      "13. Hide explicit titles and 'Perc Soda' before any multiplayer or public test. Config.Content.ShowExplicitTitles is still true (Config.lua:43; Credits.lua:19), and the game is pitched at 10-16. Cheap related item: don't name a new row 'Perc'.",
+      "14. User decisions to collect before or during Milestone A, so the work doesn't stall: (a) publish privately plus API access; (b) approve the 4 fictional artist names and about 15 clean song titles, checked against real artists; (c) currency and rank names; (d) the 808, rolls and swing at level 1 or as cheap gear; (e) explicit titles; (f) fan-made or official (nothing OK-branded until then); (g) the music-library clause; (h) auditioning any new kit samples; (i) whether daily requests override the ROADMAP 'Not now' on daily challenges."
+    ],
+    "rationale": "The test was whether a 10-16 year old who joins alone, or with one friend, gets a goal, a payoff and a reason to return within the first five minutes. CAREER is the only proposal whose core loop fully works for one player: a fictional artist's request at 1:00, live green ticks while building, DELIVER with stars and an NPC reaction at 3:00, and Cred spent on rack gear at 4:00. After that come daily requests and a streak tomorrow, a Weekly Single and plaques next week, and a new artist and rank for every level, which finally fills levels 5-10. It pays for making music, not for pressing buttons. It gives players visible status (rank nameplate, a personal credits list that mirrors OK's real wall). It adds content cheaply (one Data/Artists.lua entry per artist) and breaks none of the hard constraints.\n\nSOCIAL has the best drama and the best engineering order (MonitorService queue first). But its Cypher needs 2 or more players, its solo fallback is a bare star grade, and with 2 players 'one pick, not your own' always ties. Most early servers will look like the empty voting servers the research warned about. CREATIVE has the best instant start (presets, genre at level 1) and the cleverest 2-player mechanic (SAMPLE IT / flips). But it front-loads the format v3 rewrite (about 850 lines and every DAW test) before any new gameplay is visible, its melody depends on partner samples the research did not find, and a sandbox alone gives no goal to chase.\n\nThe plan is CAREER as the spine with the strongest pieces from the other two grafted in:\n- from SOCIAL: the monitor queue moved into Milestone A, the multiplayer test hooks, neon pulsing on BeatBus, and positive-only FIRE;\n- from CREATIVE: starter presets, the genre basics in the first session, and the XP rebalance;\n- in B: flips as the first social layer;\n- later: a 3+ player Cypher and Friday event, and an async Weekly Flip once the user answers the music-library question.\n\nAll three proposals build the same rule-checker, so it ships once and powers requests, dailies and later battles. The code confirms the key must-fixes: the untouched-default save pays XP and completes the tour (CellsDiffer(nil, p) returns 80), airings are 4 fixed one-bar loops (about 6.8 s), the monitors refuse when busy with no queue, the genre features are locked to levels 2-4, mic spam is the best XP strategy, and explicit titles are still on by default."
+  },
+  {
+    "lens": "feasibility",
+    "scores": [
+      {
+        "proposal": "CAREER",
+        "score": 8,
+        "strengths": [
+          "Its core loop works with one player: graded session requests, then Cred, then gear. The research says most servers will hold 1-3 players, and the game is unpublished with no players yet. Its done-whens don't depend on other players being online.",
+          "Its key logic sits in a pure module, BriefCheck (beat + brief -> met, stars, failed asks). '20 fixture beats give the expected results' can be tested automatically in edit mode with the existing runner.",
+          "It builds in the right order. The session lock comes first (A1), before a soft currency exists. It notes that PlaceId is 0 (DataService.lua:181), so schema v2 ships with nothing to migrate.",
+          "It reuses hooks that really exist: DataService._now for faked days (DataService.lua:17), InteractionService.Register for the Gear kind, the Tour engine for the daily card, and DAW.Validate gating (DAW.lua:19-37).",
+          "It closes the tour exploit. Today DAW.Saved fires on any save (DAW.lua:144) and Tour advances on it (Tour.lua:74), so the step completes without real work. A2 requires a delivered request, plus CellsDiffer >= 8 against DefaultPattern and the last delivery.",
+          "It fills levels 5-10 with artists and ranks, and fills the Tycoon stub with a gear rack instead of new rooms. It is honest that unlocking rooms doesn't work when 12 players share one studio.",
+          "B3 adds a public producer card through a new remote that returns only public fields. ProfileFunction stays limited to your own profile.",
+          "It adds no audio, images, player text or lights in A. Kits wait until B and go through t14."
+        ],
+        "weaknesses": [
+          "The MonitorService queue waits until B1. Through all of A, FIRE and ON MONITORS still compete for one NowPlaying slot that refuses with 'busy' (DAW.lua:162). That leaves the audit's gap 3 open.",
+          "Two done-whens can't run in the current single-client harness (tools/test.py): 'in a two-player test the pair's 4th fire pays 0' and 'a remote listener hears the author's kit'. It doesn't specify fake-listener test hooks.",
+          "A6 pays 'Listen' XP for being in range. Once a queue exists, idling by the speakers can farm it, the same flaw as the mic spam the audit found.",
+          "'AddCred reuses the AddXP gate' would share log.count and log.last keyed by source name (DataService.lua:144-160). A Cred source with the same name as an XP source would eat into the XP source's caps.",
+          "'1-2 nights' is optimistic for six items. A3 (the brief strip, DELIVER listen-back and NPC rig inside the 527-line DAWUI phone layout) and A4 (gear-based Validate, data-driven PanelUI tabs, rewritten unlock tests in t02 and t10) are each substantial.",
+          "Graded briefs can feel like homework, and players will look for the smallest beat that passes. The proposal says so itself.",
+          "The fictional artist names and song titles need the user's approval and a check against real artists.",
+          "It doesn't say the explicit titles, 'Perc Soda' and the bar bottles must be decided before the two-player test it relies on."
+        ]
+      },
+      {
+        "proposal": "SOCIAL",
+        "score": 7,
+        "strengths": [
+          "It has the best plan for testing multiplayer features automatically: new _StudioTestHook commands (EnqueueAs, FakeFire, FakeVote, FakeEntry). It labels the 2-player feel check as a manual test for the user.",
+          "MonitorService comes first (A1). It moves token, lastBroadcastEnd, finish and setScreens out of DAW.lua into ctx, exactly as the audit's debt item 2 asks. 'Busy' becomes '#n in line', and it notes that existing tests asserting busy (t12, t16, t17b) need updating.",
+          "Its claims check out against the code. Standing opens already work: DAWClient closes the window beyond CloseDistance when not seated (DAWClient.lua:277-282). It warns not to re-register Computer because Register overwrites silently.",
+          "Cypher briefs use only features every present entrant has unlocked, entries are checked against the brief, CellsDiffer runs against DefaultPattern and other entries, and voters can't pick their own beat.",
+          "Its constraint check is the strongest of the three. Nothing is player-written: icon reactions, 'BEAT A' labels and display names only. It makes the explicit titles and 'Perc Soda' decision #1, before any multiplayer test, and flags 13+ for player creation.",
+          "It adds no lights. Effects use Neon colour, LightingService.Apply and BeatBus pulses."
+        ],
+        "weaknesses": [
+          "The core loop needs players online at the same time, which an unpublished game with no audience won't have. The Solo Brief fallback, the mode most sessions will actually run, is barely specified. It is CAREER's BriefCheck in miniature.",
+          "Milestone A has the most risk: three stations, a queue refactor, reactions and nameplates, a full Cypher state machine (Brief, Build 180 s, Listen, Reveal) with a SUBMIT button and HUD timer, a solo fallback and the session lock.",
+          "The session lock comes last (A6), while A3 and A4 already add persisted fires and cypher records.",
+          "A queue of 6 at about 14 s each gives up to about 84 s of continuous player music, and the Listen phase also plays back to back. It says 'No music beds' is satisfied instead of asking the user, which edges past the pending audio question.",
+          "'Plays last ~14 s' is set by loops, not seconds. At 60 BPM, 8 loops last 32 s (DAWConfig Broadcast.Loops, DAW.lua:172).",
+          "At 2 players anonymous voting means nothing, and each player always picks the other. A Cypher called every few minutes interrupts solo beat-making.",
+          "It gives no time estimate."
+        ]
+      },
+      {
+        "proposal": "CREATIVE",
+        "score": 5,
+        "strengths": [
+          "Deepest answer to the audit's gap 4 (instrument exhausted in ~15 min): A/B patterns, chains, Perc row, kits, presets, genre at level 1.",
+          "Instant start: starter presets and 'a scripted client hears a sound within 60 s' are automatable via the engine's hit counters.",
+          "SAMPLE IT / flip credit is a social mechanic that works with only two people present and gives the original author XP and credit.",
+          "Best moderation catches: never display raw beat strings, because the 808 alphabet a-y (DAW.lua:15, DAWConfig NoteChar) can spell words; songs get auto names. It also asks explicitly whether queued player loops count as music beds, and holds cross-server features until the Licensed Music 'music library' clause is checked.",
+          "ChallengeRules is a pure module unit-tested against a faked date, and puts the Audio API engine behind a flag in B."
+        ],
+        "weaknesses": [
+          "Highest technical risk, and it comes first. Format v3 (A1) rewrites the one-bar track-major format (DAWConfig.lua:4-11, Validate's length check at DAW.lua:21), the engine's maxSteps/k%n step loop (DAWEngine.lua:90-97, DAWClient.lua:312), about 850 lines of DAWUI and DAWClient, the PanelUI slot loop and every DAW test. Every other A item waits on it.",
+          "A3 depends on a human: the research found no partner-library chromatic notes or one-shot drums, so the Perc/melody row waits on the user's headphone audition and may ship unpitched.",
+          "Done-whens the harness can't automate: 'two clients agree on bar and step within 1 step' and the 2-player Local Server test in A5. The current runner drives one client.",
+          "The session lock is deferred to B1 while A4 already adds streaks and Challenge XP. If the user publishes after A, those records can be clobbered when a player hops servers (DataService.lua:119).",
+          "B4 'ProfileFunction (opened to others)' would send another player's whole profile, including xpLog and the paid pattern table (InteractionService.lua:169). That leaks data; it should be a projected public card.",
+          "B3 Weekly Flip uses DataStore and MemoryStore across servers, which runs straight into the unresolved 'music library' terms. B2 Audio API is unverified on mobile.",
+          "Milestone A is the largest and most tangled of the three. Kids may not want to compose, and the plan admits it."
+        ]
+      }
+    ],
+    "winner": "CAREER",
+    "graft": [
+      "Merge the three rule engines into one pure module. CAREER's BriefCheck, SOCIAL's Cypher briefs and CREATIVE's ChallengeRules are the same function (beat + rules -> met, stars, failed asks). Ship it once in ReplicatedStorage so the client ticks and the server validates with the same code. It then serves contracts, daily cards, Solo Brief stars and later cyphers.",
+      "From SOCIAL: move MonitorService plus the queue (Enqueue/Release, one entry per player, '#n in line' instead of 'busy', an UP NEXT screen, passed as ctx.Monitor) into CAREER Milestone A, before or together with FIRE (A6). Otherwise listeners and authors still fight over the single NowPlaying slot.",
+      "From SOCIAL: _StudioTestHook commands for fake players and listeners (EnqueueAs, FakeFire, FakeVote, FakeEntry), so every multiplayer done-when runs in the single-client harness. Real 2-player checks stay labeled as user manual tests.",
+      "From SOCIAL: in Milestone B, Cypher and BeatBattles as a mode that reuses the shared brief engine. Briefs come only from features every present entrant has unlocked, voters get one pick and can't pick their own beat, ties go to brief score, and XP is paid for entering and voting, not only winning.",
+      "From SOCIAL: neon pulses on BeatBus.Step instead of building new neon tube signs (no parts, no lights), and an AnalyticsService funnel that listens to InteractionService.Used, DAW.Saved and DAW.BroadcastTried.",
+      "From CREATIVE: starter presets so a new player hears a beat within 60 s, measured by a scripted-client hit-counter test. The tour beat step must differ from DefaultPattern and from every preset, not just from the previous slot.",
+      "From CREATIVE: SAMPLE IT / flip credit as a Milestone B social mechanic for small servers. Copying is allowed only from the beat currently airing, the flip must differ by 8+ cells before it can air, and the author's XP from flips is capped.",
+      "From CREATIVE: never display raw beat strings, and give songs auto-generated names. Cap each airing at a fixed number of seconds (for example 20 s) rather than a loop count.",
+      "From CREATIVE: ask the user outright whether back-to-back player beats on the monitors count as 'music beds', and keep everything in one server (no global library or chart) until the Licensed Music 'music library' clause is checked."
+    ],
+    "must_fix": [
+      "SESSION LOCK BEFORE ANY CURRENCY, STREAK OR RECORD (DataService.lua:119). UpdateAsync returns `data` and ignores `_old`. Failure: a player hops servers inside the 120 s autosave window, the old server's BindToClose or PlayerRemoving save lands last, and Cred, gear or the streak roll back. Add a JobId plus timestamp lock with stale takeover, a fake-store test where a locked profile gets zero writes, and the user's publish, API access and MaxPlayers <= 12 step (t14_check.lua:25).",
+      "A CRASHING SYSTEM CAN PASS THE SUITE (Main.server.lua:13 plus tools/test.py console filter). A failed Init warns '[OK] system X failed', and test.py drops every console line containing '[OK]'. The failed-require branch prints nothing at all. Failure: Contracts, Dailies or Cypher throws in Init and the run still reports N/N. Have each Enabled system set an 'InitOK' attribute at the end of Init, and add an edit/play test that asserts it for every Enabled system.",
+      "XP/CRED GATE: UNKNOWN SOURCES ARE UNCAPPED, AND A MISSING COOLDOWN CRASHES (DataService.lua:140-160). A source name that isn't in Config.XP.Sources (for example a typo 'Fires') gets rule = nil and pays the raw n with no cap. A rule without `cooldown` errors on its second award, because `now - last < nil` is compared at line 149. Every new source (Contract, Fire, Vote, Challenge, Cred sources) needs a complete rule; Fire needs cooldown = 0 or simultaneous fires get dropped. The gate should reject unknown names. Per-pair limits ('3 per listener-author per day') can't be expressed in AddXP and need their own log. AddCred must not share log.count and log.last keys with XP.",
+      "NO PRESENCE-BASED XP. CAREER A6's 'Listen' XP pays for standing in range; once a queue exists, idling by the speakers farms it all day, like the mic spam (InteractionService.lua:46-56). Pay listeners only for an action (FIRE after loop 1, or a vote), once per NowPlaying Token, with range checked on the server.",
+      "TOUR EXPLOIT (DAW.lua:40,138,144 to Tour.lua:74). CellsDiffer(nil, p) returns 80, and DAW.Saved fires on every save. Failure: SAVE on the untouched starter beat completes tour step 3 and pays +10 XP. The step must require a real change against DefaultPattern and every preset, or a delivered request.",
+      "MULTIPLAYER DONE-WHENS MUST RUN IN THE SINGLE-CLIENT HARNESS (tools/test.py; Main.server.lua:20-22). _StudioTestHook returns nil for any userId that has no Player, so 'EnqueueAs', 'FakeFire' or a 'two-player test' can't run as written. Add commands that accept fake owner and listener IDs, and route MonitorService and Reactions through them. Mark real 2-player hearing as a user manual check.",
+      "MATURITY BEFORE ANY MULTIPLAYER OR FRIENDS TEST. Config.Content.ShowExplicitTitles = true (Config.lua:43), 'Perc Soda' (Credits.lua:19) and the coloured glass bottles on the lounge bar shelf (build/05_lounge_corridor.lua:70, already a ROADMAP decision) all need the user's decision. All three proposals pitch to ages 10-16, while drug, alcohol and swearing references risk 17+ or a Community Standards violation on an account that already has a strike.",
+      "AIRING LENGTH AND MUSIC BEDS (DAW.lua:172; DAWConfig Broadcast.Loops = 4). Duration is loops times BPM, so a longer airing based on loops runs 32 s at 60 BPM. Cap airings in seconds. A queue plays player beats back to back, so get the user's answer on music beds before shipping continuous queued playback.",
+      "NEW REMOTES ARE CREATED BY BUILD SCRIPTS, NOT src (build/06_runtime.lua:8, build/10_daw.lua:7-9). Every new remote (Deliver, BuyGear, Fire, Enqueue, Submit, PublicCard) must be added there and covered by a check. Otherwise a fresh place sync leaves a WaitForChild hanging forever, which test.py does catch, but only in play mode.",
+      "PUBLIC PROFILE DATA. Never open ProfileFunction (InteractionService.lua:169) to other players. It returns the full profile, including xpLog and the paid-pattern table. Use a separate remote that returns only rank, credits, plaques and fires.",
+      "NO CROSS-SERVER LIBRARY, CHART OR GLOBAL FEED until the user answers the Licensed Music 'music library within an Experience' question and the place is published. Date-seeded dailies (os.date('!%Y%m%d')) need no cross-server service and are fine.",
+      "PHONE LAYOUT. Anything added to DAWUI or the HUD (brief strip, DELIVER, SUBMIT, FIRE, queue position) must keep every control at least 44 px at 844x390 and 667x375, the existing standard. Nameplates need MaxDistance and must show no player-written text.",
+      "CONTENT APPROVALS. Fictional artist names, NPC song titles, rank and currency names, and any new APM/PSE kit samples need the user's approval or audition and must pass t14. NPC 'portraits' are built from parts only; no image uploads."
+    ],
+    "rationale": "I judged on feasibility, risk and constraints, and checked the claims against src. CAREER wins because it is the only plan whose core loop holds up with one player in the server. That matters for a place still at PlaceId 0 with no audience, and the research shows voting-only games die once servers empty. Its central logic (BriefCheck) is a pure function that can be fixture-tested in the existing edit-mode runner, and it puts the session lock first, before introducing a currency. It reuses real hooks: Register, the Tour engine, DataService._now and Validate gating. It fills the empty Tycoon stub and levels 5-10 without new rooms, audio, images or player text. Its main gaps can all be fixed: the monitor queue waits until B, two done-whens assume a 2-client harness that doesn't exist, presence-based Listen XP can be farmed, and the Cred gate design is under-specified. SOCIAL has the best test-hook plan and the most careful constraint check, including the titles and maturity decision. But its loop depends on concurrent players the game won't have, its Solo Brief fallback is thin, Milestone A carries the largest state machine, and the session lock comes last. CREATIVE answers the instrument ceiling best and has the sharpest moderation catches. But it front-loads the riskiest refactor (format v3 across about 850 UI lines, the engine and every DAW test), depends on a user audition for samples the partner library may not have, defers the save lock while adding streaks, and would open ProfileFunction to other players. The final plan should be CAREER's Milestone A with these changes: SOCIAL's MonitorService queue and fake-player hooks moved into A; one shared brief/rules engine reused for daily cards and a later Cypher mode; CREATIVE's presets, raw-string ban, airing cap in seconds and flip mechanic in B. Before any of it, fix four things: the silent-Init-failure test blind spot, the XP gate (unknown sources uncapped, a missing cooldown crashes), the tour exploit, and the maturity content (explicit titles, Perc Soda, bar bottles) ahead of any multiplayer test."
+  }
+]

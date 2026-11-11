@@ -1,0 +1,332 @@
+-- Creates/overwrites every runtime script of OK Studio v1. Re-runnable.
+local RS, SSS, SG, SP = game:GetService("ReplicatedStorage"), game:GetService("ServerScriptService"), game:GetService("StarterGui"), game:GetService("StarterPlayer")
+local function ensure(parent, class, name) local i = parent:FindFirstChild(name); if not i or i.ClassName ~= class then if i then i:Destroy() end; i = Instance.new(class); i.Name = name; i.Parent = parent end; return i end
+local OK = ensure(RS, "Folder", "OK")
+local Modules, Systems, Data = ensure(OK, "Folder", "Modules"), ensure(OK, "Folder", "Systems"), ensure(OK, "Folder", "Data")
+local SOK = ensure(SSS, "Folder", "OK"); local Services = ensure(SOK, "Folder", "Services")
+local COK = ensure(SP:WaitForChild("StarterPlayerScripts"), "Folder", "OK")
+local UI = ensure(SG, "ScreenGui", "OK_UI"); UI.ResetOnSpawn = false; UI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; UI.IgnoreGuiInset = false
+local written = {}
+local function src(inst, text) inst.Source = text; table.insert(written, inst:GetFullName()) end
+
+src(ensure(OK, "ModuleScript", "Config"), [==[
+-- OK Studio Config (v1). Extend, do not replace: other modules read these keys.
+local Config = {}
+Config.Version = 1
+Config.Colors = { warm = Color3.fromRGB(255,190,120), blue = Color3.fromRGB(0,170,255), pink = Color3.fromRGB(255,60,160), red = Color3.fromRGB(255,40,40), white = Color3.fromRGB(235,235,235) }
+Config.LightPresets = {
+  Warm = { Ambient = Color3.fromRGB(22,22,26), Pendant = Color3.fromRGB(255,190,120), Strip = Color3.fromRGB(0,170,255), Exposure = 0.15 },
+  Neon = { Ambient = Color3.fromRGB(14,10,24), Pendant = Color3.fromRGB(120,80,255), Strip = Color3.fromRGB(255,60,160), Exposure = 0.05 },
+}
+Config.Interaction = { MaxDistance = 8, HoldSeconds = 0, RecSeconds = 8, PanelCloseDistance = 12 }
+Config.DataStoreName = "OKStudio_v1"
+Config.XP = { Console = 5, Take = 10, LevelSize = 100 }
+return Config
+]==])
+
+src(ensure(Modules, "ModuleScript", "Interactions"), [==[
+-- Interaction kinds shared by server and client. Kind -> prompt copy.
+return {
+  Computer    = { Action = "Make a beat",     Object = "Studio PC" },
+  Console     = { Action = "Power console",   Object = "Mixing console" },
+  Mic         = { Action = "Start take",      Object = "Vocal mic" },
+  LightSwitch = { Action = "Switch lighting", Object = "Light switch" },
+  Door        = { Action = "Open",            Object = "Sliding door" },
+  CreditsWall = { Action = "Read credits",    Object = "Credits wall" },
+  TV          = { Action = "Change screen",   Object = "Lounge TV" },
+}
+]==])
+
+src(ensure(Modules, "ModuleScript", "UITheme"), [==[
+return {
+  bg = Color3.fromRGB(10, 10, 14), panel = Color3.fromRGB(18, 18, 24), line = Color3.fromRGB(40, 40, 52),
+  text = Color3.fromRGB(235, 235, 235), muted = Color3.fromRGB(150, 150, 165), accent = Color3.fromRGB(255, 60, 160), accent2 = Color3.fromRGB(0, 170, 255),
+  gold = Color3.fromRGB(225, 200, 140), ledOn = Color3.fromRGB(0, 255, 140), ledOff = Color3.fromRGB(70, 70, 80),
+  font = Enum.Font.GothamBold, fontBlack = Enum.Font.GothamBlack, mono = Enum.Font.Code,
+}
+]==])
+
+src(ensure(Modules, "ModuleScript", "PanelUI"), [==[
+-- Builds the OK STUDIO OS panel inside a ScreenGui and returns a controller.
+local M = {}
+function M.Build(gui, Theme, Credits)
+  local function new(class, props, parent) local i = Instance.new(class); for k, v in pairs(props) do i[k] = v end; i.Parent = parent; return i end
+  local function corner(p, r) new("UICorner", {CornerRadius = UDim.new(0, r or 10)}, p) end
+  local panel = new("Frame", {Name = "Panel", AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromScale(0.62, 0.7), BackgroundColor3 = Theme.panel, BorderSizePixel = 0, Visible = false}, gui)
+  corner(panel, 14); new("UIStroke", {Color = Theme.line, Thickness = 1.5}, panel)
+  new("UISizeConstraint", {MinSize = Vector2.new(320, 260), MaxSize = Vector2.new(900, 640)}, panel)
+  local header = new("TextLabel", {Name = "Header", Size = UDim2.new(1, -60, 0, 44), Position = UDim2.fromOffset(18, 6), BackgroundTransparency = 1, Text = "OK STUDIO OS", TextColor3 = Theme.accent, Font = Theme.fontBlack, TextSize = 24, TextXAlignment = Enum.TextXAlignment.Left}, panel)
+  local close = new("TextButton", {Name = "Close", Size = UDim2.fromOffset(36, 36), Position = UDim2.new(1, -44, 0, 10), BackgroundColor3 = Theme.line, Text = "X", TextColor3 = Theme.text, Font = Theme.fontBlack, TextSize = 18}, panel); corner(close, 8)
+  local tabs = new("Frame", {Name = "Tabs", Size = UDim2.new(1, -36, 0, 34), Position = UDim2.fromOffset(18, 54), BackgroundTransparency = 1}, panel)
+  new("UIListLayout", {FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder}, tabs)
+  local content = new("ScrollingFrame", {Name = "Content", Size = UDim2.new(1, -36, 1, -150), Position = UDim2.fromOffset(18, 96), BackgroundColor3 = Theme.bg, BorderSizePixel = 0, ScrollBarThickness = 6, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y}, panel)
+  corner(content, 10)
+  local list = new("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, content)
+  new("UIPadding", {PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10)}, content)
+  local toast = new("TextLabel", {Name = "Toast", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -24), Size = UDim2.fromOffset(360, 40), BackgroundColor3 = Theme.panel, TextColor3 = Theme.text, Font = Theme.font, TextSize = 16, Text = "", Visible = false}, gui)
+  corner(toast, 10); new("UIStroke", {Color = Theme.accent2, Thickness = 1}, toast)
+  local footer = new("TextLabel", {Name = "Footer", Size = UDim2.new(1, -36, 0, 36), Position = UDim2.new(0, 18, 1, -48), BackgroundTransparency = 1, Text = "", TextColor3 = Theme.muted, Font = Theme.font, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left}, panel)
+  local C = {}; local current = nil; local tabButtons = {}; local lastPayload = {}
+  local function line(text, color, size, font, order)
+    return new("TextLabel", {Size = UDim2.new(1, 0, 0, size + 10), BackgroundTransparency = 1, Text = text, TextColor3 = color or Theme.text, Font = font or Theme.font, TextSize = size or 15, TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = order or 0, RichText = true}, content)
+  end
+  local function clear() for _, c in ipairs(content:GetChildren()) do if c:IsA("TextLabel") then c:Destroy() end end end
+  local renderers = {}
+  renderers.Credits = function()
+    line("Production credits · prod. OK", Theme.gold, 18, Theme.fontBlack, 0)
+    line("Confirmed credits only. Sources: Apple Music label-fed credits.", Theme.muted, 13, Theme.font, 1)
+    local lastProject = nil
+    for i, c in ipairs(Credits) do
+      local proj = c.project and (" · " .. c.project) or ""
+      line(string.format("<b>%s</b>  <font color='#9696a5'>%s%s%s%s</font>", c.title, c.artist, proj, c.year and (" · " .. c.year) or "", c.note and (" · " .. c.note) or ""), Theme.text, 15, Theme.font, i + 1)
+    end
+    footer.Text = #Credits .. " credits on the wall"
+  end
+  renderers.Sessions = function(payload)
+    line("Sessions", Theme.gold, 18, Theme.fontBlack, 0)
+    line("Session  <b>wegonebeok_001</b>   142 BPM   F# minor", Theme.text, 15, Theme.mono, 1)
+    line("Make a beat at the studio PC: four tracks, sixteen steps, tempo control, save to your profile.", Theme.text, 14, Theme.font, 2)
+    line("Coming next: more sounds, sharing your beat through the studio monitors, beat battles and collabs.", Theme.muted, 14, Theme.font, 3)
+    footer.Text = "OK Beat Maker v0"
+  end
+  renderers.Profile = function(payload)
+    local p = (payload and payload.profile) or {}
+    line("Producer profile", Theme.gold, 18, Theme.fontBlack, 0)
+    line("<b>" .. (game:GetService("Players").LocalPlayer.DisplayName or "") .. "</b>", Theme.text, 16, Theme.font, 1)
+    line(string.format("Level %d   ·   XP %d   ·   Visits %d   ·   Beats saved %d", p.level or 1, p.xp or 0, p.visits or 0, (p.daw and p.daw.saves) or 0), Theme.accent2, 15, Theme.mono, 2)
+    line("Earn XP by using the studio. Real-world music identity (credits, tags, collabs) links here in a later version.", Theme.muted, 14, Theme.font, 3)
+    footer.Text = "Profile v1"
+  end
+  local function select(tab)
+    current = tab; clear()
+    for name, b in pairs(tabButtons) do b.BackgroundColor3 = (name == tab) and Theme.accent or Theme.line; b.TextColor3 = (name == tab) and Theme.bg or Theme.text end
+    if renderers[tab] then renderers[tab](lastPayload) end
+  end
+  for i, name in ipairs({"Credits", "Sessions", "Profile"}) do
+    local b = new("TextButton", {Name = name, Size = UDim2.fromOffset(110, 32), BackgroundColor3 = Theme.line, Text = name, TextColor3 = Theme.text, Font = Theme.font, TextSize = 15, LayoutOrder = i}, tabs)
+    corner(b, 8); tabButtons[name] = b; b.MouseButton1Click:Connect(function() select(name) end)
+  end
+  close.MouseButton1Click:Connect(function() C.Close() end)
+  function C.Open(tab, payload) lastPayload = payload or {}; panel.Visible = true; select(tab or "Credits") end
+  function C.Close() panel.Visible = false end
+  function C.IsOpen() return panel.Visible end
+  local toastToken = 0
+  function C.Toast(text) toastToken += 1; local my = toastToken; toast.Text = text; toast.Visible = true; task.delay(2.5, function() if toastToken == my then toast.Visible = false end end) end
+  return C
+end
+return M
+]==])
+
+src(ensure(Systems, "ModuleScript", "README"), [==[
+--[[ OK Studio systems folder.
+Each ModuleScript here is a system stub: `return {Enabled=false, Version=0, Init=function(ctx) end}`.
+ServerScriptService.OK.Main requires every stub and calls Init(ctx) only when Enabled is true.
+ctx = { Data = DataService, Lighting = LightingService, Interaction = InteractionService }.
+Add a system: create the module, implement Init, register interaction kinds via ctx.Interaction.Register(kind, handler),
+add prompts to world parts with CollectionService tag "OK_Interactable" and attribute Kind, extend Modules.Interactions with the prompt copy,
+and extend the client panel (Modules.PanelUI) with a renderer. Never put scripts inside Workspace.OKStudio models.
+]]
+return {}
+]==])
+local stubs = {
+  DAW = "Beat-making station. Future: Open(player, station) shows the pattern grid; sessions saved through DataService; the mixing console drives the mix bus.",
+  Tycoon = "Studio progression. Future: unlockable rooms and gear, income from sessions, upgrades purchased with XP or Robux game passes.",
+  Profiles = "Producer profiles. Future: public profile card, producer tag, credits list, links to verified real-world identity.",
+  BeatBattles = "Head-to-head beat battles. Future: matchmaking, timed rounds, audience voting, leaderboard.",
+  Collab = "Artist collaborations. Future: invite a player to a session, shared project state, split credits.",
+  Networking = "Networking and discovery. Future: friends/followers, inbox, studio visits, event calendar.",
+}
+for name, doc in pairs(stubs) do
+  if not Systems:FindFirstChild(name) then src(ensure(Systems, "ModuleScript", name), "--[[ OK Studio system stub: " .. name .. ".\n" .. doc .. "\nInit(ctx) is called by ServerScriptService.OK.Main when Enabled is true. ]]\nreturn { Enabled = false, Version = 0, Init = function(ctx) end }\n") end
+end
+
+src(ensure(Services, "ModuleScript", "DataService"), [==[
+local DSS, Players = game:GetService("DataStoreService"), game:GetService("Players")
+local Config = require(game:GetService("ReplicatedStorage").OK.Config)
+local M = {}; local store; local cache = {}
+local DEFAULT = { level = 1, visits = 0, xp = 0 }
+local function key(p) return "u_" .. p.UserId end
+function M.Load(p)
+  local prof = table.clone(DEFAULT)
+  if store then local ok, data = pcall(function() return store:GetAsync(key(p)) end); if ok and type(data) == "table" then for k, v in pairs(data) do prof[k] = v end end end
+  prof.visits += 1; cache[p.UserId] = prof; return prof
+end
+function M.GetProfile(p) return cache[p.UserId] or M.Load(p) end
+function M.Save(p) local prof = cache[p.UserId]; if store and prof then pcall(function() store:SetAsync(key(p), prof) end) end end
+function M.AddXP(p, n) local prof = M.GetProfile(p); prof.xp += n; prof.level = 1 + math.floor(prof.xp / Config.XP.LevelSize); return prof end
+function M.Init()
+  local ok, s = pcall(function() return DSS:GetDataStore(Config.DataStoreName) end); store = ok and s or nil
+  Players.PlayerAdded:Connect(function(p) M.Load(p) end)
+  Players.PlayerRemoving:Connect(function(p) M.Save(p); cache[p.UserId] = nil end)
+  for _, p in ipairs(Players:GetPlayers()) do M.Load(p) end
+  game:BindToClose(function() for _, p in ipairs(Players:GetPlayers()) do M.Save(p) end end)
+end
+return M
+]==])
+
+src(ensure(Services, "ModuleScript", "LightingService"), [==[
+local Lighting, TS = game:GetService("Lighting"), game:GetService("TweenService")
+local Config = require(game:GetService("ReplicatedStorage").OK.Config)
+local M = {}; M.Current = "Warm"
+local function tween(inst, props, t) TS:Create(inst, TweenInfo.new(t or 1), props):Play() end
+local function isStrip(n) return n:match("^Strip_") or n == "Desk_LED" or n == "Bar_LED" end
+local function isPendant(n) return (n:match("_Bulb$") or n:match("_Lens$")) and n ~= "BoothLamp" end
+function M.Apply(name)
+  local p = Config.LightPresets[name]; if not p then return false end
+  M.Current = name
+  tween(Lighting, {Ambient = p.Ambient, ExposureCompensation = p.Exposure}, 1)
+  for _, d in ipairs(workspace.OKStudio:GetDescendants()) do
+    if d:IsA("BasePart") and d.Material == Enum.Material.Neon then
+      if isPendant(d.Name) then tween(d, {Color = p.Pendant}, 1) elseif isStrip(d.Name) then tween(d, {Color = p.Strip}, 1) end
+      local l = d:FindFirstChildWhichIsA("Light")
+      if l then if isPendant(d.Name) then tween(l, {Color = p.Pendant}, 1) elseif isStrip(d.Name) then tween(l, {Color = p.Strip}, 1) end end
+    end
+  end
+  workspace.OKStudio:SetAttribute("LightPreset", name)
+  return true
+end
+function M.Toggle() M.Apply(M.Current == "Warm" and "Neon" or "Warm"); return M.Current end
+function M.Init() workspace.OKStudio:SetAttribute("LightPreset", M.Current) end
+return M
+]==])
+
+src(ensure(Services, "ModuleScript", "InteractionService"), [==[
+local CS, TS, Players = game:GetService("CollectionService"), game:GetService("TweenService"), game:GetService("Players")
+local RS = game:GetService("ReplicatedStorage")
+local Config = require(RS.OK.Config)
+local Event, ProfileFn = RS.OK.Remotes.InteractionEvent, RS.OK.Remotes.ProfileFunction
+local M = {}; local handlers = {}; local ctx
+function M.Register(kind, fn) handlers[kind] = fn end
+function M.Toggle(inst, attr) local v = not inst:GetAttribute(attr); inst:SetAttribute(attr, v); return v end
+local function send(player, kind, payload) Event:FireClient(player, kind, payload or {}) end
+local recBusy = false
+local function consolePower(player, inst)
+  local on = M.Toggle(inst, "Powered"); ctx.Data.AddXP(player, Config.XP.Console)
+  send(player, "Toast", {text = on and "Console powered on" or "Console powered off"})
+end
+local function setRec(on)
+  local VB = workspace.OKStudio.VocalBooth
+  local rec, lamp, backing = VB:FindFirstChild("REC_Sign"), VB:FindFirstChild("BoothLamp"), VB:FindFirstChild("REC_Backing")
+  if rec then rec:SetAttribute("On", on); rec.Color = on and Color3.fromRGB(255, 40, 40) or Color3.fromRGB(80, 10, 10); local l = rec:FindFirstChildWhichIsA("Light"); if l then l.Enabled = on end end
+  if lamp then lamp.Color = on and Color3.fromRGB(255, 60, 60) or Config.Colors.warm; local l = lamp:FindFirstChildWhichIsA("Light"); if l then l.Color = lamp.Color end end
+  if backing then local t = backing:FindFirstChild("RecText"); local lbl = t and t:FindFirstChild("Label"); if lbl then lbl.TextColor3 = on and Color3.fromRGB(255, 40, 40) or Color3.fromRGB(120, 20, 20) end end
+end
+local function micTake(player, inst)
+  if recBusy then send(player, "Toast", {text = "Booth is recording, wait for the light"}) return end
+  recBusy = true; setRec(true); ctx.Data.AddXP(player, Config.XP.Take)
+  send(player, "Toast", {text = "Recording take… " .. Config.Interaction.RecSeconds .. "s"})
+  task.delay(Config.Interaction.RecSeconds, function() setRec(false); recBusy = false; if player.Parent then send(player, "Toast", {text = "Take saved to session"}) end end)
+end
+local function lightSwitch(player, inst) local name = ctx.Lighting.Toggle(); send(player, "Toast", {text = "Lighting: " .. name}) end
+local function door(player, inst)
+  local open = M.Toggle(inst, "Open")
+  local z = open and (inst:GetAttribute("OpenZ") or 6.3) or (inst:GetAttribute("ClosedZ") or 0)
+  TS:Create(inst, TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CFrame = CFrame.new(inst.Position.X, inst.Position.Y, z)}):Play()
+  local prompt = inst:FindFirstChildWhichIsA("ProximityPrompt", true); if prompt then prompt.ActionText = open and "Close" or "Open" end
+end
+local function computer(player, inst) send(player, "OpenPanel", {tab = "Sessions", source = inst:GetFullName(), profile = ctx.Data.GetProfile(player)}) end
+local function creditsWall(player, inst) send(player, "OpenPanel", {tab = "Credits", source = inst:GetFullName(), profile = ctx.Data.GetProfile(player)}) end
+local tvScreens = {
+  "WEGONEBEOK\n\nOK STUDIO · LOUNGE\n[ CHANGE SCREEN ]",
+  "PROD. OK\n\n%d CREDITS ON THE WALL\n2023 → 2026",
+  "DAW · COMING SOON\n\nMAKE BEATS · BATTLE\nCOLLAB · BUILD YOUR STUDIO",
+}
+local function tv(player, inst)
+  local i = ((inst:GetAttribute("ScreenIndex") or 1) % #tvScreens) + 1; inst:SetAttribute("ScreenIndex", i)
+  local credits = require(RS.OK.Data.Credits)
+  local gui = inst:FindFirstChild("ScreenText"); local lbl = gui and gui:FindFirstChild("Label")
+  if lbl then lbl.Text = string.format(tvScreens[i], #credits) end
+end
+local function hook(inst)
+  if not inst:IsDescendantOf(workspace) then return end
+  local prompt = inst:FindFirstChildWhichIsA("ProximityPrompt", true); if not prompt or inst:GetAttribute("OK_Hooked") then return end
+  inst:SetAttribute("OK_Hooked", true)
+  prompt.Triggered:Connect(function(player)
+    local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if not root or (root.Position - inst.Position).Magnitude > Config.Interaction.MaxDistance + 8 then return end
+    local kind = inst:GetAttribute("Kind"); print(string.format("[OK] %s used %s", player.Name, tostring(kind)))
+    local h = handlers[kind]; if h then h(player, inst) end
+  end)
+end
+function M.Init(c)
+  ctx = c
+  M.Register("Console", consolePower); M.Register("Mic", micTake); M.Register("LightSwitch", lightSwitch); M.Register("Door", door)
+  M.Register("Computer", computer); M.Register("CreditsWall", creditsWall); M.Register("TV", tv)
+  for _, inst in ipairs(CS:GetTagged("OK_Interactable")) do hook(inst) end
+  CS:GetInstanceAddedSignal("OK_Interactable"):Connect(hook)
+  ProfileFn.OnServerInvoke = function(player) return ctx.Data.GetProfile(player) end
+end
+return M
+]==])
+
+local main = ensure(SOK, "Script", "Main"); main.Disabled = false
+src(main, [==[
+-- OK Studio server bootstrap (v1)
+local RS = game:GetService("ReplicatedStorage")
+local Services = script.Parent.Services
+local Data = require(Services.DataService)
+local Lighting = require(Services.LightingService)
+local Interaction = require(Services.InteractionService)
+Data.Init(); Lighting.Init()
+local ctx = { Data = Data, Lighting = Lighting, Interaction = Interaction }
+Interaction.Init(ctx)
+for _, m in ipairs(RS.OK.Systems:GetChildren()) do
+  if m:IsA("ModuleScript") and m.Name ~= "README" then
+    local ok, sys = pcall(require, m)
+    if ok and type(sys) == "table" and sys.Enabled and sys.Init then local ok2, err = pcall(sys.Init, ctx); if not ok2 then warn("[OK] system " .. m.Name .. " failed: " .. tostring(err)) end end
+  end
+end
+workspace.OKStudio:SetAttribute("ServerReady", true)
+print("[OK] studio server ready")
+]==])
+
+local client = ensure(COK, "LocalScript", "ClientMain"); client.Disabled = false
+src(client, [==[
+-- OK Studio client (v1): panel UI, toasts, console meter animation, panel auto-close.
+local RS, Players, RunService, UIS = game:GetService("ReplicatedStorage"), game:GetService("Players"), game:GetService("RunService"), game:GetService("UserInputService")
+local player = Players.LocalPlayer
+local Config = require(RS.OK.Config); local Theme = require(RS.OK.Modules.UITheme); local Credits = require(RS.OK.Data.Credits)
+local Event = RS.OK.Remotes.InteractionEvent
+local gui = player:WaitForChild("PlayerGui"):WaitForChild("OK_UI")
+local panel = require(RS.OK.Modules.PanelUI).Build(gui, Theme, Credits)
+local sourcePos = nil
+local function resolve(fullName)
+  local node = game
+  for seg in string.gmatch(fullName, "[^%.]+") do node = node and node:FindFirstChild(seg) end
+  return node
+end
+Event.OnClientEvent:Connect(function(kind, payload)
+  if kind == "OpenPanel" then
+    local src = payload.source and resolve(payload.source)
+    sourcePos = (src and src:IsA("BasePart")) and src.Position or nil
+    panel.Open(payload.tab, payload)
+  elseif kind == "Toast" then panel.Toast(payload.text or "") end
+end)
+UIS.InputBegan:Connect(function(input, gp)
+  if gp then return end
+  if (input.KeyCode == Enum.KeyCode.Backspace or input.KeyCode == Enum.KeyCode.ButtonB) and panel.IsOpen() then panel.Close() end
+end)
+RunService.Heartbeat:Connect(function()
+  if panel.IsOpen() and sourcePos then
+    local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+    if root and (root.Position - sourcePos).Magnitude > Config.Interaction.PanelCloseDistance then panel.Close() end
+  end
+end)
+-- console meters + speaker LEDs follow the server-owned Powered attribute
+local studio = workspace:WaitForChild("OKStudio"); local CR = studio:WaitForChild("ControlRoom"); local console = CR:WaitForChild("Console")
+local meters, leds = {}, {}
+for _, d in ipairs(CR:GetChildren()) do if d.Name:match("^Meter_") then table.insert(meters, d) elseif d:GetAttribute("SpeakerLED") then table.insert(leds, d) end end
+local acc = 0
+RunService.Heartbeat:Connect(function(dt)
+  acc += dt; if acc < 0.1 then return end; acc = 0
+  local on = console:GetAttribute("Powered") == true or player:GetAttribute("DAWPlaying") == true
+  local t = os.clock()
+  for _, m in ipairs(meters) do
+    local seg, ch = m:GetAttribute("Seg") or 1, m:GetAttribute("Channel") or 1
+    local level = on and math.clamp(math.floor(3.5 + 2.4 * math.sin(t * (1.3 + ch * 0.41)) + math.random(0, 1)), 0, 6) or 0
+    m.Transparency = (seg <= level) and 0 or 0.85
+  end
+  for _, l in ipairs(leds) do l.Color = on and Theme.ledOn or Theme.ledOff end
+end)
+]==])
+return "runtime written:\n" .. table.concat(written, "\n")
