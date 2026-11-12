@@ -36,10 +36,17 @@ if sys.argv[1]!="--schemas":
         time.sleep(1)
     args=json.loads(sys.argv[2]) if len(sys.argv)>2 else {}
     if "studio_id" in args and args["studio_id"] not in [s["id"] for s in studios]:
-        if len(studios) != 1:
-            print("GUARD: %d Studio instances connected; refusing to pick one automatically" % len(studios)); p.terminate(); sys.exit(3)
-        sys.stderr.write("STUDIO_ID switched to %s (%s)\n" % (studios[0]["id"], studios[0].get("name")))
-        args["studio_id"]=studios[0]["id"]
+        pick = studios[0] if len(studios) == 1 else None
+        if pick is None:
+            # several Studios open (e.g. a scratch Baseplate): pick the game place by its placeId, never guess
+            import os
+            want = os.environ.get("OK_PLACE_ID", "139218961436722")
+            match = [s for s in studios if str(s.get("placeId")) == want]
+            if len(match) == 1: pick = match[0]
+        if pick is None:
+            print("GUARD: %d Studio instances connected and none (or several) is place %s; refusing to pick one automatically" % (len(studios), os.environ.get("OK_PLACE_ID", "139218961436722") if len(studios) != 1 else "?")); p.terminate(); sys.exit(3)
+        sys.stderr.write("STUDIO_ID switched to %s (%s)\n" % (pick["id"], pick.get("name")))
+        args["studio_id"]=pick["id"]
     sys.stderr.write("studios=%s\n" % json.dumps(studios))
     send({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":sys.argv[1],"arguments":args}}); m=recv(3, timeout=120)
     if m is None: print("TIMEOUT/no response")

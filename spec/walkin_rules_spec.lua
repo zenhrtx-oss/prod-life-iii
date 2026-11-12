@@ -1219,13 +1219,42 @@ eq("RecentFire known fires", rf[2].fires, 3)
 eq("RecentFire known position", rf[2].pattern, "X")
 eq("RecentFire known count", #rf, 2)
 
--- RecentFire on a full list creates at the front and drops the last
+-- RecentFire on a full list (Wave 3 final review I2, ruling B): the new beat goes to the front and is always kept; the
+-- lowest-quality older entry makes room, a tie to the oldest (the last). With equal qualities that is the last one
 local full = { { pattern = "A", stars = 1, fires = 0 }, { pattern = "B", stars = 1, fires = 0 }, { pattern = "C", stars = 1, fires = 0 } }
 local fz = R.RecentFire(full, "Z", 100, 9, 3)
 eq("RecentFire full: front", fz[1].pattern, "Z")
 eq("RecentFire full: fires", fz[1].fires, 1)
 eq("RecentFire full: count", #fz, 3)
-eq("RecentFire full: last dropped", fz[3].pattern, "B")
+eq("RecentFire full, all equal: the oldest (C) goes", fz[3].pattern, "B")
+eq("RecentFire full, all equal: A kept", fz[2].pattern, "A")
+local function pats(list) local t = {} for i, e in ipairs(list) do t[i] = e.pattern end return table.concat(t, ",") end
+-- the ruling's case: [3* A, 2* B, 2* C] + a FIRE on Z gives [Z, A, B]; the best quality is still A's
+local best = { { pattern = "A", stars = 3, fires = 0 }, { pattern = "B", stars = 2, fires = 0 }, { pattern = "C", stars = 2, fires = 0 } }
+local bz = R.RecentFire(best, "Z", 100, 9, 3)
+eq("RecentFire full [3A,2B,2C] + Z", pats(bz), "Z,A,B")
+eq("RecentFire full [3A,2B,2C] + Z: best is A", R.BestBeat(bz).pattern, "A")
+eq("RecentFire full [3A,2B,2C] + Z: best quality 3", R.BeatQuality(R.BestBeat(bz)), 3)
+-- the best beat oldest: [2* A, 2* B, 3* C] + Z drops B (the oldest of the two 2-stars), never C
+local old = { { pattern = "A", stars = 2, fires = 0 }, { pattern = "B", stars = 2, fires = 0 }, { pattern = "C", stars = 3, fires = 0 } }
+eq("RecentFire full, best oldest: [2A,2B,3C] + Z keeps C", pats(R.RecentFire(old, "Z", 100, 9, 3)), "Z,A,C")
+-- the lowest not last: [1* A, 3* B, 2* C] + Z drops A
+local low = { { pattern = "A", stars = 1, fires = 0 }, { pattern = "B", stars = 3, fires = 0 }, { pattern = "C", stars = 2, fires = 0 } }
+eq("RecentFire full, lowest first: [1A,3B,2C] + Z drops A", pats(R.RecentFire(low, "Z", 100, 9, 3)), "Z,B,C")
+-- quality counts FIRE: [2* A 3 fires (q3), 2* B, 3* C] + Z drops B
+local fq = { { pattern = "A", stars = 2, fires = 3 }, { pattern = "B", stars = 2, fires = 0 }, { pattern = "C", stars = 3, fires = 0 } }
+eq("RecentFire full, quality counts FIRE: [2A+3f,2B,3C] + Z drops B", pats(R.RecentFire(fq, "Z", 100, 9, 3)), "Z,A,C")
+-- the review's evening: [3* A, 2* B, 2* C], then three aired-only beats D, E, F one FIRE each: A stays, its quality 3
+local eve = { { pattern = "A", stars = 3, fires = 0 }, { pattern = "B", stars = 2, fires = 0 }, { pattern = "C", stars = 2, fires = 0 } }
+for _, x in ipairs({ "D", "E", "F" }) do eve = R.RecentFire(eve, x, 100, 9, 3) end
+eq("RecentFire three aired-only beats: [F, A, B]", pats(eve), "F,A,B")
+eq("RecentFire three aired-only beats: best quality stays 3", R.BeatQuality(R.BestBeat(eve)), 3)
+-- an aired-only beat joins even when it is the lowest; a list over max (bad data) comes back at max; max 1 keeps the new
+eq("RecentFire the new one stays at q0", R.RecentFire(best, "Z", 100, 9, 3)[1].stars, 0)
+local over = { { pattern = "A", stars = 3 }, { pattern = "B", stars = 1 }, { pattern = "C", stars = 2 }, { pattern = "D", stars = 0 } }
+eq("RecentFire over max: lowest go first", pats(R.RecentFire(over, "Z", 100, 9, 3)), "Z,A,C")
+eq("RecentFire max 1 keeps only the new", pats(R.RecentFire({ { pattern = "A", stars = 3 } }, "Z", 100, 9, 1)), "Z")
+eq("RecentFire doesn't mutate its input", pats(best), "A,B,C")
 local kd = { { pattern = "K", bpm = 90, stars = 3, fires = 0, day = 1 } }
 for _ = 1, 3 do kd = R.RecentFire(kd, "K", 90, 2, 3) end
 eq("RecentFire keeps stars", kd[1].stars, 3)
@@ -1373,6 +1402,15 @@ eq("HintFor text", (R.HintFor({ "aura" }, {}, HINTS) or {}).text, "Your Aura til
 eq("HintFor Laura", R.HintFor({ "Laura" }, {}, HINTS), nil)
 eq("HintFor hints order beats texts order", (R.HintFor({ "a placement", "Your Aura" }, {}, HINTS) or {}).term, "aura")
 eq("HintFor nil seen", (R.HintFor({ "aura" }, nil, HINTS) or {}).term, "aura")
+-- the skip list (Wave 3 final review M2, ruling D): a card's `nohint` terms (and Systems/Phone's held ones) are passed over
+-- as if seen, never the next term's chance; nil or empty skips nothing
+eq("HintFor skip passes over a term", (R.HintFor(texts, {}, HINTS, { "aura" }) or {}).term, "placement")
+eq("HintFor skip every term", R.HintFor(texts, {}, HINTS, { "aura", "placement" }), nil)
+eq("HintFor skip with seen", R.HintFor(texts, { placement = 1 }, HINTS, { "aura" }), nil)
+eq("HintFor skip nil", (R.HintFor(texts, {}, HINTS, nil) or {}).term, "aura")
+eq("HintFor skip empty", (R.HintFor(texts, {}, HINTS, {}) or {}).term, "aura")
+eq("HintFor skip a set", (R.HintFor(texts, {}, HINTS, { aura = true }) or {}).term, "placement")
+eq("HintFor skip is exact (case as in Config)", (R.HintFor(texts, {}, HINTS, { "Aura" }) or {}).term, "aura")
 
 if #fails > 0 then error(#fails .. " walk-in rules case(s) failed: " .. table.concat(fails, "; ")) end
 print("SPEC OK: walkin rules")

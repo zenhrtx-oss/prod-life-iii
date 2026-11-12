@@ -22,10 +22,13 @@
 --   counted); a respawn and the Reset hooks (this system's, and WalkIns' through WalkIns.OnReset) drop every pending
 --   pop. Each drop sends ("expire", { token }), so the client never keeps a card the server lost. Leaving clears
 --   silently.
--- * Explainers (Wave 3 design 4.5, through WalkIns.Hint, which marks each one seen): a pop's card carries hint =
---   { term, text } for the first unseen term in its line and choice texts as sent (a pop shows no tag), and a result
---   one for its headline and text, except a NEWS whose pop already carried one (a NEWS is one card: its result
---   replaces the message at once, and PhoneUI keeps showing the pop's hint under it).
+-- * Explainers (Wave 3 design 4.5, through WalkIns.Hint): a pop's card carries hint = { term, text } for the first unseen
+--   term in its line and choice texts as sent (a pop shows no tag), and a result one for its headline and text, except a
+--   NEWS whose pop already carried one (a NEWS is one card: its result replaces the message at once, and PhoneUI keeps
+--   showing the pop's hint under it). A result's hint is marked seen when it is sent; a pop's only when the pop opens
+--   (Phone_Open: WalkIns.MarkHint; final review M1, ruling C), so a pop that expires, is dropped or withdrawn unopened
+--   uses up nothing. Until it opens its term is held (WalkIns.HeldHints, set in Init): no other pop, walk-in card or
+--   result takes it meanwhile. An item's `nohint` terms never attach to it or its results (final review M2).
 -- * The cold spell (Wave 3, design 4.2; the state is Systems/Career's): while Career.IsCold, canSend is false, so no pop
 --   comes and the timer stands still. The spell's one NEWS card, cold_news (a `system` card the normal pick never draws),
 --   comes through M.SendSystem(player, id): once the player's profile is ready, they have a character (so the first
@@ -168,7 +171,7 @@ local function popOf(st, e)
 	end
 	Rules.Rollover(st.phone, utcDay())
 	return { token = e.token, card = { id = e.id, app = e.entry and "NEWS" or item.app, line = fill(item.line), choices = choices,
-		news = e.kind == "news", sender = { name = fill(WalkIns.Names[item.visitor] or item.visitor), color = v and v.color } },
+		news = e.kind == "news", sender = { id = item.visitor, name = fill(WalkIns.Names[item.visitor] or item.visitor), color = v and v.color } },
 		today = st.phone.today, max = P.DailyMax }
 end
 
@@ -209,7 +212,7 @@ local function deliver(p, e, res, cost, event, detail, value)
 	local ok, result = pcall(function()
 		local applied, planted = apply(p, res, e.item, cost)
 		local r = resultOf(e, res.outcome, applied, planted)
-		if not (e.kind == "news" and e.hint) then r.hint = WalkIns.Hint(p, WalkIns.ResultTexts(r)) end -- one per NEWS card
+		if not (e.kind == "news" and e.hint) then r.hint = WalkIns.Hint(p, WalkIns.ResultTexts(r), e.item.nohint) end -- one per NEWS card
 		return r
 	end)
 	if not ok then
@@ -250,6 +253,7 @@ local function open(p, token)
 	st.seen[e.id] = (st.seen[e.id] or 0) + 1
 	local day, week = Rules.CapKeys(ctx.Data._now())
 	Rules.CountCap(st, e.item, day, week)
+	if e.hint then WalkIns.MarkHint(p, e.hint.term) end -- the pop's explainer is seen now that the card shows (final review M1)
 	ctx.Data.MarkDirty(p)
 	track(p, "PhoneOpen", e.id, e.entry and "NEWS" or e.item.app)
 	if e.item.system then -- a system card was shown (cold_news: the spell's news, Wave 3); never fails the open
@@ -368,7 +372,8 @@ local function sendPop(p, st, pick, have)
 	pending[uid] = list
 	table.insert(list, e)
 	local payload = popOf(st, e)
-	payload.card.hint = WalkIns.Hint(p, WalkIns.CardTexts(payload.card)) -- its line and choices (a pop shows no tag)
+	-- its line and choices (a pop shows no tag); not marked until it opens (open), held meanwhile (HeldHints)
+	payload.card.hint = WalkIns.Hint(p, WalkIns.CardTexts(payload.card), item.nohint, true)
 	e.hint = payload.card.hint
 	send(p, "pop", payload)
 	Rules.MarkSent(st, item, Content.Deck)
@@ -579,6 +584,14 @@ function M.Init(c)
 		return M.Choose(player, token, index)
 	end
 	WalkIns.OnReset(reset)
+	-- the terms this player's waiting pops hold (final review M1): no other hint takes one before its pop opens
+	WalkIns.HeldHints = function(p)
+		local held = {}
+		for _, e in ipairs(pending[p.UserId] or {}) do
+			if e.hint and not e.opened then held[e.hint.term] = true end
+		end
+		return held
+	end
 	Players.PlayerAdded:Connect(onJoin)
 	Players.PlayerRemoving:Connect(onLeave)
 	for _, p in ipairs(Players:GetPlayers()) do onJoin(p) end

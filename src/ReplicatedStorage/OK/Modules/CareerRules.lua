@@ -59,8 +59,7 @@ end
 -- cfg.aura at that moment (Task 4 fix round 1, ruling C: a quiet spell that ends deep in the red can't re-chill "aura" on
 -- the next check), so it can't re-chill by Aura until Aura has climbed to rearmAura; a check with lastDay nil changes
 -- nothing.
--- On a thaw the caller sets prof.sessions.lastDay = careerDay (design 4.2 "on exit lastDay = exit day"); ColdStep
--- can't, and without it the next check re-chills "quiet".
+-- The caller moves prof.sessions.lastDay after each step by LastDayStep (below); ColdStep never reads more than it is given.
 -- Returns cold', rearm', changed; never changes `cold`
 function M.ColdStep(cold, rearm, aura, careerDay, lastDay, event, cfg)
 	if event == "fire" or event == "delivery3" then
@@ -78,6 +77,18 @@ function M.ColdStep(cold, rearm, aura, careerDay, lastDay, event, cfg)
 		return { since = careerDay, reason = "quiet", news = false }, rearm, true
 	end
 	return nil, rearm, changed
+end
+
+-- the cold spell's lastDay after one ColdStep (`thawed`: that step ended a spell). careerDay when the step found none (a
+-- first read: the next check counts from today, and this one read none, so nobody is cold on a first read), on a thaw
+-- (design 4.2 "on exit lastDay = exit day"; without it the next check re-chills "quiet"), and when the player was heard:
+-- a FIRE to them ("fire") or a cypher win ("cypher"), warm or cold (Wave 3 final review I1, ruling A of 2026-11-12: the
+-- quiet rule catches players nobody hears, and a FIRE or a win is being heard). A cypher win never thaws (ColdStep: any
+-- other event changes nothing). Any other step keeps lastDay; a passed delivery sets it itself (Contracts.RecordDelivery).
+-- Systems/Career.ColdCheck and CareerSim run it after every step
+function M.LastDayStep(lastDay, careerDay, event, thawed)
+	if lastDay == nil or thawed or event == "fire" or event == "cypher" then return careerDay end
+	return lastDay
 end
 
 return M

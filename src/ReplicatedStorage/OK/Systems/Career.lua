@@ -18,14 +18,17 @@
 --   (warm), prof.career.rearm = true or nil (lazy sub-fields: schema v5 unchanged). Every rule is CareerRules.ColdStep on
 --   Config.WalkIns.Cold, run by M.ColdCheck(player, event): "check" after every Aura move through Add / Take and at
 --   Life.Tick's day step; "fire" from Reactions.Give (a FIRE to you) and "delivery3" from Contracts.RecordDelivery (a
---   3-star delivery of any brief), the only two ways out. The career day is prof.life.day; lastDay is
---   prof.sessions.lastDay, read and written through Contracts (its one writer): a check that finds none saves today for the
---   next one and itself reads none, so it never goes cold (nobody is cold on a first read, and days not played never
---   count); set on every passed delivery, and set to today on a thaw (design: "on exit lastDay = exit day"; without it the
---   next check would re-chill "quiet"). Going cold logs the Life kind "cold", ends a burst under way (WalkIns.ColdChanged)
---   and queues the spell's one cold_news through Phone.SendSystem (it waits for the player's ready profile, a character and
---   the tour, and never queues a second while one waits). cold.news turns true only when the card opens (Phone.open ->
---   M.SystemShown); until then every check and the phone's 1 s loop send it again whenever none waits, so a respawn, a
+--   3-star delivery of any brief), the only two ways out; "cypher" from BeatBattles (a cypher win), which never thaws.
+--   The career day is prof.life.day; lastDay is prof.sessions.lastDay, read and written through Contracts (its one
+--   writer): a check that finds none saves today for the next one and itself reads none, so it never goes cold (nobody is
+--   cold on a first read, and days not played never count); set on every passed delivery, set to today on a thaw
+--   (design: "on exit lastDay = exit day"; without it the next check would re-chill "quiet"), and set to today whenever
+--   you are heard, a FIRE to you or a cypher win, warm or cold (CareerRules.LastDayStep after every step; Wave 3 final
+--   review I1, ruling A of 2026-11-12: the quiet spell is for players nobody hears). Going cold logs the Life kind "cold",
+--   ends a burst under way (WalkIns.ColdChanged) and queues the spell's one cold_news through Phone.SendSystem (it waits
+--   for the player's ready profile, a character and the tour, and never queues a second while one waits). cold.news
+--   turns true only when the card opens (Phone.open -> M.SystemShown); until then every check and the phone's 1 s loop
+--   send it again whenever none waits, so a respawn, a
 --   leave or an expiry that drops it never loses it (fix round 1, A). A thaw logs "thaw" (Systems/Life sends the exit
 --   banner) and withdraws an unopened cold_news (Phone.Withdraw: never counted, B). While cold: WalkIns.DailyMaxFor is
 --   Config.WalkIns.Cold.dailyMax and no burst starts; Phone.canSend is false. The player attribute Cold (bool) drives the
@@ -211,8 +214,8 @@ function M.SystemShown(player, id)
 	return true
 end
 
--- one step of the spell (CareerRules.ColdStep on Config.WalkIns.Cold): event "check" | "fire" | "delivery3". Returns a
--- copy of the spell (nil = warm)
+-- one step of the spell (CareerRules.ColdStep on Config.WalkIns.Cold): event "check" | "fire" | "delivery3" | "cypher"
+-- (a cypher win, BeatBattles: it never thaws, it only moves lastDay). Returns a copy of the spell (nil = warm)
 function M.ColdCheck(player, event)
 	if not ctx then return nil end
 	local cfg = coldCfg()
@@ -220,20 +223,18 @@ function M.ColdCheck(player, event)
 	local prof = profile(player)
 	local c = prof.career
 	local day = careerDay(prof)
-	-- lastDay through Contracts: a read that finds none saves today for the next check and passes none to this one, so
-	-- ColdStep's check changes nothing: never cold on a first read (fix round 1, D; nil without Contracts too)
-	local last = try("lastDay", function()
-		local C = contractsSys()
-		local d = C.LastDay(player)
-		if d == nil then C.TouchLastDay(player, day) end
-		return d
-	end)
+	-- lastDay through Contracts (its one writer): nil when none is saved (or without Contracts), so ColdStep's check changes
+	-- nothing: never cold on a first read (fix round 1, D)
+	local last = try("lastDay", function() return contractsSys().LastDay(player) end)
 	local before = type(c.cold) == "table" and c.cold or nil
 	local cold, rearm, moved = Rules.ColdStep(before, c.rearm == true, c.aura, day, last, event, cfg)
+	-- then lastDay (CareerRules.LastDayStep): today after a read that found none (for the next check), a thaw ("on exit
+	-- lastDay = exit day") or being heard, a FIRE to you or a cypher win (final review I1, ruling A); else unchanged
+	local nextLast = Rules.LastDayStep(last, day, event, moved and before ~= nil and cold == nil)
+	if nextLast ~= last then try("lastDay write", function() return contractsSys().TouchLastDay(player, nextLast) end) end
 	if moved then
 		c.cold, c.rearm = cold, rearm == true or nil
-		if before and not cold then -- a thaw: "on exit lastDay = exit day", the stale cold_news withdrawn, the story and banner
-			try("thaw lastDay", function() return contractsSys().TouchLastDay(player, day) end)
+		if before and not cold then -- a thaw (lastDay is today, above): the stale cold_news withdrawn, the story and banner
 			try("thaw news", function() return phoneSys().Withdraw(player, "cold_news") end)
 			try("thaw story", function() return lifeSys().Event(player, "thaw") end)
 			print(string.format("[OK] %s: warm again on career day %d (%s)", tostring(player.Name), day, tostring(event)))

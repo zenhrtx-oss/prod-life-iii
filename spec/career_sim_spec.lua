@@ -1157,8 +1157,9 @@ end
 
 -- Wave 3: the cold spell (design 4.2) ------------------------------------------------------------------------------------
 -- With economy.WALKINS.Cold the sim runs CareerRules.ColdStep as Systems/Career does: "check" at the day's first step and
--- after every Aura move, "delivery3" on a 3-star delivery, "fire" on each FIRE. lastDay = the last delivery's day,
--- defaulted on the first check; a thaw sets it to the thaw's day. While cold: at most Cold.dailyMax walk-ins a day and no
+-- after every Aura move, "delivery3" on a 3-star delivery, "fire" on each FIRE, "cypher" on each cypher win. lastDay =
+-- the last delivery's day, defaulted on the first check; after every step CareerRules.LastDayStep sets it to the day on a
+-- thaw and when the player is heard, a FIRE or a cypher win (final review I1, ruling A). While cold: at most Cold.dailyMax walk-ins a day and no
 -- phone pop, the spell's one cold_news counted on the day's phone total. Without Cold, no cold at all (the economies above).
 local COLD = { aura = -50, quietDays = 3, rearmAura = -25, dailyMax = 2 }
 local function coldEconomy(dailies, fire)
@@ -1183,7 +1184,8 @@ local function visitsByDay(l)
 	return by
 end
 
--- the neglect persona, no resume: 3 dailies on day 1, then nothing. Quiet on day 4 (4 - 1 = 3), cold to the end; 8 walk-ins
+-- the neglect persona, no resume: 3 dailies on day 1, then nothing (no FIRE and no cypher win: a win on day 2 would be
+-- heard and move lastDay, final review I1). Quiet on day 4 (4 - 1 = 3), cold to the end; 8 walk-ins
 -- a day before, 2 a day after; 2 phone pops a day before, none after, the cold_news counted once
 do
 	local s, l = spy()
@@ -1218,13 +1220,14 @@ do
 end
 -- Aura and FIRE: one sure -60 Aura card, no deliveries (lastDay defaults to day 1 at its first check), 1 FIRE a day (before
 -- the visits). Day 1: the first visit goes cold "aura", so 2 visits. Day 2: the FIRE thaws (rearm, lastDay 2) and the
--- visits' -60s can't re-chill it while Aura stays under rearmAura. Day 5: the day step finds 5 - 2 = 3, cold "quiet", and
--- that day's FIRE (after the day step) thaws it again
+-- visits' -60s can't re-chill it while Aura stays under rearmAura. From day 3 each day's FIRE finds the player warm and
+-- moves lastDay to that day (being heard, final review I1), so no day step ever finds 3 quiet days. Before the fix,
+-- lastDay stayed 2 and day 5 went cold "quiet" (then thawed by that day's FIRE): "..., cold 5 quiet, thaw 5 fire"
 do
 	local s, l = spy()
 	local deck = oneCard({ { text = "ouch", sure = true, good = outcome({ aura = -60 }) } })
 	local res = Sim.Run(input({ rules = s, days = 6, cooldown = 0, walkinsPerDay = 8, economy = coldEconomy(0, 1), deck = deck }))
-	eq("cold: aura, fire, quiet, fire", coldLog(res), "cold 1 aura, thaw 2 fire, cold 5 quiet, thaw 5 fire")
+	eq("cold: aura, then FIRE thaws it and each day's FIRE keeps the player warm (no quiet spell on day 5)", coldLog(res), "cold 1 aura, thaw 2 fire")
 	local by = visitsByDay(l)
 	eq("cold: day 1, cold after the first visit: 2 walk-ins", by[1], 2)
 	eq("cold: day 2, thawed by the FIRE: 8 walk-ins", by[2], 8)
@@ -1254,17 +1257,38 @@ do
 	eq("cold: the first read (no lastDay) never goes cold; the next check does", coldLog(res), "cold 2 aura")
 end
 -- C: a quiet spell that ends deep in the red re-arms (CareerRules.ColdStep, ruling C). Neglect with one daily a day (day 1
--- 3 stars; resumeDay 6: day 6 2 stars, day 7 3) and a cypher win every even day that costs 30 Aura: day 2 -30 (warm), day
--- 4 goes cold "quiet" and its cypher takes it to -60, day 6 -90; day 7's 3-star thaws it with rearm, so day 8's check at
--- -90 (and its cypher, -120) never re-chills it as "aura"
+-- 3 stars; resumeDay 6: day 6 2 stars, day 7 3) and one walk-in a day of a sure -15 Aura card (no heal): day 3 -45
+-- (warm), day 4 goes cold "quiet" and its visit takes it to -60, day 6 -90; day 7's 3-star thaws it at -90 with rearm, so
+-- that day's visit (-105) and day 8's check never re-chill it as "aura". (Before the final fix round this case drained
+-- Aura through neglect's cypher wins; neglect now wins none: a cypher win is being heard.)
 do
-	local feeds = merge(table.clone(NO_FEEDS), { cypher = { aura = -30 } })
-	local res = Sim.Run(input({ days = 9, walkinsPerDay = 0, persona = "neglect", resumeDay = 6, deck = deckOf({}),
-		economy = beatEconomy(1, 0, { WALKINS = { RecentMax = 3, Cold = COLD }, feeds = feeds }) }))
+	local deck = oneCard({ { text = "drain", sure = true, good = outcome({ aura = -15 }) } })
+	local res = Sim.Run(input({ days = 9, walkinsPerDay = 1, cooldown = 0, persona = "neglect", resumeDay = 6, deck = deck,
+		economy = beatEconomy(1, 0, { WALKINS = { RecentMax = 3, Cold = COLD } }) }))
 	eq("cold: a quiet spell thawed at -90 re-arms: no 'aura' relapse", coldLog(res), "cold 4 quiet, thaw 7 delivery3")
 	eq("cold: cold days of the deep quiet spell", coldDays(res, 9), "4,5,6")
 end
-
+-- a cypher-only producer (final review I1, ruling A): no deliveries, no FIRE, a cypher win every even day (the economy's
+-- default; 6 days, before day 7's weekly single). Each win moves lastDay to its day, so the day step never finds 3 quiet
+-- days: warm through day 6. Before the
+-- fix lastDay stayed at day 1 (the first check's default) and day 4 went cold "quiet" for good (a win never thaws)
+do
+	local res = Sim.Run(input({ days = 6, walkinsPerDay = 0, deck = deckOf({}), economy = beatEconomy(0, 0, { WALKINS = { RecentMax = 3, Cold = COLD } }) }))
+	eq("cold: a cypher win every other day keeps a non-delivering producer warm", coldLog(res), "")
+end
+-- a cypher win never thaws: the same producer starting at Aura -60 goes cold "aura" on day 2's check (day 1's read finds
+-- no lastDay) and the wins on days 2, 4 and 6 (no Aura feed) leave the spell standing
+do
+	local startAt = setmetatable({ Defaults = function()
+		local d = CR.Defaults()
+		d.aura = -60
+		return d
+	end }, { __index = CR })
+	local res = Sim.Run(input({ days = 6, walkinsPerDay = 0, careerRules = startAt, deck = deckOf({}),
+		economy = beatEconomy(0, 0, { WALKINS = { RecentMax = 3, Cold = COLD } }) }))
+	eq("cold: a cypher win never thaws a spell", coldLog(res), "cold 2 aura")
+	eq("cold: cold to the end through the wins", coldDays(res, 6), "2,3,4,5,6")
+end
 -- no Cold in the economy: no cold model (the same run never goes cold)
 do
 	local deck = oneCard({ { text = "ouch", sure = true, good = outcome({ aura = -60 }) } })

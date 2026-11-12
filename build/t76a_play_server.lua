@@ -13,7 +13,9 @@
 -- unseen term in its tag, line and choices (placement), and Hints holds placement = 4, nothing else. (6) Its choice 3
 -- forced good (CLOUT; Followers set to 1,200 first by a silent Set, so the +1,500 crosses no tier): the result's hint
 -- comes from its headline and text, followers = 4. (7) navx_placement again: no second hint; Hints unchanged. (8) The phone:
--- two_sessions popped (Quiet on): the pop's hint, read from the phone hook's Sent, is hit ("the one-hit wonder"). (9) Each
+-- two_sessions popped (Quiet on): the pop's hint, read from the phone hook's Sent, is hit ("the one-hit wonder"), and
+-- (final review M1, ruling C) it stays unseen until the pop opens: aged past ExpireSeconds unopened, it is dropped and hit
+-- is still unseen; the next pop carries hit again, and opening it (Open, then a dismiss) marks hit at the career day. (9) Each
 -- term once, every value 4. (10) The news strip: with hit unseen again (ResetHints with placement and followers), Followers
 -- set to 6,000 (the HIT's +3,000 crosses no tier) and the news forced good, navx_single's card has no term in its tag,
 -- line or choices, so its hint is hit from the news headline (HIT), still one per card.
@@ -241,7 +243,9 @@ local function run()
 	leave("again", r7)
 	table.insert(out, "7 " .. CARD .. " again: no hint (placement seen, no other term); Hints unchanged")
 
-	-- 8. the phone pop: two_sessions' "one-hit wonder"
+	-- 8. the phone pop: two_sessions' "one-hit wonder". Its hint is marked when the pop opens, not when it is sent (final
+	--    review M1, ruling C): sent, hit stays unseen; left unopened past ExpireSeconds it goes and used up nothing, so the
+	--    next pop carries hit again; opened, Hints.hit is the career day (then dismissed)
 	ph:Invoke("Sent", uid)
 	local seen8 = hints()
 	local tok = ph:Invoke("Pop", uid, DM)
@@ -250,8 +254,18 @@ local function run()
 	assert(pop, "phone: the pop is not in the phone hook's Sent")
 	assert(termOf(pop.hint) == "hit" and pop.hint.text == hintText("hit"), "phone: " .. DM .. "'s pop hint is " .. show(pop.hint)
 		.. ", want hit (before the Task 2 sync of Systems/Phone: the expected red)")
-	assert(hints().hit == DAY and seen8.hit == nil, "phone: Hints.hit is " .. tostring(hints().hit) .. ", want day " .. DAY)
-	table.insert(out, "8 phone pop " .. DM .. ": hint " .. show(pop.hint))
+	assert(seen8.hit == nil and hints().hit == nil, "phone: Hints.hit is " .. tostring(hints().hit) .. " with the pop only sent, want unseen until it opens"
+		.. " (before the final fix round's sync of Systems/Phone and Systems/WalkIns: " .. DAY .. ", the expected red)")
+	assert(ph:Invoke("Age", uid, Config.Phone.ExpireSeconds) == 1, "phone: Age(ExpireSeconds) did not drop the unopened pop")
+	assert(hints().hit == nil, "phone: the pop expired unopened and Hints.hit is " .. tostring(hints().hit) .. ", want unseen")
+	local tok8 = ph:Invoke("Pop", uid, DM)
+	local pop8 = type(tok8) == "string" and popSent(tok8) or nil
+	assert(pop8 and termOf(pop8.hint) == "hit", "phone: the next " .. DM .. " pop's hint is " .. show(pop8 and pop8.hint) .. ", want hit again (the expired pop used up nothing)")
+	assert(ph:Invoke("Open", uid, tok8) == true, "phone: Open of the second pop failed")
+	assert(hints().hit == DAY, "phone: Hints.hit is " .. tostring(hints().hit) .. " once the pop opened, want day " .. DAY)
+	local d8 = ph:Invoke("Choose", uid, tok8, 0)
+	assert(type(d8) == "table" and d8.ok == true, "phone: dismissing the opened DM failed")
+	table.insert(out, "8 phone pop " .. DM .. ": hint " .. show(pop.hint) .. ", unseen while it waits; expired unopened: still unseen, the next pop carries hit; opened: Hints.hit " .. DAY)
 
 	-- 9. once each, the career day each
 	local h9 = hints()

@@ -39,11 +39,17 @@
 --   player hasn't seen in its tag, line and choice texts as sent (WalkInRules.HintFor, whole word), else in its news
 --   strip's headline and text (a follow-up's news, applied on arrival); one per card. A choice's result carries one for
 --   its headline and text. Sending a hint marks it seen, prof.hints[term] = the career day (prof.life.day), so it never
---   comes again. M.Hint, M.CardTexts and M.ResultTexts serve Systems/Phone's pops and results the same way.
+--   comes again. Final review M1/M2 (rulings C, D of 2026-11-12): an item's `nohint` terms (Data/WalkIns) never attach
+--   to it, its news or its results, and no hint takes a term a waiting phone pop holds (M.HeldHints, which Systems/Phone
+--   sets: a pop's hint is marked only when it opens). An arrived card that the client reported deferred and never
+--   showed (WalkIn_Deferred: no report of it on screen, false, or of it deferred after it had shown, seen) and that
+--   expires there un-marks its hint, so the term comes again on a card the player sees. M.Hint, M.MarkHint,
+--   M.CardTexts and M.ResultTexts serve Systems/Phone's pops and results the same way.
 -- * Your beat (Wave 3 design 4.1): on arrival the visit takes one snapshot of your best recent beat (Contracts.BestBeat:
 --   what you delivered or played on the monitors). It fills {beat} in his line, bubble and card ("the one at <bpm>", or
 --   "something" with none: WalkInRules.Fill), rides on the "arrive" card as beat = { stars, fires, bpm } (false with
---   none; only on a card with a `beat` or `beatMin` choice, so the footer shows what decides it; never the pattern), and
+--   none; only on a card with a `beat` or `beatMin` choice, so the footer shows what decides it; never the pattern; a
+--   card with a beatMin choice also carries beatMin, the bar, which the footer names: final review M3), and
 --   decides the choice: a `beat` choice rolls with WalkInRules.BeatTilt of the snapshot's BeatQuality, and every Resolve
 --   gets that quality as beatQ (a `beatMin` choice goes by it). The snapshot is taken again (fix round 1) whenever the
 --   recent beats change while his card waits or shows (Contracts.RecentChanged: a delivery at the beat maker while the
@@ -85,7 +91,7 @@
 --   is a Visitor.SpawnSpot figure on the lounge coffee table instead of a walker; it holds a MaxWalking slot like any
 --   visitor, its card opens wherever the player is in the hub, and it flies off after the result.
 -- * Remotes: WalkIn (server -> client: "arrive", "result", "leave", "beat"), WalkIn_Choose, WalkIn_Deferred (client -> server:
---   token, deferred). In Studio the scheduler is paused while ReplicatedStorage.OK's WalkInsPaused attribute is true
+--   token, deferred, seen). In Studio the scheduler is paused while ReplicatedStorage.OK's WalkInsPaused attribute is true
 --   (tools/test.py sets it around Play), and while that attribute is there at all (true or false: the test hold) no burst
 --   starts and the loop never heals; the Studio-only hook ServerScriptService.OK._StudioWalkInHook exists while
 --   running (its Age(userId, s) moves the open card's clocks s seconds back, so a test can reach an expiry or the next
@@ -285,6 +291,15 @@ local function beatDecides(item)
 	end
 	return false
 end
+-- the bar a card's beatMin choice sets (the highest when more than one), or nil: the payload's beatMin, so the beat line
+-- names it (final review M3, CardFeel.BeatLine)
+local function beatMinOf(item)
+	local m
+	for _, c in ipairs(type(item.choices) == "table" and item.choices or {}) do
+		if type(c) == "table" and type(c.beatMin) == "number" then m = math.max(m or c.beatMin, c.beatMin) end
+	end
+	return m
+end
 -- what the card's payload carries as `beat`: { stars, fires, bpm } of the snapshot or false, only on a card your beat
 -- decides (never the pattern); nil on any other card
 local function beatPayload(rec)
@@ -325,26 +340,59 @@ local function resultTexts(r)
 	addText(list, r.headline); addText(list, r.text)
 	return list
 end
--- the hint for `texts` (WalkInRules.HintFor on Config.Hints: the first term in that order the player hasn't seen), marked
--- seen at once with the career day (prof.life.day; 1 without a life), so the payload that carries it is its only one.
--- Returns a copy { term, text }, or nil. Never fails the payload: an error is reported and gives nil
-local function hint(p, texts)
+-- the terms Systems/Phone's waiting (unopened) pops hold: fn(player) -> { [term] = true }, set by Phone.Init (WalkIns never
+-- requires Phone); nil holds none
+M.HeldHints = nil
+-- prof.hints[term] = the career day (prof.life.day; 1 without a life) unless it is already seen; true when it marked
+local function markHint(p, term)
+	if type(term) ~= "string" then return false end
+	local prof = ctx.Data.GetProfile(p)
+	if type(prof.hints) ~= "table" then prof.hints = {} end
+	if prof.hints[term] ~= nil then return false end
+	local life = prof.life
+	prof.hints[term] = type(life) == "table" and tonumber(life.day) or 1
+	ctx.Data.MarkDirty(p)
+	return true
+end
+-- the hint for `texts` (WalkInRules.HintFor on Config.Hints: the first term in that order the player hasn't seen),
+-- passing over `skip` (the item's `nohint`) and the terms a waiting phone pop holds. Marked seen at once, so the payload
+-- that carries it is its only one, unless `peek` (Systems/Phone marks a pop's at Phone_Open: M.MarkHint). Returns a copy
+-- { term, text }, or nil. Never fails the payload: an error is reported and gives nil
+local function hint(p, texts, skip, peek)
 	local ok, res = pcall(function()
 		local list = Config.Hints
 		if type(list) ~= "table" or #texts == 0 then return nil end
 		local prof = ctx.Data.GetProfile(p)
 		if type(prof.hints) ~= "table" then prof.hints = {} end
-		local h = Rules.HintFor(texts, prof.hints, list)
+		local avoid = {}
+		for _, t in ipairs(type(skip) == "table" and skip or {}) do avoid[t] = true end
+		local held = M.HeldHints and M.HeldHints(p)
+		for t in pairs(type(held) == "table" and held or {}) do avoid[t] = true end
+		local h = Rules.HintFor(texts, prof.hints, list, avoid)
 		if not h then return nil end
-		local life = prof.life
-		prof.hints[h.term] = type(life) == "table" and tonumber(life.day) or 1
-		ctx.Data.MarkDirty(p)
+		if not peek then markHint(p, h.term) end
 		return { term = h.term, text = h.text }
 	end)
 	if not ok then report("hint: " .. tostring(res)); return nil end
 	return res
 end
+-- a hint marked by a card nobody saw goes back to unseen (an arrived card deferred the whole time that expired)
+local function unmarkHint(p, term)
+	local ok, err = pcall(function()
+		local prof = ctx.Data.GetProfile(p)
+		if type(prof.hints) == "table" and prof.hints[term] ~= nil then
+			prof.hints[term] = nil
+			ctx.Data.MarkDirty(p)
+		end
+	end)
+	if not ok then report("unmark hint: " .. tostring(err)) end
+end
 M.Hint, M.CardTexts, M.ResultTexts = hint, cardTexts, resultTexts
+function M.MarkHint(p, term)
+	local ok, res = pcall(markHint, p, term)
+	if not ok then report("mark hint: " .. tostring(res)); return false end
+	return res
+end
 
 local function sign(n) return n > 0 and "+" or "-" end
 local CHIPS = {
@@ -380,8 +428,8 @@ local function cardOf(rec, news)
 	local item, fill = rec.item, rec.fill
 	local choices = {}
 	for i, c in ipairs(item.choices or {}) do choices[i] = { text = fill(c.text), cost = (c.cost or 0) > 0 and c.cost or nil } end
-	return { id = rec.id, visitor = { name = rec.def.name, style = rec.def.style, color = rec.def.color }, tag = fill(item.tag),
-		line = fill(item.line), choices = choices, news = news, beat = beatPayload(rec) }
+	return { id = rec.id, visitor = { id = rec.def.id, sig = rec.def.sig, name = rec.def.name, style = rec.def.style, color = rec.def.color }, tag = fill(item.tag),
+		line = fill(item.line), choices = choices, news = news, beat = beatPayload(rec), beatMin = beatMinOf(item) }
 end
 
 -- the visit's best beat taken again (fix round 1; see the header): only for an arrived card your beat decides, and only
@@ -612,7 +660,8 @@ end
 -- the visit ends with no choice; reason = expired | left_hub | respawn | left_server | error | gone | hook. He walks
 -- out (the pigeon flies off), the client closes the card, nothing is applied. Only `expired` (the card stood open for
 -- the whole limit) puts a note on the "leave" payload, { name, waited = Format.Duration(seconds), line }, and logs
--- CardExpire and CardNote; the visit counted at arrival (design 4.4). No-op unless rec is still the player's in-flight visit
+-- CardExpire and CardNote; the visit counted at arrival (design 4.4). An `expired` card that was deferred and never
+-- shown un-marks its hint (final review M1, ruling C). No-op unless rec is still the player's in-flight visit
 local function endVisit(rec, reason)
 	local uid = rec.player.UserId
 	if pending[uid] ~= rec then return end
@@ -629,6 +678,7 @@ local function endVisit(rec, reason)
 		payload.note = { name = rec.def.name, waited = Format.Duration(waited), line = line }
 		track(rec.player, "CardExpire", rec.id, tostring(waited))
 		track(rec.player, "CardNote", rec.id, line)
+		if rec.hintTerm and rec.deferred and not rec.shown then unmarkHint(rec.player, rec.hintTerm) end -- nobody saw it
 	end
 	send(rec.player, "leave", payload)
 	-- leaving the server re-arms nothing: onLeave clears the timer and the burst, and the leaving player's profile is
@@ -720,7 +770,8 @@ local function onArrive(rec)
 		ctx.Data.MarkDirty(p)
 		local card = cardOf(rec, news)
 		-- one per card: the tag, line and choices first; else the news strip's headline and text (a follow-up's result)
-		card.hint = hint(p, cardTexts(card)) or (news and hint(p, resultTexts(news))) or nil
+		card.hint = hint(p, cardTexts(card), rec.item.nohint) or (news and hint(p, resultTexts(news), rec.item.nohint)) or nil
+		rec.hintTerm = card.hint and card.hint.term or nil -- un-marked if the card expires never shown (endVisit)
 		-- the header's "N OF M TODAY": never under N (fix round 1, E). A visit scheduled before the player went cold (a phone
 		-- DM's loss while he walked in, or this follow-up's own news above) still arrives, and the cold cap reads as reached
 		send(p, "arrive", { token = rec.token, card = card, today = st.today, max = math.max(M.DailyMaxFor(p), st.today) })
@@ -745,10 +796,13 @@ end
 
 -- WalkIn_Deferred (the client hides the arrived card behind the beat maker or a cutaway) and the hook's SetDeferred:
 -- only the player's arrived record with that token changes, anything else is ignored (false). While deferred, upkeep
--- says a waiting line every WaitLineSeconds, the first one that long after the deferral began
-local function setDeferred(p, token, deferred)
+-- says a waiting line every WaitLineSeconds, the first one that long after the deferral began. `seen` (the client's: the
+-- card was on screen before this deferral) and any un-deferral mark the card shown (rec.shown), so an expiry keeps its
+-- hint marked; a card deferred from its arrival and never shown un-marks it (endVisit)
+local function setDeferred(p, token, deferred, seen)
 	local rec = pending[p.UserId]
 	if not rec or not rec.arrived or type(token) ~= "string" or token ~= rec.token then return false end
+	if not deferred or seen then rec.shown = true end
 	if deferred then
 		if not rec.deferred then rec.deferred, rec.deferredAt, rec.lineAt = true, os.clock(), os.clock() end
 	else
@@ -801,7 +855,7 @@ function M.Choose(player, token, index)
 	local ok, err = pcall(function()
 		applied, planted = apply(player, res, rec.item, cost)
 		result = resultOf(rec, res.outcome, applied, planted)
-		result.hint = hint(player, resultTexts(result))
+		result.hint = hint(player, resultTexts(result), rec.item.nohint)
 		handle:Say(rec.fill(res.outcome.line))
 		showTag(player, applied, res.outcome.tone)
 	end)
@@ -1060,7 +1114,7 @@ local function makeHook()
 	local hook = SOK:FindFirstChild("_StudioWalkInHook") or Instance.new("BindableFunction")
 	hook.Name = "_StudioWalkInHook"; hook.Parent = SOK
 	sentLog = sentLog or {}
-	hook.OnInvoke = function(cmd, userId, a, b)
+	hook.OnInvoke = function(cmd, userId, a, b, c)
 		if cmd == "Pause" then RS.OK:SetAttribute("WalkInsPaused", a == true); return true end
 		if cmd == "Walking" then return liveCount end
 		if cmd == "Waiting" then return #waiting end
@@ -1122,7 +1176,7 @@ local function makeHook()
 			if r.lineAt then r.lineAt -= a end
 			return true
 		end
-		if cmd == "SetDeferred" then return setDeferred(p, a, b == true) end -- the WalkIn_Deferred path
+		if cmd == "SetDeferred" then return setDeferred(p, a, b == true, c == true) end -- the WalkIn_Deferred path (c = seen)
 		if cmd == "Sent" then local log = sentLog[uid] or {}; sentLog[uid] = nil; return log end
 		if cmd == "SetRng" then forced[uid] = type(a) == "table" and table.clone(a) or nil; return true end
 		if cmd == "Plant" then -- that follow-up is due now (at = count + 0); false for an unknown id or one already queued
@@ -1153,7 +1207,7 @@ function M.Init(c)
 	local R = RS.OK.Remotes
 	walkInEv = R.WalkIn
 	R.WalkIn_Choose.OnServerInvoke = function(player, token, index) return M.Choose(player, token, index) end
-	R.WalkIn_Deferred.OnServerEvent:Connect(function(player, token, deferred) setDeferred(player, token, deferred == true) end)
+	R.WalkIn_Deferred.OnServerEvent:Connect(function(player, token, deferred, seen) setDeferred(player, token, deferred == true, seen == true) end)
 	-- your beat changed (a delivery, a FIRE): an arrived card waiting or on screen re-takes its snapshot (fix round 1)
 	Contracts.RecentChanged:Connect(function(p)
 		local rec = typeof(p) == "Instance" and pending[p.UserId] or nil

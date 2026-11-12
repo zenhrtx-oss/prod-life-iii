@@ -24,6 +24,11 @@
 -- (5) No lastDay (fix round 1 D): SetCold(nil), Aura -60, SetLastDay(nil): the first ColdCheck("check") is warm and lastDay
 --     becomes DAY (never cold on a first read); the next check goes cold "aura".
 -- (6) The day step: lastDay DAY - 2 and Life AdvanceDay (the real Tick) to DAY + 1: cold "quiet" since DAY + 1.
+-- (7) Being heard keeps you warm (Wave 3 final review I1, ruling A): fresh(), lastDay DAY - 2, then a FIRE through the
+--     real Reactions.Give (FireAs on the player's aired beat, as in 3): warm, lastDay DAY. AdvanceDay twice stays warm;
+--     the third goes cold "quiet" since DAY + 3 (the exact off-by-one: DAY + 3 - DAY = quietDays 3).
+-- (7b) ColdCheck("cypher") (a cypher win, BeatBattles' call; t70 pins that call site): fresh(), lastDay DAY - 2: warm,
+--     lastDay DAY; then cold "quiet" (lastDay DAY - 3 and a check): still cold after the win, lastDay DAY (never a thaw).
 -- Staging for t78b (inside the same pcall): fresh() again, then SetLastDay(DAY - 3) and ColdCheck("check"): the player is
 -- cold (attribute Cold true, BusyDay false) and Quiet stays on, so no card reaches the client; the two ThawBanners of (3)
 -- and (4) went to the client during the body. t78b checks the COLD chip and BannerLog. On any error everything is reset
@@ -278,6 +283,49 @@ local function run()
 	local c11 = cold()
 	assert(c11.cold and c11.cold.reason == "quiet" and c11.cold.since == DAY + 1, "tick: the day step to " .. (DAY + 1) .. " with lastDay " .. (DAY - 2) .. " should go cold quiet, got " .. show(c11))
 	table.insert(out, "6 lastDay " .. (DAY - 2) .. ", Life AdvanceDay to " .. (DAY + 1) .. " (the real Tick): " .. show(c11))
+
+	-- 7. being heard keeps you warm (final review I1, ruling A): warm with lastDay DAY - 2, so the next day step alone would
+	--    find 3 quiet days. A FIRE on the player's aired beat through the real Reactions.Give (FireAs, as step 3) moves
+	--    lastDay to DAY; then the real day steps: warm on DAY + 1 and DAY + 2, cold "quiet" since DAY + 3 (3 - 0 = quietDays)
+	fresh("heard")
+	setLastDay(DAY - 2, "heard")
+	mon:Invoke("Cancel", uid)
+	assert(waitFor(function() local st = mon:Invoke("State"); return st.current == nil end, 25), "heard: the monitors are still busy after 25 s")
+	local q7 = mon:Invoke("Enqueue", uid, p.DisplayName, AIR, 120)
+	assert(q7 and q7.ok, "heard: Enqueue refused: " .. tostring(q7 and q7.reason))
+	assert(waitFor(function() return NP:GetAttribute("Active") == true and NP:GetAttribute("OwnerId") == uid and NP:GetAttribute("Beat") == AIR end, 8),
+		"heard: the player's beat did not go on air")
+	mon:Invoke("FireAs", -7802)
+	local recent7 = test:Invoke("Recent", uid)
+	mon:Invoke("Cancel", uid)
+	assert(type(recent7) == "table" and recent7[1] and recent7[1].pattern == AIR and recent7[1].fires == 1, "heard: the FIRE did not reach the player (no credit on the aired beat)")
+	local c12 = cold()
+	assert(c12.cold == nil and c12.lastDay == DAY, "heard: a FIRE to a warm producer should leave them warm with lastDay " .. DAY .. " (being heard); got "
+		.. show(c12) .. " (before the final fix round's sync of Modules/CareerRules and Systems/Career: lastDay " .. (DAY - 2) .. ", the expected red)")
+	for k = 1, 2 do
+		assert(life:Invoke("AdvanceDay", uid) == true, "heard: AdvanceDay " .. k .. " did not advance")
+		local ck = cold()
+		assert(ck.cold == nil and ck.lastDay == DAY, "heard: the day step to " .. (DAY + k) .. " (" .. k .. " day(s) after the FIRE) should stay warm, got " .. show(ck))
+	end
+	assert(life:Invoke("AdvanceDay", uid) == true, "heard: AdvanceDay 3 did not advance")
+	local c13 = cold()
+	assert(c13.cold and c13.cold.reason == "quiet" and c13.cold.since == DAY + 3, "heard: the day step to " .. (DAY + 3)
+		.. " (3 quiet days after the FIRE) should go cold quiet since " .. (DAY + 3) .. ", got " .. show(c13))
+	table.insert(out, string.format("7 lastDay %d, a FIRE through Reactions.Give: %s; AdvanceDay to %d and %d warm; to %d: %s",
+		DAY - 2, show(c12), DAY + 1, DAY + 2, DAY + 3, show(c13)))
+
+	-- 7b. a cypher win ("cypher", BeatBattles' call; here the career hook's real ColdCheck): warm, it moves lastDay to the
+	--     day; cold, it moves lastDay but never thaws
+	fresh("cypher")
+	setLastDay(DAY - 2, "cypher")
+	local c14 = check("cypher", "cypher")
+	assert(c14.cold == nil and c14.lastDay == DAY, "cypher: a cypher win should leave a warm producer warm with lastDay " .. DAY .. ", got " .. show(c14))
+	setLastDay(DAY - 3, "cypher cold")
+	local c15 = check("check", "cypher cold")
+	assert(c15.cold and c15.cold.reason == "quiet", "cypher cold: SetLastDay(DAY - 3) then a check should go cold quiet, got " .. show(c15))
+	local c16 = check("cypher", "cypher cold")
+	assert(c16.cold and c16.cold.reason == "quiet" and c16.lastDay == DAY, "cypher cold: a cypher win should keep the spell and move lastDay to " .. DAY .. ", got " .. show(c16))
+	table.insert(out, "7b ColdCheck cypher: warm " .. show(c14) .. "; cold " .. show(c16) .. " (no thaw)")
 end
 
 -- staging for t78b (see the header). Returns its report line

@@ -278,7 +278,11 @@ assert(Life.Event(pd, "party", {}) == nil, "an unknown event kind should record 
 local lv = Life.Event(pd, "level", { n = 5 })
 assert(lv and lv.story and lv.story.n == 5 and d.life.firsts.level5 == 4, "a level event should log and tick level5 at the career day")
 assert(RS.OK.Systems.BeatBattles.Source:find('require(RS.OK.Systems.Life).Event(o, "cypher_win")', 1, true), "BeatBattles no longer reports cypher_win to Systems/Life")
-table.insert(out, "(d) a loud crossing plants its visit once; one move at {1, 2} then {2, 3}; a failed plant stops nothing; a queued visit is quiet, another refusal reported; walk-ins off: headline, no plant, no report; an unknown tier repairs silently; Event refuses a tier; BeatBattles' cypher_win line in place")
+-- Wave 3 final fix round (ruling A): the win is also being heard, through Career.ColdCheck "cypher" (t78a drives that path
+-- through the career hook; this pins the call site, which has no cheap real path either). Red before the sync
+assert(RS.OK.Systems.BeatBattles.Source:find('require(RS.OK.Systems.Career).ColdCheck(o, "cypher")', 1, true),
+	"BeatBattles' cypher win does not call Career.ColdCheck(o, \"cypher\") (before the final fix round's sync: the expected red)")
+table.insert(out, "(d) a loud crossing plants its visit once; one move at {1, 2} then {2, 3}; a failed plant stops nothing; a queued visit is quiet, another refusal reported; walk-ins off: headline, no plant, no report; an unknown tier repairs silently; Event refuses a tier; BeatBattles' cypher_win and ColdCheck cypher lines in place")
 table.insert(out, "(d) Publish-only 900 -> 6,000 records BUZZING and KNOWN silently; a loud crossing banners once; fall + re-rise repeats nothing; one loud move banners both; ribbons at the career day")
 
 -- e) Career.State's life: names for ids the content knows, in the current roster

@@ -24,6 +24,10 @@
 -- (6) Holding energy (floor 150) at Aura 0 with rel.rep 1: an arrival plants sponsor_warning for energy, not
 --     sponsor_drop. The warning's arrival (news WARNING, planted) plants sponsor_drop for energy 2 or 3 visits on, and no
 --     second warning; the deal stands.
+-- (6b) A stale queued sponsor_warning (Wave 3 final review M5; WalkIns' dropStale, as the code has it): queued for energy
+--     as in (6), then Aura back at energy's floor: due at once, the scheduler's own pick (Spawn()) drops it from the queue
+--     and picks another visit, no sponsor_drop. Queued again, then the deal gone (Set sponsor false): forced in, it arrives
+--     with news key none (no WARNING) and queues no sponsor_drop.
 -- (7) Bad data: SetRel with an unknown visitor, an unknown flag, a non-number flag day, a score of 99, a string score and a
 --     junk entry keeps { navx = { score 3 }, homekid = { score 0 } } with no flags; SetRel("junk") keeps {}. With bad data
 --     set, the scheduler's Spawn() and the phone's Pop() both still pick (no error).
@@ -309,6 +313,37 @@ local function run()
 	choose(pending(), 0, "warned")
 	table.insert(out, string.format("6 energy at Aura 0, rep 1: an arrival queued sponsor_warning (energy), no drop; its arrival (WARNING, planted) queued sponsor_drop (energy) at +%d, no second warning; deal kept",
 		d.at - count6))
+
+	-- 6b. a stale queued sponsor_warning (final review M5; the code's rule, WalkIns' dropStale, both its arms): queued for
+	--     energy as in 6, then Aura back at energy's floor: due at once (DropAt), the scheduler's own pick (Spawn()) drops it
+	--     from the queue and takes another visit, with no sponsor_drop. Queued again, then the deal gone: forced in
+	--     (Spawn(id)), it arrives with empty news (key none: no WARNING) and plants no sponsor_drop
+	local function queueWarning(label)
+		fresh(label)
+		set({ sponsor = "energy", aura = 0 }, label)
+		setRel({ rep = { score = 1 } }, label)
+		local r = spawnArrived("fan_meet", label)
+		local q = queued("sponsor_warning")
+		assert(q and type(q.ctx) == "table" and q.ctx.sponsor == "energy", label .. ": no sponsor_warning queued for energy")
+		choose(r, 0, label)
+		return q
+	end
+	queueWarning("stale aura")
+	set({ aura = floor }, "stale aura") -- back at energy's floor: the warning no longer applies
+	assert(wi:Invoke("Spawn", uid) == true and pending() ~= nil, "stale aura: the scheduler's Spawn() refused")
+	local pick6b = pending().id
+	assert(pick6b ~= "sponsor_warning", "stale aura: the scheduler's pick is the stale sponsor_warning (Aura " .. floor .. " is at energy's floor)")
+	assert(queued("sponsor_warning") == nil, "stale aura: the stale sponsor_warning is still queued after the pick")
+	assert(queued("sponsor_drop") == nil, "stale aura: a sponsor_drop was queued")
+	assert(wi:Invoke("Expire", uid) == true, "stale aura: Expire found no visit")
+	queueWarning("stale deal")
+	set({ sponsor = false }, "stale deal") -- the deal is gone (Aura still 0)
+	local r6c, c6c = spawnArrived("sponsor_warning", "stale deal")
+	assert(r6c.news == "none" and type(c6c.news) == "table" and c6c.news.headline == "", "stale deal: the stale warning arrived with the news "
+		.. tostring(r6c.news) .. " (headline '" .. tostring(c6c.news and c6c.news.headline) .. "'), want none (no WARNING)")
+	assert(queued("sponsor_drop") == nil and queued("sponsor_warning") == nil, "stale deal: the stale warning's arrival queued a sponsor_drop or another warning")
+	choose(r6c, 0, "stale deal")
+	table.insert(out, "6b stale sponsor_warning: Aura back at the floor -> the scheduler dropped it (picked " .. tostring(pick6b) .. "), no drop; the deal gone -> forced in with news none, no drop")
 
 	-- 7. bad data never crashes or unlocks
 	fresh("bad data")

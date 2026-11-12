@@ -11,14 +11,17 @@
 -- or repeat, any brief, dailies and the weekly too) records its beat through RecordDelivery (WalkInRules.RecentPush: the
 -- same pattern merges, its stars the higher, and moves to the front); a FIRE to the producer (Reactions.Give, only while
 -- the producer is online) adds one to the aired beat through CreditFire (WalkInRules.RecentFire: a beat aired without a
--- delivery joins at 0 stars). `day` is the career day (prof.life.day). This module is the only writer of prof.sessions;
+-- delivery joins at 0 stars, and when the list is full the lowest-quality older beat makes room, ties to the oldest, so a
+-- FIRE never pushes out a better delivered beat: final review I2). `day` is the career day (prof.life.day). This module
+-- is the only writer of prof.sessions;
 -- BestBeat, Recent and SetRecent serve Systems/WalkIns and the Studio hooks, and every write fires RecentChanged(player),
 -- so a walk-in card already on screen or waiting re-takes its beat (Systems/WalkIns, fix round 1).
 -- The cold spell (Wave 3, design 4.2): prof.sessions.lastDay is the career day of the last passed delivery of any brief,
 -- written by RecordDelivery on every pass (Deliver calls it; the Studio hook too), and a 3-star one runs
 -- Career.ColdCheck(player, "delivery3"), one of the spell's two ways out. Systems/Career reads it through LastDay and,
--- being the spell's owner, sets it through TouchLastDay: today on the first check that finds none (that check itself
--- reads none, so it can't go cold), and today on a thaw.
+-- being the spell's owner, sets it through TouchLastDay (CareerRules.LastDayStep): today on the first check that finds
+-- none (that check itself reads none, so it can't go cold), today on a thaw, and today when the player is heard: a FIRE
+-- to them or a cypher win (final review I1, ruling A of 2026-11-12).
 -- It is left nil until then (never defaulted in state(), so no other read fixes the day early).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local Config = require(RS.OK.Config)
@@ -80,7 +83,7 @@ function M.LastDay(player)
 	if d == nil or d ~= d or d == math.huge or d == -math.huge then return nil end
 	return math.floor(d)
 end
--- lastDay set to `day` (a whole career day; nil clears it). Systems/Career's calls (the first check, a thaw, its hooks)
+-- lastDay set to `day` (a whole career day; nil clears it). Systems/Career's calls (ColdCheck's LastDayStep, its hooks)
 -- and RecordDelivery's. Returns true when written, false before Init or for a day that isn't a finite number
 function M.TouchLastDay(player, day)
 	if not ctx then return false end
@@ -191,7 +194,8 @@ function M.RecordDelivery(player, pattern, bpm, stars)
 	return true
 end
 
--- one FIRE on the aired beat `pattern` (RecentFire: a beat not in the list joins at 0 stars, at the front); false for a
+-- one FIRE on the aired beat `pattern` (RecentFire: a beat not in the list joins at 0 stars, at the front, and a full list
+-- drops its lowest-quality older beat, ties to the oldest); false for a
 -- call that isn't one. Reactions.Give calls it for an online producer only
 function M.CreditFire(player, pattern, bpm)
 	if not ctx or type(pattern) ~= "string" or pattern == "" then return false end

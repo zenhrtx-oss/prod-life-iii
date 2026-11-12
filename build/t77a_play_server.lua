@@ -27,6 +27,9 @@
 --     fires 1, with the airing's bpm (Contracts.CreditFire from Reactions.Give).
 -- (6) A 4th pattern drops the oldest: P1..P4 delivered leave P4, P3, P2; P3 again at 2 stars moves to the front and
 --     keeps its 3 stars (the merge keeps the higher).
+-- (7) A FIRE never pushes your best delivered beat out (Wave 3 final review I2, ruling B): P1 at 3 stars, P2 and P3 at 2
+--     delivered, then a FIRE on P4 (aired, never delivered) through Contracts.CreditFire: Recent P4 (0 stars), P3, P1;
+--     the lowest older beat (P2) made room, and BestBeat is still P1 at 3 stars.
 -- Staging for t77b (inside the same pcall): fresh() again, every hint unseen, navx_placement spawned with no beat and
 -- deferred; then P1 at 3 stars with 3 FIRE and the card un-deferred, so its last "beat" update carries { 3, 3, 142 } and
 -- the line "the one at 142". It is left open: t77b checks the client rebuilt the footer and his line from that update,
@@ -277,6 +280,21 @@ local function run()
 	assert(#merged == W.RecentMax and merged[1].pattern == P3 and merged[1].stars == 3 and merged[2].pattern == P4 and merged[3].pattern == P2,
 		"merge: Recent after P3 again at 2 stars is " .. show(merged) .. ", want P3 (3 stars), P4, P2")
 	table.insert(out, "6 P1..P4 delivered: " .. show(four) .. "; P3 again at 2 stars: " .. show(merged))
+
+	-- 7. a FIRE never pushes your best delivered beat out (final review I2, ruling B): P1 at 3 stars, then P2 and P3 at 2
+	--    (newest first P3, P2, P1: the best is the oldest), then one FIRE on P4, aired but never delivered, through the real
+	--    Contracts.CreditFire: P4 joins at the front at 0 stars, the lowest older beat goes (P2, the older 2-star), and
+	--    P1 stays: Recent P4, P3, P1; BestBeat P1 at 3 stars
+	setRecent({}, "fire full")
+	deliver(P1, 142, 3, "fire full"); deliver(P2, 140, 2, "fire full"); deliver(P3, 150, 2, "fire full")
+	fire(P4, 160, "fire full")
+	local ff = recent()
+	assert(#ff == W.RecentMax and ff[1].pattern == P4 and ff[1].stars == 0 and ff[1].fires == 1 and ff[2].pattern == P3 and ff[3].pattern == P1,
+		"fire full: Recent after P1 (3*), P2, P3 (2*) and a FIRE on P4 is " .. show(ff) .. ", want P4 (0*, 1f), P3, P1"
+		.. " (before the final fix round's sync of Modules/WalkInRules: P4, P3, P2, the 3-star P1 dropped: the expected red)")
+	local bb = test:Invoke("BestBeat", uid)
+	assert(type(bb) == "table" and bb.pattern == P1 and bb.stars == 3, "fire full: BestBeat is " .. show(type(bb) == "table" and { bb } or {}) .. ", want P1 at 3 stars")
+	table.insert(out, "7 P1 3*, P2 2*, P3 2*, then a FIRE on P4 (aired only): Recent " .. show(ff) .. "; BestBeat P1 3*")
 end
 
 -- staging for t77b (see the header). Returns its report line

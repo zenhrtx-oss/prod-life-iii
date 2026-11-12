@@ -18,7 +18,8 @@
 -- every random run must roll some, and each seed set prints each policy's mean tilt a roll (the tuning aims it near 0).
 -- The cold spell (Wave 3, design 4.2; the sim runs CareerRules.ColdStep on the fixture's WALKINS.Cold): random, greedy,
 -- the career chaser and spend-down never go cold in days 1-7 on either seed set (design anti-goal: a regular player cold
--- in their first career week), and the `neglect` persona (delivers on day 1, then nothing until resumeDay 6, no FIRE) is
+-- in their first career week), and the `neglect` persona (delivers on day 1, then nothing until resumeDay 6, no FIRE and
+-- no cypher win: either would be heard and move lastDay, final review I1) is
 -- cold on day 4 and 5 on every seed (it goes cold on day 4 at the latest: "quiet", or earlier by Aura) and thaws on its
 -- day-6 3-star delivery, with nothing ending the spell before it, and is warm at the end of day 6.
 -- They remember you (Wave 3, design 4.3; CareerSim keeps the relationships through the same pure rules): the 18 arc
@@ -28,6 +29,8 @@
 -- or homer run (no gate the deck can't open), except sponsor_warning: it stands in for a sponsor_drop, which itself comes
 -- on only a few runs (a player holding a deal rarely falls under its floor; printed beside it), so career_sim_spec and
 -- t79a prove it instead. The old mom cards, gated only on her silence, still come on most random runs.
+-- Short repeats (final review M8): on the first 60 of the 200 seeds no arc entry comes again within 8 walk-ins of itself
+-- more than 15 times in all (Task 5's fix round metric; see the block above the prints).
 -- Run: sh tools/spec.sh pacing
 local Sim = require("../src/ReplicatedStorage/OK/Modules/CareerSim")
 local R = require("../src/ReplicatedStorage/OK/Modules/WalkInRules")
@@ -75,8 +78,8 @@ assert(TWO and TWO.choices[1].sure == true and TWO.choices[2].ready == true,
 	"two_sessions: choice 1 must be sure (the hometown kid) and choice 2 ready (the one-hit wonder) for HOMER and CLIMBER")
 
 local DAYS = 60
-local function run(seed, policy, spendDown, prefer, persona, resumeDay)
-	return Sim.Run({ days = DAYS, economy = E, deck = W.Deck, rules = R, careerRules = CR, odds = ODDS, followupAt = { 2, 4 },
+local function run(seed, policy, spendDown, prefer, persona, resumeDay, rules)
+	return Sim.Run({ days = DAYS, economy = E, deck = W.Deck, rules = rules or R, careerRules = CR, odds = ODDS, followupAt = { 2, 4 },
 		dropAt = { 1, 1 }, cooldown = 3, walkinsPerDay = 8, phonePerDay = 6, phoneSeed = seed, auraHeal = 5, rng = Sim.Lcg(seed),
 		policy = policy, spendDown = spendDown, prefer = prefer, gates = GATES, tiers = E.LIFE.Tiers, tierVisits = E.LIFE.TierVisits,
 		persona = persona, resumeDay = resumeDay })
@@ -330,11 +333,49 @@ local line200, share200, tiers200, arcs200 = check(SEEDS_200, "200 seeds")
 ok(string.format("[200 seeds] random: steady share median %.4f >= floor %.4f (BASELINE_SHARE_200 %.4f - 0.005)", share200, FLOOR_200,
 	BASELINE_SHARE_200), share200 >= FLOOR_200)
 
+-- short repeats (Task 5 fix round's metric; Wave 3 final review M8, ruling F): over the first REPEAT_SEEDS of the
+-- recorded 200, the random player's walk-in arrivals (read through a WalkInRules stand-in: arrive() moves walkins.count,
+-- then calls CountCap; a phone open never moves count), counting each arrival of a card or follow-up that came again within
+-- REPEAT_WINDOW walk-ins of its last one. No arc entry may do that more than REPEAT_MAX times in all (ordinary cards sit
+-- at 10-16 from the rng alone; before Task 5's Seed fix blogger_exclusive made 57), so a content change can't bring the
+-- bursts back silently. The stand-in changes no draw: these are the 200-seed random runs' own arrivals
+local REPEAT_SEEDS, REPEAT_WINDOW, REPEAT_MAX = 60, 8, 15
+local repeats = {}
+for i = 1, REPEAT_SEEDS do
+	local lastCount, arrivals = 0, {}
+	local S = setmetatable({}, { __index = R })
+	function S.CountCap(state, item, day, week)
+		if state.count ~= lastCount then
+			lastCount = state.count
+			table.insert(arrivals, { count = state.count, id = item.id })
+		end
+		return R.CountCap(state, item, day, week)
+	end
+	run(SEEDS_200[i], "random", nil, nil, nil, nil, S)
+	local last = {}
+	for _, a in ipairs(arrivals) do
+		local prev = last[a.id]
+		if prev and a.count - prev <= REPEAT_WINDOW then repeats[a.id] = (repeats[a.id] or 0) + 1 end
+		last[a.id] = a.count
+	end
+end
+local repeatParts, worstArc, worstN = {}, nil, -1
+for _, id in ipairs(ARCS) do
+	local n = repeats[id] or 0
+	ok(string.format("[%d seeds] random: arc %s came again within %d walk-ins %d times (<= %d)", REPEAT_SEEDS, id, REPEAT_WINDOW, n, REPEAT_MAX), n <= REPEAT_MAX)
+	if n > worstN then worstArc, worstN = id, n end
+	if n > 0 then table.insert(repeatParts, id .. " " .. n) end
+end
+local worstAny, worstAnyN = nil, -1
+for id, n in pairs(repeats) do if n > worstAnyN or (n == worstAnyN and id < worstAny) then worstAny, worstAnyN = id, n end end
+
 print(line20)
 print(tiers20)
 print(arcs20)
 print(string.format("%s; random share median %.4f vs floor %.4f", line200, share200, FLOOR_200))
 print(tiers200)
 print(arcs200)
+print(string.format("short repeats (within %d walk-ins), random, first %d of the 200 seeds: arcs worst %s %d (max %d): %s; any card worst %s %d",
+	REPEAT_WINDOW, REPEAT_SEEDS, tostring(worstArc), worstN, REPEAT_MAX, table.concat(repeatParts, ", "), tostring(worstAny), worstAnyN))
 if #fails > 0 then error(#fails .. " pacing case(s) failed: " .. table.concat(fails, "; ")) end
 print("SPEC OK: pacing")

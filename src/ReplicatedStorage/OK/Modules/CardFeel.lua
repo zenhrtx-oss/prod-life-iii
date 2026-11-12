@@ -1,9 +1,11 @@
 -- OK Studio card feel (client; design 4.5): what the walk-in card (WalkInUI) and the phone card (PhoneUI) share in 1b.
 -- Built once by its first caller: the six UI sounds are made on first use, nothing runs at require time.
 -- * Footer(): the local player's Aura band line (Format.AuraFooter: in the red, 0-299, 300 and up).
--- * BeatLine(beat): the walk-in card's second footer line (Wave 3 design 4.1) for its payload's `beat`: a { stars, fires }
---   reads "Your best beat: ★★★ · 🔥 3" (the stars out of three, the FIRE part only once it has FIRE), false reads "No
---   beat delivered yet. Your odds are lower."; nil (no choice on the card goes by your beat) gives nil: no line.
+-- * BeatLine(beat, beatMin): the walk-in card's second footer line (Wave 3 design 4.1) for its payload's `beat`: a
+--   { stars, fires } reads "Your best beat: ★★★ · 🔥 3" (the stars out of three, the FIRE part only once it has FIRE),
+--   false reads "No beat delivered yet. Your odds are lower."; nil (no choice on the card goes by your beat) gives nil:
+--   no line. On a card a beatMin choice decides (the payload's beatMin; final review M3) it names the bar instead:
+--   Format.BeatBar, "Needs a 3★ best beat. Yours: ★★☆." (the stars are WalkInRules.BeatQuality's, which the bar reads).
 -- * Opened(token): the CardOpen riser, once per token (a card hidden and shown again by the beat maker stays quiet).
 -- * Pop(token): the PhoneBuzz, once per token (the icon's re-shake never buzzes).
 -- * Result(payload, dawUp): Win or Loss at once (a neutral result has neither), Money 0.25 s later when a chip of kind
@@ -27,6 +29,7 @@
 local Players, RS, SoundService = game:GetService("Players"), game:GetService("ReplicatedStorage"), game:GetService("SoundService")
 local Config = require(RS.OK.Config)
 local Format = require(RS.OK.Modules.Format)
+local WalkInRules = require(RS.OK.Modules.WalkInRules)
 
 local M = {}
 local UI_KEYS = { "CardOpen", "Win", "Loss", "Money", "Plant", "PhoneBuzz" } -- the Config.SFX keys played here
@@ -91,8 +94,13 @@ function M.Footer()
 end
 
 M.NoBeat = "No beat delivered yet. Your odds are lower."
-function M.BeatLine(beat)
+function M.BeatLine(beat, beatMin)
 	if beat == nil then return nil end
+	if type(beatMin) == "number" then
+		if type(beat) ~= "table" then return Format.BeatBar(beatMin, nil, nil) end
+		local st, fi = tonumber(beat.stars) or 0, tonumber(beat.fires) or 0
+		return Format.BeatBar(beatMin, WalkInRules.BeatQuality({ stars = st, fires = fi }), fi)
+	end
 	if type(beat) ~= "table" then return M.NoBeat end
 	local stars = math.clamp(math.floor(tonumber(beat.stars) or 0), 0, 3)
 	local fires = math.max(0, math.floor(tonumber(beat.fires) or 0))

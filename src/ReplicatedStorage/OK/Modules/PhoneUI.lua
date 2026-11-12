@@ -11,7 +11,10 @@
 -- * "pop": the card on the right (right -16, top 58: under the icon in both spots, or 8 px under the career pills
 --   when they stack (phones, under 780 px: they end at y 66 and reach the card's column); min(300, vp.X * 0.42) wide,
 --   at least 240): the app label and the sender's name in the visitor's colour, the message and the choices in a middle
---   that scrolls on phones, the footer with DISMISS. While the cypher bar shows beside the pills (y 10, from 932 px
+--   that scrolls on phones, the footer with DISMISS. A person's card (Wave 3 Task 5d: VisitorLooks.IsPerson of the
+--   payload's sender.id; never a phone-only sender's, such as NEWS PING) shows his face at the header row's left,
+--   Card.Portrait.View (VisitorFigure.SetPortrait for a person only, as the walk-in card's), the label and the name beside
+--   it; it is built when the card opens and destroyed when it closes. While the cypher bar shows beside the pills (y 10, from 932 px
 --   wide) and reaches the card's column, the card sits 8 px under the bar instead, as FIRE does, so it never covers
 --   the bar's text; a bar under the pills (phones, y 74) starts at the card's top and shares its rows (documented
 --   in t57b, like FIRE and SAMPLE IT). One card at a time, in arrival order: a pop opens by itself only
@@ -62,13 +65,14 @@ local Config = require(RS.OK.Config)
 local Format = require(RS.OK.Modules.Format)
 local CardFeel = require(RS.OK.Modules.CardFeel)
 local Rules = require(RS.OK.Modules.WalkInRules)
+local Figure = require(RS.OK.Modules.VisitorFigure)
 local M = {}
 local MIN = 44                 -- touch target
 local ICON = 44
 local PAD = 12                 -- card padding
 local TOP, RIGHT, MARGIN = 58, 16, 8 -- the card's top, its distance from the right edge, its bottom margin
 local GAP, CGAP = 8, 6         -- row gap, gap between choices
-local HEAD = 44                -- the header row: the app label over the sender's name
+local HEAD = 44                -- the header row: the app label over the sender's name (and a person's portrait, as tall)
 local ARM_SECONDS = 0.6        -- a card that opened by itself ignores button presses this long
 local COST_W = 88              -- the cost column of a paid choice ("$400" / "· can't afford")
 local DISMISS_W = 104
@@ -167,6 +171,15 @@ function M.Build(Theme)
 	corner(header, 11)
 	local senderL = new("TextLabel", { Name = "Sender", BackgroundTransparency = 1, Font = Theme.fontBlack, TextSize = 15, TextColor3 = Theme.accent,
 		TextXAlignment = LEFT, TextTruncate = Enum.TextTruncate.AtEnd, Text = "" }, card)
+	-- a person's face, HEAD px square at the header row's left: one copy per open card (setPortrait), none for a sender
+	local portrait = new("Frame", { Name = "Portrait", Size = UDim2.fromOffset(HEAD, HEAD), BackgroundColor3 = Theme.bg, BorderSizePixel = 0,
+		ClipsDescendants = true, Visible = false }, card)
+	corner(portrait, 8)
+	local view = nil -- the copy on screen (the layout makes room for it)
+	local function setPortrait(sender)
+		view = Figure.SetPortrait(portrait, sender, { person = true, bg = Theme.bg, corner = 8 })
+		portrait.Visible = view ~= nil
+	end
 	-- the middle scrolls when a phone can't fit the message and the choices
 	local scroll = new("ScrollingFrame", { Name = "Scroll", BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 4,
 		ScrollBarImageColor3 = Theme.muted, ScrollingDirection = Enum.ScrollingDirection.Y, CanvasSize = UDim2.new() }, card)
@@ -379,9 +392,11 @@ function M.Build(Theme)
 		local top0 = cardTop(vp, W)
 		local inner = W - 2 * PAD
 		local top = PAD
-		local headerW = math.min(inner, math.ceil(measure(header.Text, 10, Theme.fontBlack, 1000).X) + 20)
-		header.Position = UDim2.fromOffset(PAD, top); header.Size = UDim2.fromOffset(headerW, 22)
-		senderL.Position = UDim2.fromOffset(PAD, top + 24); senderL.Size = UDim2.fromOffset(inner, 20)
+		local px = view and (HEAD + 8) or 0 -- a person's portrait takes the row's left
+		portrait.Position = UDim2.fromOffset(PAD, top)
+		local headerW = math.min(inner - px, math.ceil(measure(header.Text, 10, Theme.fontBlack, 1000).X) + 20)
+		header.Position = UDim2.fromOffset(PAD + px, top); header.Size = UDim2.fromOffset(headerW, 22)
+		senderL.Position = UDim2.fromOffset(PAD + px, top + 24); senderL.Size = UDim2.fromOffset(inner - px, 20)
 		-- the footer line sits beside DISMISS when it fits 44 px there (wide cards), else above it
 		local fw = inner - DISMISS_W - 8
 		local beside = math.ceil(measure(footer.Text, 11, Theme.font, fw).Y) <= MIN
@@ -496,6 +511,7 @@ function M.Build(Theme)
 		local s = type(c.sender) == "table" and c.sender or {}
 		header.Text = tostring(c.app or "MESSAGES")
 		senderL.Text = tostring(s.name or "?"); senderL.TextColor3 = colorOf(s.color, Theme.accent)
+		setPortrait(s) -- a person's face (the payload's sender.id); none for a phone-only sender
 		lineL.Text = (type(c.line) == "string" and c.line ~= "") and ("“" .. c.line .. "”") or ""
 		cardStroke.Color = Theme.line
 		dismiss.Text = cur.news and "OK" or "DISMISS"; dismiss.BackgroundColor3 = Theme.line; dismiss.TextColor3 = Theme.text
@@ -530,6 +546,7 @@ function M.Build(Theme)
 		cur, forced, hidden = nil, false, false
 		closeSerial += 1
 		arm(0)
+		setPortrait(nil) -- the copy goes with the card
 		card.Visible = false
 		releaseSelection()
 		gui:SetAttribute("Open", false); gui:SetAttribute("Token", ""); gui:SetAttribute("Card", ""); gui:SetAttribute("Choices", 0)

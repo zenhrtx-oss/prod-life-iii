@@ -467,10 +467,16 @@ function M.Fill(text, names, sponsorName, beatBpm)
 end
 
 -- the first term in `hints` ({ { term, text } }, in order) that `seen` ({ [term] = n }) hasn't and some text in `texts`
--- says as a whole word (case-insensitive: "auras" and "plaurall" are not "aura"); nil when none
-function M.HintFor(texts, seen, hints)
+-- says as a whole word (case-insensitive: "auras" and "plaurall" are not "aura"); nil when none. `skip` (optional: a
+-- list of terms, or a set { [term] = true }) is passed over as if seen: a card's `nohint`, where a word is used in
+-- another sense (Wave 3 final review M2), and the terms Systems/Phone's waiting pops hold
+function M.HintFor(texts, seen, hints, skip)
+	local skipSet = {}
+	for k, v in pairs(type(skip) == "table" and skip or {}) do
+		if type(k) == "number" then skipSet[v] = true elseif v then skipSet[k] = true end
+	end
 	for _, h in ipairs(hints) do
-		if not (seen and seen[h.term]) then
+		if not (seen and seen[h.term]) and not skipSet[h.term] then
 			local pat = "%f[%w]" .. string.gsub(string.lower(h.term), "%W", "%%%0") .. "%f[%W]"
 			for _, t in ipairs(texts) do
 				if string.find(string.lower(t), pat) then return h end
@@ -513,7 +519,9 @@ function M.RecentPush(recent, entry, max)
 end
 
 -- the recent list after one FIRE on `pattern`: a known one gains a fire where it stands; an unknown one is created at the
--- front with stars 0 first. Returns a new list
+-- front with stars 0 first and always kept. Past `max`, the older entry with the lowest BeatQuality goes, a tie to the
+-- oldest (the last), so a FIRE on a beat you only aired never pushes out a better one you delivered (Wave 3 final review
+-- I2, ruling B: stars as the base, FIRE as a bonus). Returns a new list
 function M.RecentFire(recent, pattern, bpm, day, max)
 	local out, found = {}, false
 	for _, e in ipairs(recent) do
@@ -526,7 +534,14 @@ function M.RecentFire(recent, pattern, bpm, day, max)
 	end
 	if not found then
 		table.insert(out, 1, { pattern = pattern, bpm = bpm, stars = 0, fires = 1, day = day })
-		while #out > max do table.remove(out) end
+		while #out > max and #out > 1 do
+			local drop, dropQ = nil, nil
+			for i = 2, #out do
+				local q = M.BeatQuality(out[i])
+				if dropQ == nil or q <= dropQ then drop, dropQ = i, q end
+			end
+			table.remove(out, drop)
+		end
 	end
 	return out
 end

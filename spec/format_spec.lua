@@ -1,4 +1,4 @@
--- CLI spec for Modules/Format (pure money, count, duration and Aura footer text). Run: sh tools/spec.sh format
+-- CLI spec for Modules/Format (pure money, count, duration, Aura footer and beat bar text). Run: sh tools/spec.sh format
 local Format = require("../src/ReplicatedStorage/OK/Modules/Format")
 
 local fails = {}
@@ -82,6 +82,47 @@ check("AuraFooter", 300, LOUD)
 for _, aura in ipairs({ -1, 0, 300 }) do
 	local line = Format.AuraFooter(aura)
 	if #line > 58 then table.insert(fails, string.format("AuraFooter(%d): %d characters > 58", aura, #line)) end
+end
+
+
+-- BeatBar (Wave 3 final review M3, ruling E): the walk-in card's beat line on a card a beatMin choice decides names the
+-- bar and your best beat's quality in stars (WalkInRules.BeatQuality, three shown at most) with its FIRE; nil quality =
+-- no beat delivered. Checked on rival_war's real beatMin choice, below and at the bar, and against the rule itself: the
+-- line shows the bar met exactly when the choice is sure to land good (WalkInRules.ChoiceChance 100)
+do
+	local W = require("../src/ReplicatedStorage/OK/Data/WalkIns")
+	local R = require("../src/ReplicatedStorage/OK/Modules/WalkInRules")
+	local war
+	for _, c in ipairs(W.CardById.rival_war.choices) do if c.beatMin then war = c end end
+	assert(war and war.beatMin == 3, "rival_war's beatMin choice is gone or moved off 3: update these cases")
+	local function bar(beat)
+		if beat == nil then return Format.BeatBar(war.beatMin, nil, nil) end
+		return Format.BeatBar(war.beatMin, R.BeatQuality(beat), beat.fires)
+	end
+	local function want(name, got, line)
+		if got ~= line then table.insert(fails, string.format("BeatBar %s: expected %q, got %q", name, line, tostring(got))) end
+	end
+	want("rival_war, no beat", bar(nil), "Needs a 3★ best beat. Yours: none yet.")
+	want("rival_war, below (2 stars)", bar({ stars = 2, fires = 0 }), "Needs a 3★ best beat. Yours: ★★☆.")
+	want("rival_war, below (0 stars, 1 FIRE: aired only)", bar({ stars = 0, fires = 1 }), "Needs a 3★ best beat. Yours: ☆☆☆ · 🔥 1.")
+	want("rival_war, at the bar (3 stars)", bar({ stars = 3, fires = 0 }), "Needs a 3★ best beat. Yours: ★★★.")
+	want("rival_war, FIRE lifts 2 stars to the bar", bar({ stars = 2, fires = 3 }), "Needs a 3★ best beat. Yours: ★★★ · 🔥 3.")
+	want("rival_war, over the bar (quality 4)", bar({ stars = 3, fires = 5 }), "Needs a 3★ best beat. Yours: ★★★ · 🔥 5.")
+	local odds = { auraPer = 20, auraCap = 15, followersPer = 1000, followersCap = 10, min = 10, max = 90 }
+	for _, b in ipairs({ { stars = 0, fires = 0 }, { stars = 1, fires = 0 }, { stars = 2, fires = 0 }, { stars = 2, fires = 3 },
+		{ stars = 3, fires = 0 }, { stars = 3, fires = 3 } }) do
+		local line = bar(b)
+		local _, filled = string.gsub(string.match(line, "Yours: (.*)$") or "", "★", "")
+		local sure = R.ChoiceChance(war, { aura = 0, followers = 0 }, odds, 0, R.BeatQuality(b)) == 100
+		if (filled >= war.beatMin) ~= sure then
+			table.insert(fails, string.format("BeatBar %d stars %d FIRE: the line shows %d of %d but the choice is %s", b.stars, b.fires, filled, war.beatMin, sure and "sure" or "lost"))
+		end
+		-- no longer than the no-beat line it stands in for, so it never takes more lines on the phone card
+		if utf8.len(line) > utf8.len("No beat delivered yet. Your odds are lower.") then
+			table.insert(fails, string.format("BeatBar %q: %d characters, longer than the no-beat line", line, utf8.len(line)))
+		end
+	end
+	want("whole numbers", Format.BeatBar(2.9, 1.7, 0.4), "Needs a 2★ best beat. Yours: ★☆☆.")
 end
 
 if #fails > 0 then error(#fails .. " format case(s) failed: " .. table.concat(fails, "; ")) end

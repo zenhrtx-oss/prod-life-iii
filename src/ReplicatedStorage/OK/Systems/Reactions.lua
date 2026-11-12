@@ -5,7 +5,8 @@
 -- from one listener to one producer per UTC day (prof.fireLog). Each FIRE also feeds the producer's Followers
 -- (Systems/Career) and goes on the aired beat in the producer's recent beats (Wave 3, design 4.1: Contracts.CreditFire,
 -- the one writer of prof.sessions; the pattern and bpm come from NowPlaying while it still airs that token). A FIRE to an
--- online producer also ends their cold spell (Wave 3, design 4.2: Career.ColdCheck "fire"), whatever the beat credit did.
+-- online producer also ends their cold spell (Wave 3, design 4.2: Career.ColdCheck "fire"), whatever the beat credit did,
+-- and counts as being heard: it moves their lastDay to today, warm or cold (final review I1, CareerRules.LastDayStep).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local Config = require(RS.OK.Config)
 local DAWCfg = require(RS.OK.Modules.DAWConfig)
@@ -73,7 +74,8 @@ function M.Give(listenerId, listener, authorId, token)
 			if type(beat) == "string" and beat ~= "" then require(RS.OK.Systems.Contracts).CreditFire(author, beat, NP:GetAttribute("BPM")) end
 		end)
 		if not okB then warn("[OK][ERR] beat FIRE credit: " .. tostring(errB)) end
-		-- the cold spell: a FIRE on a beat you put on the monitors is one of its two ways out (never touches the FIRE)
+		-- the cold spell: a FIRE on a beat you put on the monitors is one of its two ways out, and keeps a warm producer's
+		-- lastDay at today (being heard, final review I1); never touches the FIRE
 		local okC, errC = pcall(function() require(RS.OK.Systems.Career).ColdCheck(author, "fire") end)
 		if not okC then warn("[OK][ERR] cold FIRE: " .. tostring(errC)) end
 		RS.OK.Remotes.InteractionEvent:FireClient(author, "Toast", { text = "🔥 FIRE from " .. (listener and listener.DisplayName or "a listener") .. ((cred or 0) > 0 and (" · " .. Format.SignedMoney(cred)) or "") })

@@ -240,6 +240,14 @@ With D6, D10 and D12 the launch list grows. The build plan stages it, and Wave 3
   - **Missing:** deal terms, ownership and no-credit records.
 
   So the first two or three directions should read from the durable facts. Ghost, ownership, label and comeback careers need new saved history and new gameplay before they can be claimed. Lifetime achievements stay separate from current standing.
+- **Deeper careers: IN LAUNCH** (approved in the 11-12 review chat: "agree with everything ur coooooking". Moved into launch by the user at 02:43: "no for launch"). Details, prices and timing still get designed and playtested. A third plan covers these; the submitted-beat seam waits on Aku's beat maker design (11-17).
+  - **Three first careers:** developing artists, paid production and placements, your own releases. Ghost production starts as a deal choice; label ownership comes later.
+  - **Mixed careers** with overlapping reputations.
+  - **Trust follows commitments and credit,** not commercial luck.
+  - **Playable repair** of damaged relationships.
+  - **Personal rewards** from strong relationships, each with a story behind it.
+  - **The hometown artist's project is the first full loop.** It is the priority for the connected commission below.
+  - **Pacing** (it applies at launch too): the first monitors are reachable during the first session; larger rooms take sustained progress.
 - **The connected commission.** A person you know offers a job; you pick terms, make and submit a specific beat, and get specific feedback. Later someone names that beat. The smallest proof is one person across the whole loop. It needs:
   - a saved project list (today Contracts keeps one active request, and picking another replaces it, `Systems/Contracts.lua:166`)
   - an agreed "submitted beat" with Aku (5f)

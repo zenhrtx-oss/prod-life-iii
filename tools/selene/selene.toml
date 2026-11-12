@@ -1,0 +1,5 @@
+# selene 0.32.0 (brew, installed 2026-11-12): a Luau linter. Run through tools/lint.sh.
+std = "roblox"   # roblox.yml next to this file, made by `selene generate-roblox-std` on 2026-11-12
+
+[lints]
+multiple_statements = "allow"   # the codebase's one-line style

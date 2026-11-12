@@ -12,11 +12,13 @@
 -- draws from any rng, so the draws are those of a run without beats.
 -- The cold spell (Wave 3, design 4.2), while economy.WALKINS.Cold is given (Config.WalkIns.Cold): the same
 -- CareerRules.ColdStep Systems/Career runs, at the same moments: "check" at the day step (the day's first step, as
--- Life.Tick's) and after every Aura move, "delivery3" on a 3-star delivery and "fire" on each FIRE. lastDay is the day
--- of the last delivery, defaulted to the day of the first check (Contracts' prof.sessions.lastDay), which itself reads
--- none (never cold on a first read); a thaw sets it to that day. While cold, at most Cold.dailyMax walk-ins a day and no phone pop; the one cold_news a spell opens at once and
--- counts on the day's phone total. The `neglect` persona (input.persona = "neglect") delivers on day 1, then nothing until
--- input.resumeDay (nil = never), and gets no FIRE. No cold step draws from any rng.
+-- Life.Tick's) and after every Aura move, "delivery3" on a 3-star delivery, "fire" on each FIRE and "cypher" on each
+-- cypher win. lastDay is the day of the last delivery (Contracts' prof.sessions.lastDay); after every step
+-- CareerRules.LastDayStep moves it as Career.ColdCheck does: the day of the first check (which itself reads none: never
+-- cold on a first read), of a thaw, and of being heard, a FIRE or a cypher win (final review I1, ruling A). While cold, at
+-- most Cold.dailyMax walk-ins a day and no phone pop; the one cold_news a spell opens at once and counts on the day's
+-- phone total. The `neglect` persona (input.persona = "neglect") delivers on day 1, then nothing until input.resumeDay
+-- (nil = never); it gets no FIRE, and wins no cypher on the days it doesn't deliver. No cold step draws from any rng.
 -- They remember you (Wave 3, design 4.3): sim.rel is prof.walkins.rel ({ [visitorId] = { score, flags } }) through the
 -- same pure rules Systems/WalkIns runs. An outcome's `rel` is WalkInRules.RelWrite for rel.who or the item's visitor on
 -- the sim day, walk-in and phone alike; Pick and Seed get opts.rel; a rolled choice, a walk-in's or (fix round 1) a phone
@@ -113,21 +115,19 @@ local function coldCfg(sim)
 	return wi and wi.Cold or nil
 end
 
--- one CareerRules.ColdStep, as Systems/Career.ColdCheck runs it: a step that finds no lastDay saves today for the next
--- one and itself passes none (ColdStep's "lastDay nil changes nothing": never cold on a first read, fix round 1 D); a
--- thaw sets it to today; an entry logs, and its cold_news opens at once on today's phone count (Phone.SendSystem; the
--- sim's tour is done from day 1)
+-- one CareerRules.ColdStep, as Systems/Career.ColdCheck runs it, then CareerRules.LastDayStep: a step that finds no
+-- lastDay passes none (ColdStep's "lastDay nil changes nothing": never cold on a first read, fix round 1 D) and saves
+-- today for the next one; a thaw and being heard ("fire", "cypher") set it to today; an entry logs, and its cold_news
+-- opens at once on today's phone count (Phone.SendSystem; the sim's tour is done from day 1)
 local function coldStep(sim, event)
 	local cfg = coldCfg(sim)
 	if not cfg then return end
-	local last = sim.lastDay
-	if last == nil then sim.lastDay = sim.today end
-	local before = sim.cold
+	local last, before = sim.lastDay, sim.cold
 	local cold, rearm, changed = sim.careerRules.ColdStep(sim.cold, sim.rearm, sim.career.aura, sim.today, last, event, cfg)
+	sim.lastDay = sim.careerRules.LastDayStep(last, sim.today, event, changed and before ~= nil and cold == nil)
 	if not changed then return end
 	sim.cold, sim.rearm = cold, rearm == true
 	if before and not cold then
-		sim.lastDay = sim.today
 		table.insert(sim.coldLog, { day = sim.today, kind = "thaw", event = event })
 	elseif cold and not before then
 		table.insert(sim.coldLog, { day = sim.today, kind = "cold", reason = cold.reason })
@@ -282,15 +282,20 @@ local function deliverWeekly(sim, day)
 	feed(sim, sim.economy.feeds.plaque)
 end
 
+-- a cypher win every even day: its money, XP and feed, then being heard (BeatBattles' win: Career.ColdCheck "cypher",
+-- after the feed's Aura check, as the server runs them)
 local function winCypher(sim, day)
 	if day % 2 ~= 0 then return end
 	earn(sim, sim.economy.cypherWinCred)
 	sim.xp += sim.economy.cypherXP
 	feed(sim, sim.economy.feeds.cypher)
+	coldStep(sim, "cypher")
 end
 
--- the day's FIRE, each on the newest beat, the one on the monitors (Reactions.Give -> Contracts.CreditFire's RecentFire).
--- With no beat delivered yet the aired beat is new to the list, at 0 stars
+-- the day's FIRE, each on the newest beat, the one on the monitors (Reactions.Give -> Contracts.CreditFire's RecentFire,
+-- the same pure rule: an aired beat new to a full list makes room by dropping the lowest-quality older beat, final review
+-- I2; here the newest is always a known beat, so that never happens after the first delivery). With no beat delivered
+-- yet the aired beat is new to the list, at 0 stars. Each FIRE is a ColdCheck "fire" (a thaw, or being heard)
 local function receiveFire(sim)
 	if sim.input.persona == "neglect" then return end -- the neglect persona gets no FIRE
 	for _ = 1, sim.economy.firePerDay do
@@ -666,7 +671,7 @@ local function runDay(sim, day)
 		deliverDailies(sim, day)
 		deliverWeekly(sim, day)
 	end
-	winCypher(sim, day)
+	if delivers(sim, day) then winCypher(sim, day) end -- the neglect persona is away: no cypher either
 	receiveFire(sim)
 	buyGear(sim)
 	runVisits(sim, day)

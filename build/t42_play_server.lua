@@ -1,5 +1,9 @@
 -- Server, during play: the walk-in visitor NPC (Modules/Visitor) on its own, without the WalkIns scheduler.
--- Every signature stays a safe figure of at most 16 parts under Workspace.OK_Visitors; a visitor walks from the corridor
+-- Every person in the content (Data/WalkIns: every kind but the phone-only senders and the critter, spawned under his own
+-- id) and the fallback for every signature (an id with no look: VisitorLooks.Resolve's B body wearing the sig) is a safe
+-- figure of at most 16 parts under Workspace.OK_Visitors, in look B (Task 5d): a block Head with a WedgePart Nose,
+-- PrimaryPart Torso, the name plate and the bubble on the Head at 1.2 over the figure's top as built (notes.md; today's
+-- ball head and fixed 2.4 fail here). A visitor walks from the corridor
 -- mouth to the player in the lounge, faces them and arrives once; talks in his bubble; walks out and is destroyed with
 -- onGone once. A target who leaves the hub sends him away unarrived; Destroy twice is harmless; with no waypoints for
 -- the room he still walks straight in; the walk timeout snaps him in; a target who moves gets re-aimed at; a def
@@ -19,6 +23,11 @@ local W = require(RS.OK.Config).WalkIns or {
 }
 local SIGS = { "cowboy_hat", "bat_ears", "spiky_hair", "blob_hat", "helmet", "llama_ears", "sparkle_cape", "owl_hood",
 	"green_roots", "suit", "cap", "headphones", "apron", "headset", "lanyard", "none" }
+-- the people the content sends in person, each under his own id (his own recipe)
+local PEOPLE = {}
+for _, v in ipairs(require(RS.OK.Data.WalkIns).Visitors) do
+	if v.kind ~= "sender" and v.kind ~= "critter" then table.insert(PEOPLE, v) end
+end
 local LOUNGE = Vector3.new(24, 3, 0)
 local p = Players:GetPlayers()[1]
 local handles = {}
@@ -42,13 +51,26 @@ local function with(over) -- a copy of W with some values replaced
 	for k, v in pairs(over) do w[k] = v end
 	return w
 end
-local function spawn(sig, walkins)
+local function spawnDef(def, walkins)
 	local log = { arrive = 0, gone = 0 }
-	local def = { id = "t42_" .. sig, name = "T42 " .. string.upper(sig), style = "test visitor", color = { 255, 60, 160 }, sig = sig }
 	local h = Visitor.Spawn(def, p, { walkins = walkins or W,
 		onArrive = function() log.arrive += 1 end, onGone = function() log.gone += 1 end })
 	table.insert(handles, h)
 	return h, log, def
+end
+local function spawn(sig, walkins)
+	return spawnDef({ id = "t42_" .. sig, name = "T42 " .. string.upper(sig), style = "test visitor", color = { 255, 60, 160 }, sig = sig }, walkins)
+end
+-- the figure's top as built (every part's world box; read straight after Spawn, before a Heartbeat: at rest)
+local function topOf(m)
+	local top = -math.huge
+	for _, d in ipairs(m:GetDescendants()) do
+		if d:IsA("BasePart") then
+			local cf, sz = d.CFrame, d.Size
+			top = math.max(top, d.Position.Y + (math.abs(cf.RightVector.Y) * sz.X + math.abs(cf.UpVector.Y) * sz.Y + math.abs(cf.LookVector.Y) * sz.Z) / 2)
+		end
+	end
+	return top
 end
 local function gap(h) local r = root(); return r and flat(h.Model:GetPivot().Position - r.Position) or math.huge end
 local function facing(h) -- the visitor's look direction against the direction to the player, flattened (1 = straight at)
@@ -61,10 +83,19 @@ local function gone(h) return h.Model.Parent == nil end
 
 local function run()
 	teleport(LOUNGE)
-	-- 1. every signature: a safe, small figure with a name plate and a hidden bubble, filed under OK_Visitors
-	local most = 0
+	-- 1. every person and every signature's fallback: a safe, small B figure with a name plate and a hidden bubble on its
+	-- head, 1.2 over its top, filed under OK_Visitors
+	local most, defs = 0, {}
+	for _, v in ipairs(PEOPLE) do
+		table.insert(defs, { id = v.id, name = "T42 " .. string.upper(v.id), style = "test visitor", color = v.color, sig = v.sig })
+	end
 	for _, sig in ipairs(SIGS) do
-		local h, log, def = spawn(sig)
+		table.insert(defs, { id = "t42_" .. sig, name = "T42 " .. string.upper(sig), style = "test visitor", color = { 255, 60, 160 }, sig = sig })
+	end
+	table.insert(defs, { id = "t42_odd", name = "T42 ODD", style = "test visitor", color = { 255, 60, 160 }, sig = "no_such_sig" })
+	for _, d0 in ipairs(defs) do
+		local sig = d0.id
+		local h, log, def = spawnDef(d0)
 		local m = h.Model
 		local folder = workspace:FindFirstChild("OK_Visitors")
 		assert(folder and folder:IsA("Folder") and m.Parent == folder, sig .. ": not under Workspace.OK_Visitors")
@@ -80,9 +111,17 @@ local function run()
 		end
 		assert(n >= 8 and n <= 16, sig .. ": " .. n .. " parts (want 8..16)")
 		most = math.max(most, n)
+		-- look B: the block head with a wedge nose, the torso as PrimaryPart, the plate (and the bubble) 1.2 over the top
+		local head, nose, torso = m:FindFirstChild("Head"), m:FindFirstChild("Nose"), m:FindFirstChild("Torso")
+		assert(head and head:IsA("Part") and head.Shape == Enum.PartType.Block,
+			sig .. ": the Head is not look B's block head (" .. (head and head:IsA("Part") and head.Shape.Name or "missing") .. ")")
+		assert(nose and nose:IsA("WedgePart"), sig .. ": no WedgePart Nose (look B)")
+		assert(torso and m.PrimaryPart == torso, sig .. ": PrimaryPart is not the Torso")
+		local want = math.floor((topOf(m) - head.Position.Y + 1.2) * 100 + 0.5) / 100
 		for _, name in ipairs({ "NamePlate", "Bubble" }) do
 			local bb = m:FindFirstChild(name)
-			assert(bb and bb:IsA("BillboardGui") and bb.MaxDistance == 80 and bb.LightInfluence == 0 and bb.Adornee, sig .. ": " .. name .. " billboard wrong")
+			assert(bb and bb:IsA("BillboardGui") and bb.MaxDistance == 80 and bb.LightInfluence == 0 and bb.Adornee == head, sig .. ": " .. name .. " billboard wrong (or not on the Head)")
+			assert(math.abs(bb.StudsOffset.Y - want) <= 0.011, string.format("%s: %s at %.2f over the head, want %.2f (1.2 over the figure's top)", sig, name, bb.StudsOffset.Y, want))
 		end
 		assert(m.NamePlate.Plate.NameText.Text == def.name, sig .. ": name plate does not show the name")
 		assert(m.Bubble.Enabled == false, sig .. ": bubble shows before he says anything")
@@ -224,7 +263,7 @@ local function run()
 	for _, m in ipairs(workspace.OK_Visitors:GetChildren()) do
 		assert(m:GetAttribute("Target") ~= p.UserId, "orphan visitor left under OK_Visitors: " .. m.Name)
 	end
-	return string.format("T42 PLAY OK: %d sigs <= %d parts, all anchored/non-colliding; arrived, said yo, left; left-hub, double Destroy, empty route, timeout snap, re-aim, bad def refused; spot figure on the coffee table (%d parts, no lights), 1.5 studs apart, flew off, freed spot taken again", #SIGS, most, sn)
+	return string.format("T42 PLAY OK: %d people + %d sig fallbacks + 1 odd sig <= %d parts, all anchored/non-colliding, look B (block head, wedge nose, Torso primary, plate 1.2 over the top); arrived, said yo, left; left-hub, double Destroy, empty route, timeout snap, re-aim, bad def refused; spot figure on the coffee table (%d parts, no lights), 1.5 studs apart, flew off, freed spot taken again", #PEOPLE, #SIGS, most, sn)
 end
 
 local ok, msg = pcall(run)

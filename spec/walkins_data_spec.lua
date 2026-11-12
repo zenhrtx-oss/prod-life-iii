@@ -20,7 +20,7 @@ local function intIn(n, lo, hi) return isInt(n) and n >= lo and n <= hi end
 -- text with every {token} removed (so case checks ignore {name:navx} and {sponsor})
 local function bare(s) return (string.gsub(s, "{[^}]*}", "")) end
 
--- apron, headset and lanyard are Wave 1a's new looks (Task 5 adds them to Visitor.SIGS); Task 0 owns these two lists
+-- apron, headset and lanyard are Wave 1a's new looks (Modules/VisitorLooks pieces since Task 5d); Task 0 owns these two lists
 local SIGS = { cowboy_hat = true, bat_ears = true, spiky_hair = true, blob_hat = true, helmet = true, llama_ears = true,
 	sparkle_cape = true, owl_hood = true, green_roots = true, suit = true, cap = true, headphones = true, none = true,
 	apron = true, headset = true, lanyard = true }
@@ -1537,6 +1537,55 @@ do
 	local late = 0
 	for seed = 1, 500 do if isStarter[draw(1, seed) or ""] then late += 1 end end
 	eq("visits 1: no starter in 500 draws", late, 0)
+end
+
+-- explainers (Wave 3 final review M2, ruling D) ---------------------------------------------------------------------
+-- `nohint` on a card or follow-up lists the hint terms its words use in another sense ("hit" the verb, a song "flip",
+-- "fire" as slang): Systems/WalkIns and Systems/Phone pass it to WalkInRules.HintFor for that item's card, its news
+-- strip and its results. Each is a non-empty list of distinct lowercase terms, each said as a whole word somewhere in the
+-- item's hinted text (tag, line, choice texts, outcome headlines and texts), so a stale entry fails. The ruling's four
+-- uses are pinned, and the CYPHER explainer has at least two homes: items whose hinted text says "cypher" and that
+-- don't skip it (the spec can't load Config.Hints; the terms here are its words, matched as HintFor matches them)
+do
+	local function hinted(item)
+		local list = {}
+		local function add(t) if type(t) == "string" and t ~= "" then table.insert(list, t) end end
+		add(item.tag); add(item.line)
+		local function outcomes(c) for _, k in ipairs(OUTCOME_KEYS) do local o = c[k]; if type(o) == "table" then add(o.headline); add(o.text) end end end
+		for _, c in ipairs(item.choices or {}) do add(c.text); outcomes(c) end
+		if type(item.resolve) == "table" then outcomes(item.resolve) end
+		return list
+	end
+	local function says(item, term) return R.HintFor(hinted(item), {}, { { term = term, text = "" } }) ~= nil end
+	local function skips(item, term)
+		for _, t in ipairs(type(item.nohint) == "table" and item.nohint or {}) do if t == term then return true end end
+		return false
+	end
+	local items = {}
+	for _, c in ipairs(W.Cards) do table.insert(items, { "card " .. c.id, c }) end
+	for id, f in pairs(W.FollowupById) do table.insert(items, { "follow-up " .. id, f }) end
+	local cypherHomes = {}
+	for _, it in ipairs(items) do
+		local where, item = it[1], it[2]
+		if item.nohint ~= nil then
+			ok(where .. ": nohint is a non-empty list", type(item.nohint) == "table" and #item.nohint > 0)
+			local seen = {}
+			for i, t in ipairs(type(item.nohint) == "table" and item.nohint or {}) do
+				ok(string.format("%s: nohint[%d] is a lowercase word", where, i), isStr(t) and t == string.lower(t) and not string.find(t, "%W"))
+				ok(string.format("%s: nohint[%d] %s twice", where, i, tostring(t)), not seen[t])
+				seen[t] = true
+				ok(string.format("%s: nohint %s is not said in its text (a stale entry)", where, tostring(t)), isStr(t) and says(item, t))
+			end
+		end
+		if says(item, "cypher") and not skips(item, "cypher") then table.insert(cypherHomes, item.id) end
+	end
+	for id, term in pairs({ rival_beat = "hit", icespike_snippet = "hit", icespike_session = "flip", drizzle_fit = "fire" }) do
+		local c = W.CardById[id]
+		ok(string.format("nohint: %s skips %s (the ruling's use)", id, term), c ~= nil and skips(c, term))
+	end
+	table.sort(cypherHomes)
+	ok("the CYPHER explainer has at least two homes (has: " .. table.concat(cypherHomes, ", ") .. ")", #cypherHomes >= 2)
+	ok("starter_host is still a CYPHER home", table.find(cypherHomes, "starter_host") ~= nil)
 end
 
 if #fails > 0 then error(#fails .. " walkins data case(s) failed: " .. table.concat(fails, "; ")) end

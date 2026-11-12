@@ -5,6 +5,8 @@
 -- -> reveal -> idle. Two entries: head-to-head, most stars wins (equal stars = draw). Never a vote with only two.
 -- State for clients lives in attributes on ReplicatedStorage.OK.Cypher; entrants get CypherIn / CypherSubmitted player
 -- attributes; an entrant's OWN letter goes on their PlayerGui (only they can see it) so entries stay anonymous. Rewards (Config.Cypher.Reward) go through the capped reward gate.
+-- A win also counts as being heard for the cold spell (Wave 3 final review I1): Career.ColdCheck(winner, "cypher") moves
+-- their lastDay to today (CareerRules.LastDayStep), so a cypher-only producer doesn't go quiet; a win never thaws a spell.
 -- Launch audit A2/A4: Cypher_Join (the bar's JOIN) never opens a lobby from idle ("busy"), so only the board does. A
 -- lobby that ends with too few entrants starts Config.Cypher.CancelCooldown seconds, server-wide, in which nobody opens
 -- another ("busy"), so one producer can't keep the round's toasts coming. Walk-ins and phone pops wait for everyone while
@@ -198,6 +200,9 @@ local function reveal()
 				ctx.Data.AddCred(o, R.WinCred, "Cypher")
 				local ok, err = pcall(function() require(RS.OK.Systems.Career).Add(o, "aura", Config.Career.Sources.Cypher.aura.amount, "Cypher") end)
 				if not ok then warn("[OK][ERR] career feed: " .. tostring(err)) end
+				-- being heard (the cold spell's lastDay, through the one writer in Career; never fails the reveal)
+				local okC, errC = pcall(function() require(RS.OK.Systems.Career).ColdCheck(o, "cypher") end)
+				if not okC then warn("[OK][ERR] cold cypher: " .. tostring(errC)) end
 				pcall(function() require(RS.OK.Systems.Life).Event(o, "cypher_win") end) -- logs the first win only
 			end
 			o:SetAttribute("CypherWins", prof.cypher.wins)

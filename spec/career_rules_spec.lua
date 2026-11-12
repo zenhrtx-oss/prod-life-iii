@@ -146,7 +146,8 @@ c = cold(nil, false, 0, 13, 10, "check")
 eq("ColdStep quiet since", c and c.since, 13)
 c, r = cold({ since = 5, reason = "quiet" }, true, 0, 20, 20, "fire")
 eq("ColdStep quiet thaw keeps rearm", r, true)
-for _, ev in ipairs({ "delivery", "Check", "FIRE" }) do
+-- "cypher" (a cypher win, final review I1) is one of these for ColdStep: it never thaws; LastDayStep moves lastDay for it
+for _, ev in ipairs({ "delivery", "Check", "FIRE", "cypher" }) do
 	c, r, ch = cold(held, false, 100, 20, 20, ev)
 	eq("ColdStep event " .. ev .. " unchanged", c, held)
 	eq("ColdStep event " .. ev .. " changed", ch, false)
@@ -196,6 +197,50 @@ c, r = cold(deep, false, -51, 20, 20, "fire")
 eq("ColdStep quiet thaw at -51: rearm", r, true)
 c, r = cold({ since = 5, reason = "aura" }, false, 10, 20, 20, "fire")
 eq("ColdStep aura thaw at +10 still re-arms", r, true)
+
+-- LastDayStep (Wave 3 final review I1, ruling A of 2026-11-12): being heard keeps you warm. After each ColdStep the caller
+-- sets lastDay to LastDayStep(lastDay, careerDay, event, thawed): a first read (nil) saves today, a thaw sets today ("on
+-- exit lastDay = exit day"), and being heard sets today too: a FIRE to you ("fire") or a cypher win ("cypher"). Every
+-- other step keeps it (a delivery sets lastDay itself, in Contracts.RecordDelivery). Systems/Career.ColdCheck and
+-- CareerSim's coldStep both run it
+eq("LastDayStep first read saves today", CR.LastDayStep(nil, 7, "check", false), 7)
+eq("LastDayStep check keeps", CR.LastDayStep(4, 7, "check", false), 4)
+eq("LastDayStep thaw sets today", CR.LastDayStep(4, 7, "delivery3", true), 7)
+eq("LastDayStep fire while warm sets today", CR.LastDayStep(4, 7, "fire", false), 7)
+eq("LastDayStep fire thaw sets today", CR.LastDayStep(4, 7, "fire", true), 7)
+eq("LastDayStep cypher win sets today", CR.LastDayStep(4, 7, "cypher", false), 7)
+eq("LastDayStep delivery3 while warm keeps", CR.LastDayStep(4, 7, "delivery3", false), 4)
+for _, ev in ipairs({ "delivery", "FIRE", "Cypher", "bogus" }) do
+	eq("LastDayStep event " .. ev .. " keeps", CR.LastDayStep(4, 7, ev, false), 4)
+end
+eq("LastDayStep nil event keeps", CR.LastDayStep(4, 7, nil, false), 4)
+
+-- the two rules together, day by day as the caller runs them: each played day's step is a "check"; `heard` (nil, "fire"
+-- or "cypher") comes on day D after that day's check; no delivery. Starts warm at Aura 0 with lastDay D - 2, so without
+-- being heard the check on D + 1 finds 3 days (quietDays). Returns "day state" for days D..D + 4
+local D = 10
+local function days(heard)
+	local st, rearm, last = nil, false, D - 2
+	local function step(day, event)
+		local before = st
+		local c2, r2, moved = CR.ColdStep(st, rearm, 0, day, last, event, CFG)
+		last = CR.LastDayStep(last, day, event, moved and before ~= nil and c2 == nil)
+		if moved then st, rearm = c2, r2 end
+	end
+	local log = {}
+	for day = D, D + 4 do
+		step(day, "check")
+		if day == D and heard then step(day, heard) end
+		table.insert(log, day .. (st and (" cold " .. st.reason .. "@" .. st.since) or " warm"))
+	end
+	return table.concat(log, ", ")
+end
+eq("heard: a FIRE on day D (lastDay D-2) keeps a warm player warm on D+1 and D+2, and the check on D+3 goes quiet (D+3 - D = quietDays 3)",
+	days("fire"), "10 warm, 11 warm, 12 warm, 13 cold quiet@13, 14 cold quiet@13")
+eq("heard: a cypher win on day D does the same (cold quiet on D+3, not before)",
+	days("cypher"), "10 warm, 11 warm, 12 warm, 13 cold quiet@13, 14 cold quiet@13")
+eq("heard: without being heard, lastDay D-2 goes cold quiet on D+1 as before (D+1 - (D-2) = 3)",
+	days(nil), "10 warm, 11 cold quiet@11, 12 cold quiet@11, 13 cold quiet@11, 14 cold quiet@11")
 
 if #fails > 0 then error(#fails .. " career rules case(s) failed: " .. table.concat(fails, "; ")) end
 print("SPEC OK: career rules")

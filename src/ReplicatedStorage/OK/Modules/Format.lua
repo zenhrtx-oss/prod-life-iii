@@ -1,5 +1,5 @@
 -- OK Studio Format: how money, counts and durations read on screen ("$1,040", "$12.4K", "+$400", "1.2K", "+40",
--- "5 minutes"), and the card footer line by Aura band.
+-- "5 minutes"), the card footer line by Aura band, and the beat line that names a card's bar (BeatBar).
 -- Pure: no Roblox globals and no require, so it loads in Studio (require(RS.OK.Modules.Format)) and in the luau CLI
 -- (spec/format_spec.lua). Every function truncates toward zero first; anything that is not a finite number reads as 0.
 local M = {}
@@ -84,6 +84,17 @@ function M.AuraFooter(aura)
 	if a < 0 then return "Your Aura's in the red. People hesitate. Odds stay hidden." end
 	if a >= 300 then return "Your Aura's loud. People lean in. Odds stay hidden." end
 	return "Your Aura and Followers tilt the odds. You never see them."
+end
+
+-- the walk-in card's beat line on a card a beatMin choice decides (Wave 3 final review M3; CardFeel.BeatLine): the bar,
+-- then your best beat's quality in stars (WalkInRules.BeatQuality: its stars, one more once it has 3 FIRE; three shown
+-- at most) and its FIRE, as "Needs a 3★ best beat. Yours: ★★☆ · 🔥 1."; quality nil = no beat delivered
+function M.BeatBar(min, quality, fires)
+	local head = "Needs a " .. whole(min) .. "★ best beat. Yours: "
+	if quality == nil then return head .. "none yet." end
+	local q = math.clamp(whole(quality), 0, 3)
+	local f = math.max(0, whole(fires))
+	return head .. string.rep("★", q) .. string.rep("☆", 3 - q) .. (f > 0 and (" · 🔥 " .. f) or "") .. "."
 end
 
 return M

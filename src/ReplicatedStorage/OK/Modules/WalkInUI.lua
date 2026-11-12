@@ -1,7 +1,10 @@
 -- OK Studio walk-in card (client). Its own ScreenGui, OK_WalkIn (DisplayOrder 8, ResetOnSpawn false, CoreUISafeInsets:
 -- the same space as OK_UI and OK_Cypher). Listens to the WalkIn remote itself:
 -- * "arrive": the choice card (portrait, name, style tag, "1 OF 8 TODAY", his line, a news strip on a follow-up, the
---   choices with their cost, WALK AWAY). A choice you can't afford is greyed "· can't afford" and re-checked whenever
+--   choices with their cost, WALK AWAY). The portrait (Wave 3 Task 5d) is a live head-and-shoulders view of him:
+--   Card.Portrait.View, a ViewportFrame of his own figure (VisitorFigure.SetPortrait with the payload's visitor id, sig
+--   and colour: the look his walker is built from), built when his card arrives and destroyed when his visit ends,
+--   never by a layout. A choice you can't afford is greyed "· can't afford" and re-checked whenever
 --   your money changes. The card waits behind a 44 px "<NAME> IS WAITING · OPEN" chip while the beat maker is open or
 --   the listen-back cutaway runs (both also hide an open card), or while a cypher round holds you (WalkInRules.CypherHolds:
 --   one that listens or votes holds everyone; a lobby, the build and the reveal only that round's entrants) or a phone card
@@ -9,7 +12,8 @@
 --   phone card shows does nothing, so you never see two cards, and the card then opens by itself once the phone card
 --   closes, deferred by the beat maker and armed like any other), and opens by itself once all of that clears; tapping
 --   the chip opens it anyway over the beat maker or a cypher. Every flip of the deferral tells the server
---   (WalkIn_Deferred(token, deferred)), so his bubble can say he is waiting. The chip is centred, 8 px under the lowest
+--   (WalkIn_Deferred(token, deferred, seen): seen = the card was on screen before; a card never shown and expired gives
+--   its explainer back, final review M1), so his bubble can say he is waiting. The chip is centred, 8 px under the lowest
 --   of the HUD, the career pills, the daily / tour pill, the phone icon and the cypher bar, and narrow enough (vp.X -
 --   320) to stay clear of the FIRE button's column; while a phone card shows (its column is up to 316 px wide on
 --   phones, and OK_Phone draws over this gui) the chip shifts, then if it must narrows, to end 8 px left of the card.
@@ -51,6 +55,7 @@ local TextService, GuiService, UIS = game:GetService("TextService"), game:GetSer
 local Format = require(RS.OK.Modules.Format)
 local CardFeel = require(RS.OK.Modules.CardFeel)
 local Rules = require(RS.OK.Modules.WalkInRules)
+local Figure = require(RS.OK.Modules.VisitorFigure)
 local M = {}
 local MIN = 44                 -- touch target
 local PAD = 14                 -- card side padding; top padding and gaps tighten on short screens (layout)
@@ -68,17 +73,9 @@ local COST_W = 104             -- the cost column of a paid choice ("$400" / "·
 local WALK_W = 124
 local RESULT_W, RESULT_H, RESULT_SECONDS = 340, 180, 8
 local HINT_ICON, HINT_GAP = 14, 4 -- the hint line's "i" (a 14 px dot) and its gap under the row above it
-local SKIN = Color3.fromRGB(150, 110, 85)
 local CHOICE_BG = Color3.fromRGB(26, 26, 34)
 local REASONS = { afford = "Not enough money for that one yet", invalid = "That choice isn't on the card",
 	error = "Couldn't reach the studio · try again" }
-
--- a visitor colour as sent: a Color3, or a { r, g, b } array (0..255) straight from the content
-local function colorOf(c, fallback)
-	if typeof(c) == "Color3" then return c end
-	if type(c) == "table" and tonumber(c[1]) then return Color3.fromRGB(tonumber(c[1]), tonumber(c[2]) or 0, tonumber(c[3]) or 0) end
-	return fallback
-end
 
 function M.Build(Theme)
 	local player = Players.LocalPlayer
@@ -146,8 +143,8 @@ function M.Build(Theme)
 		BackgroundColor3 = Theme.bg, BorderSizePixel = 0, ClipsDescendants = true }, card)
 	corner(portrait, 8)
 	local portraitScale = new("UIScale", { Scale = 1 }, portrait) -- shrinks the portrait with the header row on short screens
-	new("Frame", { Name = "Face", Position = UDim2.fromOffset(11, 8), Size = UDim2.fromOffset(22, 22), BackgroundColor3 = SKIN, BorderSizePixel = 0 }, portrait)
-	local shirt = new("Frame", { Name = "Shirt", Position = UDim2.fromOffset(5, 31), Size = UDim2.fromOffset(34, 16), BackgroundColor3 = Theme.accent2, BorderSizePixel = 0 }, portrait)
+	-- his face: one head-and-shoulders copy of his figure per card, in the portrait's square (nil: none)
+	local function setPortrait(v) Figure.SetPortrait(portrait, v, { bg = Theme.bg, corner = 8 }) end
 	local nameL = new("TextLabel", { Name = "Name", BackgroundTransparency = 1, Font = Theme.fontBlack, TextSize = 17, TextColor3 = Theme.accent,
 		TextXAlignment = LEFT, TextTruncate = Enum.TextTruncate.AtEnd, Text = "" }, card)
 	local tagL = new("TextLabel", { Name = "Tag", BackgroundTransparency = 1, Font = Theme.font, TextSize = 10, TextColor3 = Theme.muted,
@@ -469,9 +466,10 @@ function M.Build(Theme)
 		local s = GuiService.SelectedObject
 		if s and s:IsDescendantOf(card) then GuiService.SelectedObject = nil end
 	end
-	-- the server learns of every flip of the arrived card's deferral (his bubble says he is waiting meanwhile)
-	local function tellDeferred(token, deferred)
-		local ok, err = pcall(function() RS.OK.Remotes.WalkIn_Deferred:FireServer(token, deferred) end)
+	-- the server learns of every flip of the arrived card's deferral (his bubble says he is waiting meanwhile), and whether
+	-- the card was on screen before it (seen: a card hidden from its arrival to its expiry gives its explainer back)
+	local function tellDeferred(token, deferred, seen)
+		local ok, err = pcall(function() RS.OK.Remotes.WalkIn_Deferred:FireServer(token, deferred, seen) end)
 		if not ok then warn("[OK][ERR] WalkInUI: WalkIn_Deferred: " .. tostring(err)) end
 	end
 	-- applies open / deferred / the chip; only touches visibility when that state changes. The beat maker and the cutaway
@@ -483,7 +481,7 @@ function M.Build(Theme)
 		local open = cur ~= nil and not deferred
 		local chipOn = deferred and not compactDaw -- over the phone beat maker the chip would sit on its pads
 		if not force and open == shown.open and deferred == shown.deferred and chipOn == shown.chip then return end
-		if cur and deferred ~= shown.deferred then tellDeferred(cur.token, deferred) end
+		if cur and deferred ~= shown.deferred then tellDeferred(cur.token, deferred, cur.seen == true) end
 		local wasOpen = shown.open
 		shown.open, shown.deferred, shown.chip = open, deferred, chipOn
 		card.Visible = open; chip.Visible = chipOn
@@ -512,6 +510,7 @@ function M.Build(Theme)
 	local function endVisit(token)
 		if not cur or (token ~= nil and cur.token ~= token) then return end
 		cur, forced = nil, false
+		setPortrait(nil) -- his copy goes with his visit
 		gui:SetAttribute("Token", ""); gui:SetAttribute("Card", ""); gui:SetAttribute("Choices", 0)
 		resetFooter()
 		refresh(true)
@@ -549,13 +548,13 @@ function M.Build(Theme)
 		if type(p) ~= "table" or type(p.card) ~= "table" then return end
 		local c = p.card
 		-- beatText: the second footer line for the payload's beat (nil: none); beatGood: a best beat to show
-		cur = { token = p.token, card = c, today = p.today, max = p.max, beatText = CardFeel.BeatLine(c.beat), beatGood = type(c.beat) == "table" }
+		cur = { token = p.token, card = c, today = p.today, max = p.max, beatText = CardFeel.BeatLine(c.beat, c.beatMin), beatGood = type(c.beat) == "table" }
 		forced = false
 		local v = type(c.visitor) == "table" and c.visitor or {}
 		nameL.Text = tostring(v.name or "?")
 		tagL.Text = tostring(c.tag or v.style or "")
 		header.Text = string.format("%d OF %d TODAY", tonumber(p.today) or 0, tonumber(p.max) or 0)
-		shirt.BackgroundColor3 = colorOf(v.color, Theme.accent2)
+		setPortrait(v) -- a new card replaces the last one's copy
 		lineL.Text = (type(c.line) == "string" and c.line ~= "") and ("“" .. c.line .. "”") or ""
 		local nw = type(c.news) == "table" and c.news or nil
 		newsHead.Text = nw and tostring(nw.headline or "") or ""
@@ -584,7 +583,7 @@ function M.Build(Theme)
 				if type(ch) == "table" and type(p.choices[i]) == "string" then ch.text = p.choices[i] end
 			end
 		end
-		cur.beatText, cur.beatGood = CardFeel.BeatLine(c.beat), type(c.beat) == "table"
+		cur.beatText, cur.beatGood = CardFeel.BeatLine(c.beat, c.beatMin), type(c.beat) == "table"
 		lineL.Text = (type(c.line) == "string" and c.line ~= "") and ("“" .. c.line .. "”") or ""
 		paintChoices()
 		gui:SetAttribute("BeatUpdates", (tonumber(gui:GetAttribute("BeatUpdates")) or 0) + 1)

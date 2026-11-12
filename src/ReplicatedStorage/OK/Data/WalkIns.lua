@@ -16,10 +16,14 @@
 -- One exception (design 8.3): a sponsor quiz (quiz_*) answer quotes no amount, so it can't give the right one away; the
 -- rep's line quotes the bonus instead.
 -- The numbers are tuned by spec/pacing_spec.lua (design 4.8). Change them only with that spec passing.
+-- `nohint` (a card or follow-up, optional): the explainer terms (Config.Hints) its words use in another sense, which no
+-- explainer may attach to on that item, its news or its results (Wave 3 final review M2: "hit" the verb, a song's "flip",
+-- "fire" as slang). spec/walkins_data_spec.lua keeps every listed term said in the item's text.
 local W = {}
 
 -- visitors --------------------------------------------------------------------------------------------------------
--- sig = the 1-3 part signature Modules/Visitor builds; color = body colour (0-255 RGB)
+-- sig = the visitor's signature piece: his look (Modules/VisitorLooks, look B, Task 5d) wears the piece of that name;
+-- color = his colour (0-255 RGB): the phone card's name, and the fallback figure of an id with no look
 W.Visitors = {
 	{ id = "navx", kind = "artist", names = { parody = "LIL NAV X", fiction = "PEONY ROLLER" }, style = "country trap",
 	  color = { 255, 110, 180 }, sig = "cowboy_hat" },
@@ -51,7 +55,7 @@ W.Visitors = {
 	{ id = "manager", kind = "manager", names = { parody = "A BIG-TIME MANAGER", fiction = "A HOTSHOT MANAGER" },
 	  style = "management", color = { 90, 70, 140 }, sig = "suit" },
 	-- Wave 1a: new people (design 4.3), web-checked in research/wave1_names_2026-10-27.md (`check`); apron, headset and
-	-- lanyard are Visitor.SIGS looks
+	-- lanyard are Modules/VisitorLooks pieces
 	{ id = "mom", kind = "mom", names = { parody = "YOUR MOM", fiction = "YOUR MOTHER" }, style = "home cooking",
 	  color = { 255, 170, 120 }, sig = "apron", check = "research/wave1_names_2026-10-27.md#mom" },
 	{ id = "booker", kind = "booker", names = { parody = "THE TALK SHOW BOOKER", fiction = "A LATE-NIGHT BOOKER" },
@@ -295,7 +299,7 @@ W.Cards = {
 			text = "Her team asked you to take it down. A client left.",
 			line = "you can't tag me on a beat i ain't touch" } },
 	  } },
-	{ id = "icespike_session", visitor = "icespike", tag = "DRILL POP · JERSEY CLUB FLIP",
+	{ id = "icespike_session", visitor = "icespike", tag = "DRILL POP · JERSEY CLUB FLIP", nohint = { "flip" }, -- a remix, not a FLIP
 	  line = "flip my song into jersey club. make it bounce",
 	  choices = {
 		{ text = "Ask what the song means to her first.", sure = true,
@@ -317,7 +321,7 @@ W.Cards = {
 			text = "Nobody danced. A few people followed.",
 			line = "it's ok. not every one hits" } },
 	  } },
-	{ id = "icespike_snippet", visitor = "icespike", tag = "DRILL POP · SNIPPET SEASON",
+	{ id = "icespike_snippet", visitor = "icespike", tag = "DRILL POP · SNIPPET SEASON", nohint = { "hit" }, -- the verb
 	  line = "i'm teasing a snippet tonight. make it hit in fifteen seconds",
 	  choices = {
 		{ text = "Make the first fifteen seconds the loudest.", odds = 50,
@@ -468,7 +472,7 @@ W.Cards = {
 			text = "He listened once and said maybe next time.",
 			line = "too much going on. next time" } },
 	  } },
-	{ id = "scoot_launch", visitor = "scoot", tag = "SPACE TRAP · SNEAKER LAUNCH",
+	{ id = "scoot_launch", visitor = "scoot", tag = "SPACE TRAP · SNEAKER LAUNCH", nohint = { "hit" }, -- "VISUALS HIT": a success, not a charting placement
 	  line = "dropping sneakers next week. i need a beat for the launch video",
 	  choices = {
 		{ text = "Make the beat sound like a countdown.", odds = 50,
@@ -694,7 +698,7 @@ W.Cards = {
 			text = "He left at midnight. No verse.",
 			line = "tired. next time" } },
 	  } },
-	{ id = "drizzle_fit", visitor = "drizzle", tag = "LATE NIGHT R&B · FIT CHECK",
+	{ id = "drizzle_fit", visitor = "drizzle", tag = "LATE NIGHT R&B · FIT CHECK", nohint = { "fire", "hit" }, -- "it's fire": slang; "SERIES HIT": a success, not a charting placement
 	  line = "rate my fit. be honest",
 	  choices = {
 		{ text = "Be honest. The hoodie's too big.", odds = 50,
@@ -955,8 +959,9 @@ W.Cards = {
 			text = "They waited a while, then left.",
 			line = "it's ok!! you're busy. i get it" } },
 	  } },
-	{ id = "rival_beat", visitor = "rival", tag = "PRODUCER · CHALLENGE",
-	  line = "my beats hit harder than yours. everybody knows it",
+	{ id = "rival_beat", visitor = "rival", tag = "PRODUCER · CHALLENGE", nohint = { "hit" }, -- the verb
+	  -- the line names the cypher, the CYPHER explainer's second home (final review M2; copy doc 11.4, for approval)
+	  line = "my beats hit harder than yours. everybody at the cypher knows it",
 	  choices = {
 		{ text = "Post a side-by-side. Let people decide.", odds = 50,
 		  good = { key = "won", headline = "YOU WON", tone = "win", followers = 1000, aura = 10, rel = { score = -1, flag = "posted" },
