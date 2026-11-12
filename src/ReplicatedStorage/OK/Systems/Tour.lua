@@ -11,11 +11,13 @@
 -- Day One (the Day One plan, Task 2): the step texts are Data/DayOne's hub lines (Steps[id].hub), with {artist} filled at
 -- load from the starter brief's artist (DayOneRules.Starter on Data/Artists' briefs: JUNO VALE), so no "{" ever reaches
 -- the pill (ruling B2); a missing line, a token left unfilled or a module that fails to load falls back to the step's
--- pre-Day One words (reported when a module fails). M.Changed (player, what) fires after every write: the step id from Advance (after `done` is
--- written, ruling F4), then "done" when that step finished the tour; "skip" from Skip; "reset" from Reset. A third
--- argument is the server's os.clock() at the fire, so a listener whose handler runs late (deferred signals) can tell an
--- event from before its own state began. Systems/DayOne listens (it acts only on a chain it runs, ruling F3).
--- M.Finish(p) advances every missing step in order (card 3).
+-- pre-Day One words (reported when a module fails). M.Changed (player, what, at) fires after every write: the step id
+-- from Advance (after `done` is written, ruling F4), then "done" when that step finished the tour; "skip" from Skip;
+-- "reset" from Reset. `at` is the server's os.clock() at the fire, so a listener whose handler runs late (deferred
+-- signals) can tell an event from before its own state began. Systems/DayOne listens (it acts only on a chain it runs,
+-- ruling F3). M.Finish(p) advances every missing step in order (card 3).
+-- Day One (Task 3): the tour-complete toast is Data/DayOne's Toasts.done with {reward} filled ("DAY ONE DONE · +50 XP"),
+-- the pre-Day One words when that line is missing or keeps a token.
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local DAW = require(RS.OK.Systems.DAW)
 local Rooms = require(RS.OK.Systems.Rooms)
@@ -51,6 +53,15 @@ local function hub(id)
 	local text, left = DayOneRules.Fill(step.hub, WORDS)
 	if left then return FALLBACK[id] end -- a token with no value: never a "{" on the pill (B2)
 	return text
+end
+-- the tour-complete toast (Data/DayOne Toasts.done, {reward} = RewardXP), else the pre-Day One words
+local function doneText()
+	local line = DayOne and type(DayOne.Toasts) == "table" and DayOne.Toasts.done
+	if DayOneRules and type(line) == "string" then
+		local text, left = DayOneRules.Fill(line, { reward = M.RewardXP })
+		if not left then return text end
+	end
+	return "Studio tour complete · +" .. M.RewardXP .. " XP"
 end
 M.Steps = {
 	{ id = "open",     text = hub("open"),     target = "Workspace.OKStudio.ControlRoom.Screen_Main" },
@@ -93,7 +104,7 @@ function M.Advance(player, id)
 	if not s then
 		t.done = true
 		ctx.Data.GrantXP(player, M.RewardXP, "Tour")
-		RS.OK.Remotes.InteractionEvent:FireClient(player, "Toast", { text = "Studio tour complete · +" .. M.RewardXP .. " XP" })
+		RS.OK.Remotes.InteractionEvent:FireClient(player, "Toast", { text = doneText() })
 	end
 	send(player)
 	local at = os.clock()

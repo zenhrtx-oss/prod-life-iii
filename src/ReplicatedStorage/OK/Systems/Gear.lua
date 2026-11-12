@@ -140,6 +140,13 @@ function M.Equip(player, id)
 	return { ok = true, state = M.State(player) }
 end
 
+-- the Gear tab opened for the player at the rack `inst` (the hub's GearRack panel or a room's RackSpot): its full name
+-- is the panel's source, so the client closes the panel past Config.Interaction.PanelCloseDistance from it. The
+-- GearRack handler, and Day One's card 3 ("Hit the gear rack", Systems/DayOne)
+function M.OpenFor(player, inst)
+	RS.OK.Remotes.InteractionEvent:FireClient(player, "OpenPanel", { tab = "Gear", source = inst:GetFullName(), profile = ctx.Data.ClientProfile(ctx.Data.GetProfile(player)), gear = M.State(player) })
+end
+
 -- may this player's client equip now? A token bucket: EQUIP_BURST calls, then one more every EQUIP_EVERY s
 local function equipAllowed(player)
 	local now = os.clock()
@@ -160,9 +167,7 @@ function M.Init(c)
 		if not equipAllowed(player) then return { ok = false, reason = "busy", state = M.State(player) } end
 		return M.Equip(player, id)
 	end
-	c.Interaction.Register("GearRack", function(player, inst)
-		RS.OK.Remotes.InteractionEvent:FireClient(player, "OpenPanel", { tab = "Gear", source = inst:GetFullName(), profile = ctx.Data.ClientProfile(ctx.Data.GetProfile(player)), gear = M.State(player) })
-	end)
+	c.Interaction.Register("GearRack", function(player, inst) M.OpenFor(player, inst) end)
 	-- a new character gets the fits back once its head is in (body parts can follow CharacterAdded)
 	local function redress(p, char)
 		char:WaitForChild("Head", 5)

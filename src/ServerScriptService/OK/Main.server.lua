@@ -16,9 +16,45 @@ require(Services.SystemLoader).Run(RS.OK.Systems, ctx)
 if game:GetService("RunService"):IsStudio() then
   local hook = script.Parent:FindFirstChild("_StudioTestHook") or Instance.new("BindableFunction")
   hook.Name = "_StudioTestHook"; hook.Parent = script.Parent
+  -- ProfileMark / ProfileRestore (D1-T3 fix 1): a play test that pays real deliveries and tour rewards (t122a) notes these
+  -- profile fields first and puts them back exactly at its end, so the next file (t17 -> t21 count on a fresh session's
+  -- money, level and gear) finds the profile as it was. Kept here, server side, per player; plain data only (no system
+  -- keeps a copy of these), so a deep copy is the whole state
+  local MARKED = { "xp", "level", "cred", "gear", "equip", "gearV", "xpLog", "credLog", "tour", "hints", "sessions", "credits" }
+  local marks = {}
+  local function deep(v)
+    if type(v) ~= "table" then return v end
+    local t = {}
+    for k, x in pairs(v) do t[k] = deep(x) end
+    return t
+  end
   hook.OnInvoke = function(cmd, userId, a, b, c)
     local p = game:GetService("Players"):GetPlayerByUserId(userId)
     if not p then return nil end
+    if cmd == "ProfileMark" then
+      local prof = Data.GetProfile(p)
+      local m = {}
+      for _, k in ipairs(MARKED) do m[k] = deep(prof[k]) end
+      marks[p.UserId] = m
+      return true
+    end
+    -- the noted fields back (a copy each) and the note forgotten; the Level, XP and Cred attributes follow through
+    -- DataService.TakeCred (one dollar added here and taken back: its setAttrs writes all three), the gear's through
+    -- Gear.Publish. No LeveledUp, no XP or money gate counted. false when nothing was noted
+    if cmd == "ProfileRestore" then
+      local m = marks[p.UserId]
+      if not m then return false end
+      marks[p.UserId] = nil
+      local prof = Data.GetProfile(p)
+      for _, k in ipairs(MARKED) do prof[k] = deep(m[k]) end
+      Data.MarkDirty(p)
+      prof.cred = (tonumber(prof.cred) or 0) + 1
+      Data.TakeCred(p, 1)
+      require(RS.OK.Systems.Gear).Publish(p)
+      return true
+    end
+    -- the tour's SKIP, as the pill's Tour_Skip remote runs it (Tour.Skip)
+    if cmd == "TourSkip" then require(RS.OK.Systems.Tour).Skip(p); return true end
     if cmd == "AddXP" then if b == nil then return Data.GrantXP(p, a, "Test") end; return Data.AddXP(p, a, b) end
     if cmd == "GrantCred" then return Data.GrantCred(p, a, "Test") end
     if cmd == "GetProfile" then return Data.GetProfile(p) end

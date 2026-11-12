@@ -40,7 +40,7 @@ M.DeliverCooldown = 2
 local pickedEv, deliveredEv = Instance.new("BindableEvent"), Instance.new("BindableEvent")
 local recentEv = Instance.new("BindableEvent")
 M.Picked = pickedEv.Event       -- (player, brief)
-M.Delivered = deliveredEv.Event -- (player, brief, stars, firstTime)
+M.Delivered = deliveredEv.Event -- (player, brief, stars, firstTime, beat = { pattern, bpm, swing }: the delivered beat, Day One's card 2)
 M.RecentChanged = recentEv.Event -- (player): prof.sessions.recent was written (RecordDelivery, CreditFire, SetRecent)
 local ctx
 local lastDeliver = {}
@@ -287,7 +287,7 @@ function M.Deliver(player, pattern, bpm, swing)
 	-- a repeat or a daily logs no line unless it ticks its own first (LifeRules.Apply)
 	pcall(function() require(RS.OK.Systems.Life).Event(player, stars >= 3 and "delivery3" or "delivery",
 		{ v = brief.artist, key = brief.id, again = not first or nil, daily = brief.daily or nil }) end)
-	deliveredEv:Fire(player, brief, stars, first)
+	deliveredEv:Fire(player, brief, stars, first, { pattern = p, bpm = b, swing = sw })
 	return { ok = true, stars = stars, xp = xp, cred = cred, again = not first, brief = brief.id, plaque = plaque,
 		credit = string.format("%s · %s · prod. %s", brief.title, artist.name, player.DisplayName),
 		reaction = artist.quotes[stars] or "", state = M.State(player) }

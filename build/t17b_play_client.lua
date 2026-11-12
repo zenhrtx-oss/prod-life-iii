@@ -14,6 +14,9 @@ do local d = player.PlayerGui:WaitForChild("OK_DAW"):WaitForChild("DAW"); d:SetA
 local function waitFor(fn, t) local t1 = os.clock(); while os.clock() - t1 < (t or 5) do if fn() then return true end; task.wait(0.05) end; return fn() end
 local toasts = {}
 local tconn = RS.OK.Remotes.InteractionEvent.OnClientEvent:Connect(function(kind, payload) if kind == "Toast" then table.insert(toasts, payload.text or "") end end)
+-- the tour-complete toast's opening words: Data/DayOne's Toasts.done up to its first token, trimmed ("DAY ONE DONE"; D1-T3)
+local DONE = (require(RS.OK.Data.DayOne).Toasts.done:match("^[^{]*") or ""):match("^(.-%w)[^%w]*$")
+assert(DONE and #DONE >= 4, "Data/DayOne Toasts.done has no opening words: " .. tostring(require(RS.OK.Data.DayOne).Toasts.done))
 local function cmd(c) req:SetAttribute("Command", c); task.wait(0.15) end
 
 -- 1. fresh tour: step 1 of 4 points at the studio PC
@@ -102,7 +105,7 @@ local res = RS.OK.Remotes.Gear_Buy:InvokeServer("rollfx") -- what the BUY button
 assert(res.ok, "buying Roll FX failed: " .. tostring(res.reason))
 assert(waitFor(function() return ui:GetAttribute("TourVisible") == false end, 3), "card did not hide after the last step")
 assert(not card.Visible and not hl.Enabled and hl.Adornee == nil, "highlight left on after the tour")
-assert(waitFor(function() for _, t in ipairs(toasts) do if t:find("tour complete") then return true end end; return false end, 2), "no completion toast")
+assert(waitFor(function() for _, t in ipairs(toasts) do if t:find(DONE, 1, true) then return true end end; return false end, 2), "no completion toast starting '" .. DONE .. "'")
 assert(waitFor(function() return (player:GetAttribute("Unlocked") or ""):find("Rolls") ~= nil and (studio:GetAttribute("RackLit") or 0) >= 1 end, 3), "Roll FX not unlocked or rack LED not lit")
 table.insert(out, "gear rack prompt opens the Gear tab; Roll FX bought for $250 finishes the tour (5/5): rolls unlocked, rack LED lit")
 tconn:Disconnect()

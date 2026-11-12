@@ -1,8 +1,9 @@
--- OK Studio system: Day One (the Day One plan, Task 2). The opening chain of choice cards in your own bedroom: JUNO
--- VALE's beat request (card 1) a moment after you wake up; Task 3 adds "play it on your speakers?" (card 2) and "spend
--- it?" (card 3), then the first visitor at your door. The rules are Modules/DayOneRules (pure), every word Data/DayOne,
--- the numbers Config.DayOne; the saved state is prof.tour.d1 (DayOneRules.Repair: { v = 1, haggle, paid, private }),
--- which Tour.Reset wipes with the tour. Rooms.lua is never touched: Systems/Rooms and Systems/WalkIns are required lazily.
+-- OK Studio system: Day One (the Day One plan, Tasks 2 and 3). The opening chain of choice cards in your own bedroom:
+-- JUNO VALE's beat request (card 1) a moment after you wake up, "play it on your speakers?" (card 2) after your first
+-- delivery at your own laptop, "spend it?" (card 3) after that, then the first visitor at your door. The rules are
+-- Modules/DayOneRules (pure), every word Data/DayOne, the numbers Config.DayOne; the saved state is prof.tour.d1
+-- (DayOneRules.Repair: { v = 1, haggle, paid, private }), which Tour.Reset wipes with the tour. Rooms.lua is never
+-- touched: Systems/Rooms and Systems/WalkIns are required lazily.
 -- * The chain is per-player server memory, never saved: { started, card = { token, id, at, payload }?, pending = { id,
 --   at, beat? }?, returnAt?, returned, room?, beat?, done, tour } (tour = the prof.tour table it started on: Tour.Reset
 --   replaces that table, so a chain whose table is gone is dropped). Times are os.clock() seconds.
@@ -10,7 +11,11 @@
 --   ReplicatedStorage.OK's WalkInsPaused attribute present, true or false: Systems/WalkIns' held()) nothing starts, so the
 --   existing play tests never see a card; a done or skipped tour starts nothing. Else the chain starts now and waits until
 --   Rooms.PlaceOf names your own bedroom (at most Config.DayOne.WakeWait s; at once with no slot), then queues the card
---   DayOneRules.Next names FirstCard s later (Task 2 sends "dayone"; Task 3 adds "speakers" and "spend").
+--   DayOneRules.Next names FirstCard s later. Resuming a half-done tour: "speakers" plays your newest recent beat
+--   (Contracts.Recent[1]); with none, the monitors step is advanced and "spend" is queued instead.
+-- * Queueing: one queued card at a time, and never one already open or queued (ruling m9: a repeat delivery while card
+--   2 is up keeps card 2 and its first beat). The chain's beat ({ pattern, bpm, swing }) and room (the delivery laptop's
+--   room Model) are set when card 2 is queued.
 -- * Sending: a queued card goes out only while no walk-in is in flight (WalkIns.Busy) and no phone DM is open
 --   (PhoneBusy); else it waits and the 1 s loop retries. At send time a card the saved tour no longer names
 --   (DayOneRules.Stale, ruling B1) is dropped unsent. A new card closes any open one first ("leave").
@@ -30,29 +35,53 @@
 --   haggle: the roll (the hook's SetRoll, else a Random) through DayOneRules.Haggle at HaggleOdds, written to d1.haggle
 --     (once: a later haggle keeps it), the toast haggleGood or haggleBad, then as make.
 --   look: the card closes; returnAt = now + LookAround unless card 1 has already come back. Expiry (CardSeconds): as look.
---   SKIP: the chain ends at once, then Tour.Skip.
+--   SKIP (every card): the chain ends at once, then Tour.Skip.
+-- * Card 2 ("speakers", over the beat maker): speakers plays the chain's beat on your room's speakers
+--   (Rooms.PlayLocal(p, pattern, bpm, swing, "studio", nil, chain.room)), then the toast `speakers`, or
+--   `speakersRefused` with its {reason}; private pays +PrivateXP once (GrantXP "DayOne", d1.private) and its toast.
+--   Either way the monitors step is advanced (PlayLocal's Played does it too, a frame late: Advance is idempotent) and
+--   card 3 is queued AfterSpeakers out. Expiry: as private. A delivery or a monitors step that finishes the tour (gear
+--   bought early) ends the chain at once, as card 3's end does.
+-- * Card 3 ("spend": your money, DayOneRules.Tool's cheapest tool you can buy, the Desk monitors as the next goal):
+--   rack opens the Gear tab at your bedroom's RackSpot (Gear.OpenFor) when you stand within
+--   Config.Interaction.PanelCloseDistance of it (the panel closes past that), else the toast `rackFar` (no plot, or too
+--   far); save does nothing more. Then Tour.Finish (the tour's +RewardXP and its done toast) and the chain ends at once,
+--   arming the first visit. Expiry: as save.
+-- * Contracts.Delivered (player, brief, stars, first, beat): every delivery, chain or not, pays the haggle's bonus once
+--   (DayOneRules.Bonus: a good haggle, unpaid, the starter brief's first delivery: GrantCred "DayOne", d1.paid; a test
+--   under the hold never haggles, so it gets nothing and d1 isn't written). With a running chain the deliver step is
+--   advanced here too (idempotent, so the listeners' order never matters), then the card the tour names next is queued
+--   AfterDeliver out (DayOneRules.Delivered, ruling B3): "speakers" only from your own room's laptop (DAW.StationOf names a
+--   room only for its owner), "spend" from anywhere. A hub delivery queues no card 2: the pill's ON MONITORS step stands,
+--   and card 3 follows the monitors step (below). An old save that pressed ON MONITORS before any delivery ({ open, take,
+--   monitors }) names no card while you make the beat; its first delivery names "spend".
 -- * Tour.Changed (player, what, at): only a running chain reacts (F3), and only to an event fired after it started (a
 --   deferred handler can run after the next chain began). "done" or "skip" with the tour done ends the chain: the open
 --   card leaves, the queued card and returnAt go, done = true, DayOneBusy false, then WalkIns.ArmFirst(p, a draw from
 --   VisitAfter) brings the first visitor (F4). "reset" (the tour's table replaced) drops the chain. "take" clears returnAt
---   (B1), and any step closes an open card the tour no longer names (fix round 1; the staged card exempt): DayOneBusy then
---   follows Holds' time rule. WalkIns' hook Reset drops the chain too (WalkIns.OnReset, F6: the chain, DayOneBusy and the
---   forced roll; prof.tour.d1 and the Sent log are the DayOne Reset's). Leaving the server clears the memory.
+--   (B1), and any step closes an open card the tour no longer names (fix round 1; the staged card exempt; card 2 too, once
+--   ON SPEAKERS or ON MONITORS got the monitors step): DayOneBusy then follows Holds' time rule. "monitors" queues card 3
+--   AfterSpeakers out when the tour names it next. WalkIns' hook Reset drops the chain too (WalkIns.OnReset, F6: the
+--   chain, DayOneBusy and the forced roll; prof.tour.d1 and the Sent log are the DayOne Reset's). Leaving the server
+--   clears the memory.
 -- * Remotes (build/20_day_one.lua): DayOne (server -> client: "arrive" with DayOneRules.Card's payload plus its token,
 --   "leave" with { token }); DayOne_Choose(token, index) -> { ok = true } | { ok = false, reason = "stale" | "invalid" };
 --   DayOne_Get() -> the open card's payload or nil.
--- * Studio-only hook ServerScriptService.OK._StudioDayOneHook (Studio and running), hook:Invoke(cmd, userId, a, b):
---   Joined (the real join path: "held", "done", "gone" or "waiting"); Start (a chain now, past the hold, its card queued and sent
---   if nothing blocks it; returns Next's id, nil and no chain on a finished tour); Show(id) (a chain if none runs, then
---   that card sent now, unchecked and marked staged); Open ({ token, id } or nil); Choose(index) (M.Choose on the open token);
---   ChooseToken(token, index); Get (M.Get, as DayOne_Get answers); State ({ d1, next, busy, running, done, card, pending,
---   returned, returnAt, started, now }); Sent (this system's actions since the last read: { kind = "arrive" | "leave" |
---   "toast" | "opendaw", id?, token?, text?, why?, payload? }); Opened (DAW.Opened fires for the player since the last
---   read: a test's require gets its own module copies, so it can't connect the live event); SetRoll(r) (the next
---   haggle's roll); Age(s) (every chain clock s seconds back); Tick (one loop step now); Reset (any open card closed,
---   the memory and DayOneBusy cleared, prof.tour.d1 = nil, the Sent log emptied); Pick(id?) (Contracts.Pick, the
---   Session_Pick remote's own handler, on brief `id`, or with none on the first offered brief by another artist than the
---   starter's: { ok, reason, id }, the real way a player takes a request at the laptop's picker).
+-- * Studio-only hook ServerScriptService.OK._StudioDayOneHook (Studio and running), hook:Invoke(cmd, userId, a, b, c):
+--   Joined (the real join path: "held", "done", "gone" or "waiting"); Start (a chain now, past the hold, the card the
+--   tour names queued, as the join path does, and sent if nothing blocks it; returns that card's id, nil and no chain on a
+--   finished tour); Show(id) (a chain if none runs, then that card sent now, unchecked and marked staged, and the same
+--   card dropped from the queue; "speakers" plays the chain's beat, else your newest recent one); Open ({ token, id } or
+--   nil); Choose(index) (M.Choose on the open token); ChooseToken(token, index); Get (M.Get, as DayOne_Get answers);
+--   State ({ d1, next, busy, running, done, card, pending, returned, returnAt, started, now, beat }); Sent (this system's
+--   actions since the last read: { kind = "arrive" | "leave" | "toast" | "opendaw" | "opengear" | "play", id?, token?,
+--   text?, why?, ok?, payload? }); Opened (DAW.Opened fires for the player since the last read: a test's require gets its
+--   own module copies, so it can't connect the live event); SetRoll(r) (the next haggle's roll); Age(s) (every chain clock
+--   s seconds back); Tick (one loop step now); Reset (any open card closed, the memory and DayOneBusy cleared,
+--   prof.tour.d1 = nil, the Sent log emptied); Pick(id?) (Contracts.Pick, the Session_Pick remote's own handler, on brief
+--   `id`, or with none on the first offered brief by another artist than the starter's: { ok, reason, id }, the real way a
+--   player takes a request at the laptop's picker); Deliver(pattern, bpm, swing?) (Contracts.Deliver, the Session_Deliver
+--   remote's own handler, for the live module's cooldown and state: { ok, reason, stars, xp, cred, again, brief, changed }).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local RunService, Http = game:GetService("RunService"), game:GetService("HttpService")
 local Config = require(RS.OK.Config)
@@ -61,14 +90,16 @@ local D = require(RS.OK.Data.DayOne)
 local Artists = require(RS.OK.Data.Artists)
 local Format = require(RS.OK.Modules.Format)
 local DAWCfg = require(RS.OK.Modules.DAWConfig)
+local RoomScope = require(RS.OK.Modules.RoomScope)
 local Tour = require(RS.OK.Systems.Tour)
 local Contracts = require(RS.OK.Systems.Contracts)
 local DAW = require(RS.OK.Systems.DAW)
+local Gear = require(RS.OK.Systems.Gear)
 
 -- Config.DayOne, read again in Init (an Edit check's fresh clone may get an older cached Config without it: no index here)
 local C = Config.DayOne
 local M = { Enabled = not (type(C) == "table" and C.Enabled == false), Version = 1 }
-local CARDS = { dayone = true } -- the cards the join path and Start queue (Task 3 adds speakers and spend)
+local CARDS = { dayone = true, speakers = true, spend = true } -- the cards the join path and Start queue
 local GOAL = "spk_monitors" -- card 3's next goal (Data/DayOne {goal})
 
 local ctx, dayOneEv
@@ -220,8 +251,22 @@ local function sendPending(p, chain)
 	if not pend or blocked(p) then return false end
 	chain.pending = nil
 	if Rules.Stale(tourOf(p), pend.id) then return false end
-	if pend.beat then chain.beat = pend.beat end
+	chain.beat = chain.beat or pend.beat -- set once (m9): card 2 plays the beat it was first queued with
 	return send(p, chain, pend.id) ~= nil
+end
+-- card `id` queued for `at` (one queued card at a time: a later one replaces it), unless that card is already open or
+-- queued (ruling m9: a repeat delivery while card 2 is up keeps card 2 and its beat; and a resume's inline "spend" isn't
+-- queued again by the deferred monitors event). True when it was queued
+local function queue(chain, id, at, beat)
+	if (chain.card and chain.card.id == id) or (chain.pending and chain.pending.id == id) then return false end
+	chain.pending = { id = id, at = at, beat = beat }
+	return true
+end
+-- your newest recent beat as card 2 plays it (Contracts.Recent keeps no swing: 0), or nil
+local function recentBeat(p)
+	local r = Contracts.Recent(p)[1]
+	if type(r) ~= "table" or type(r.pattern) ~= "string" or type(r.bpm) ~= "number" then return nil end
+	return { pattern = r.pattern, bpm = r.bpm, swing = 0 }
 end
 -- card 1 comes back (Due's "return"): spent in this step, sent or not (returned = true, returnAt cleared: F1); blocked,
 -- it waits as the queued card; stale (the request was taken meanwhile), it is dropped
@@ -325,16 +370,99 @@ local function look(chain)
 	if not chain.returned then chain.returnAt = os.clock() + C.LookAround end
 end
 
--- each card's choices by key, and what its expiry does (Task 3 adds speakers and spend)
+-- cards 2 and 3 -------------------------------------------------------------------------------------------------------
+
+-- the monitors step got (card 2's choice or expiry, or ON SPEAKERS / ON MONITORS anywhere): card 3 queued AfterSpeakers
+-- out when the tour names it next; a finished tour (monitors was the last step: gear bought early, or a staged card 2 on
+-- a done tour) ends the chain now, as card 3 does, so DayOneBusy never lingers for HoldMax with nothing left to show
+local function afterMonitors(p, chain)
+	if not alive(p, chain) then return end
+	local t = tourOf(p)
+	if finished(t) then finish(p, chain); return end
+	if t.got.monitors and Rules.Next(t) == "spend" then queue(chain, "spend", os.clock() + C.AfterSpeakers) end
+end
+-- card 2's "On my speakers": the chain's beat on your room's speakers (Rooms.PlayLocal, the studio kit and the first
+-- voice), its toast, then the monitors step and card 3
+local function playSpeakers(p, chain)
+	local beat, R = chain.beat, rooms()
+	local res
+	if R and type(beat) == "table" then
+		local ok, r = pcall(R.PlayLocal, p, beat.pattern, beat.bpm, beat.swing, "studio", nil, chain.room)
+		if not ok then report("play: " .. tostring(r)) end
+		res = (ok and type(r) == "table") and r or { ok = false, reason = "off" }
+	else
+		res = { ok = false, reason = R and "invalid" or "off" } -- no beat to play (a staged card with no recent beat)
+	end
+	log(p, { kind = "play", ok = res.ok == true, id = res.kind, why = res.reason })
+	if res.ok == true then toast(p, fill(D.Toasts.speakers, vars(p)))
+	else toast(p, fill(D.Toasts.speakersRefused, { reason = tostring(res.reason) })) end
+	Tour.Advance(p, "monitors") -- PlayLocal's Played does it too, a frame late (idempotent); a refusal still moves on
+	afterMonitors(p, chain)
+end
+-- card 2's "Keep it private" (and its expiry): +PrivateXP once (d1.private), its toast, then the monitors step and card 3
+local function keepPrivate(p, chain)
+	local d1 = state(p)
+	if not d1.private then
+		d1.private = true
+		ctx.Data.MarkDirty(p)
+		ctx.Data.GrantXP(p, C.PrivateXP, "DayOne")
+	end
+	toast(p, fill(D.Toasts.private, vars(p)))
+	Tour.Advance(p, "monitors")
+	afterMonitors(p, chain)
+end
+-- your bedroom's RackSpot (beside its laptop) when you stand within Config.Interaction.PanelCloseDistance of it (3D from
+-- your root, as the client closes the panel), else nil: no plot (released), no laptop or no rack, or too far
+local function rackSpot(p)
+	local c = p.Character
+	local root = c and c:FindFirstChild("HumanoidRootPart")
+	local R = rooms()
+	local laptop = R and R.Station(p) or nil
+	local room = laptop and RoomScope.RoomOf(laptop) or nil
+	local spot = room and room:FindFirstChild("RackSpot")
+	if not (root and spot and spot:IsA("BasePart")) then return nil end
+	if (root.Position - spot.Position).Magnitude > Config.Interaction.PanelCloseDistance then return nil end
+	return spot
+end
+-- card 3's end: Tour.Finish (every missing step in order: the +RewardXP and the done toast), then the chain ends at once
+-- (as SKIP: DayOneBusy false and the first visit armed now; Tour's deferred "done" then finds the chain done)
+local function finishTour(p, chain)
+	Tour.Finish(p)
+	if finished(tourOf(p)) then finish(p, chain) end
+end
+-- card 3's "Hit the gear rack": the Gear tab at your bedroom's rack, else the toast rackFar; then the tour's end
+local function rack(p, chain)
+	local spot = rackSpot(p)
+	if spot then
+		local ok, err = pcall(Gear.OpenFor, p, spot) -- never keeps the tour from finishing
+		if not ok then report("open the gear tab: " .. tostring(err)) end
+		log(p, { kind = "opengear", text = spot:GetFullName() })
+	else
+		toast(p, fill(D.Toasts.rackFar, vars(p)))
+	end
+	finishTour(p, chain)
+end
+
+-- each card's choices by key, and what its expiry does
 local CHOOSE = {
 	dayone = function(p, chain, key)
 		if key == "make" then make(p)
 		elseif key == "haggle" then haggle(p)
 		elseif key == "look" then look(chain) end
 	end,
+	speakers = function(p, chain, key)
+		if key == "speakers" then playSpeakers(p, chain)
+		elseif key == "private" then keepPrivate(p, chain) end
+	end,
+	spend = function(p, chain, key)
+		if key == "rack" then rack(p, chain)
+		elseif key == "save" then finishTour(p, chain) end
+	end,
 }
 local EXPIRE = {
 	dayone = function(_, chain) look(chain) end,
+	speakers = keepPrivate, -- as private
+	spend = finishTour, -- as save
 }
 local function expire(p, chain)
 	local card = chain.card
@@ -373,6 +501,43 @@ local function onChanged(p, what, at)
 	-- a step the open card waited on is done another way (card 1 after a pick at the laptop): it leaves (fix round 1)
 	local card = chain.card
 	if card and staleCard(p, card) then close(p, chain, "taken") end
+	if what == "monitors" then afterMonitors(p, chain) end -- ON SPEAKERS / ON MONITORS anywhere: card 3 next
+	busy(p, chain)
+end
+
+-- Contracts.Delivered (see the header): the haggle's bonus on every delivery, then, with a running chain, the deliver
+-- step and the card the tour names next (ruling B3)
+local function onDelivered(p, brief, _stars, first, beat)
+	if typeof(p) ~= "Instance" or not p:IsA("Player") or p.Parent ~= Players then return end
+	local t = tourOf(p)
+	local starter = Rules.Starter(Artists.Briefs)
+	local briefId = type(brief) == "table" and brief.id or nil
+	-- read without the write-back: a delivery that pays nothing leaves prof.tour.d1 as it was
+	local bonus = Rules.Bonus(Rules.Repair(t.d1), briefId, starter and starter.id, first, C.HaggleBonus)
+	if bonus > 0 then
+		local d1 = state(p)
+		d1.paid = true -- before the grant: paid once
+		ctx.Data.MarkDirty(p)
+		ctx.Data.GrantCred(p, bonus, "DayOne")
+	end
+	local chain = chains[p.UserId]
+	if not chain or chain.done then return end
+	if chain.tour ~= t then drop(p); return end -- the tour it ran on is gone (Tour.Reset)
+	Tour.Advance(p, "deliver") -- Tour's own listener does it too (idempotent): Next is read after deliver is written
+	if not alive(p, chain) then return end
+	if finished(t) then finish(p, chain); return end -- deliver was the last step: the chain ends now, as card 3's end
+	local _, room = DAW.StationOf(p) -- a room only for its owner's laptop
+	local id = Rules.Delivered(tourOf(p), room ~= nil)
+	local b = type(beat) == "table" and type(beat.pattern) == "string" and type(beat.bpm) == "number"
+		and { pattern = beat.pattern, bpm = beat.bpm, swing = tonumber(beat.swing) or 0 } or nil
+	if id == "speakers" then
+		if queue(chain, "speakers", os.clock() + C.AfterDeliver, b) then
+			chain.beat = chain.beat or b
+			chain.room = room
+		end
+	elseif id == "spend" then
+		queue(chain, "spend", os.clock() + C.AfterDeliver)
+	end
 	busy(p, chain)
 end
 
@@ -383,6 +548,26 @@ local function inBedroom(p, R)
 	local place = R.PlaceOf(p)
 	return type(place) == "table" and place.kind == "bedroom" and place.slot == R.PlotOf(p)
 end
+-- the card the saved tour names queued for `at` (the join path and Start), resuming a half-done tour: "speakers" plays
+-- the chain's beat, else your newest recent beat; with none there's nothing to play, so the monitors step is advanced
+-- and "spend" (or nothing, if that finished the tour) is queued instead. The queued card's id, or nil
+local function queueNext(p, chain, at)
+	local t = tourOf(p)
+	local n = Rules.Next(t)
+	if n == "speakers" then
+		local beat = chain.beat or recentBeat(p)
+		if beat then
+			chain.beat = beat
+			queue(chain, "speakers", at, beat)
+			return "speakers"
+		end
+		Tour.Advance(p, "monitors")
+		n = Rules.Next(t)
+	end
+	if not (n and CARDS[n]) then return nil end
+	queue(chain, n, at)
+	return n
+end
 -- the wake-up: until you stand in your bedroom (at most WakeWait; at once with no slot), then the card Next names
 -- queued FirstCard seconds out (and a step then, so it doesn't wait for the loop)
 local function wake(p, chain)
@@ -392,9 +577,8 @@ local function wake(p, chain)
 		while alive(p, chain) and os.clock() - t0 < C.WakeWait and not inBedroom(p, R) do task.wait(0.25) end
 	end
 	if not alive(p, chain) then return end
-	local n = Rules.Next(tourOf(p))
-	if not (n and CARDS[n]) or chain.card or chain.pending then return end
-	chain.pending = { id = n, at = os.clock() + C.FirstCard }
+	if chain.card or chain.pending then return end
+	if not queueNext(p, chain, os.clock() + C.FirstCard) then return end
 	task.delay(C.FirstCard + 0.05, function()
 		if not alive(p, chain) then return end
 		local ok, err = pcall(step, p)
@@ -416,30 +600,26 @@ local function join(p)
 	end)
 	return "waiting"
 end
--- a chain now, past the hold, with the card Next names queued and sent unless something blocks it; Next's id. A finished
--- tour starts nothing (nil; ruling m6)
+-- a chain now, past the hold, with the card the tour names queued (queueNext, as the join path) and sent unless something
+-- blocks it; that card's id (nil with none: the beat is being made). A finished tour starts nothing (nil; ruling m6)
 local function start(p)
 	local t = tourOf(p)
 	if finished(t) then return nil end
 	local chain = newChain(p)
-	local n = Rules.Next(t)
-	if n and CARDS[n] then
-		chain.pending = { id = n, at = os.clock() }
-		sendPending(p, chain)
-	end
+	local n = queueNext(p, chain, os.clock())
+	if n then sendPending(p, chain) end
 	busy(p, chain)
 	return n
 end
--- staging: card `id` sent now, unchecked (a chain started first if none runs, or replacing a finished one); "speakers"
--- takes its beat from the chain, else the newest recent beat. The id, or nil for an unknown one
+-- staging: card `id` sent now, unchecked (a chain started first if none runs, or replacing a finished one), and the same
+-- card dropped from the queue (it is out now); "speakers" takes its beat from the chain, else the newest recent beat.
+-- The id, or nil for an unknown one
 local function show(p, id)
 	if type(id) ~= "string" or type(D.Cards[id]) ~= "table" then return nil end
 	local chain = chains[p.UserId]
 	if not chain or chain.done then chain = newChain(p) end
-	if id == "speakers" and not chain.beat then
-		local r = Contracts.Recent(p)[1]
-		if r then chain.beat = { pattern = r.pattern, bpm = r.bpm, swing = 0 } end
-	end
+	if id == "speakers" and not chain.beat then chain.beat = recentBeat(p) end
+	if chain.pending and chain.pending.id == id then chain.pending = nil end
 	local payload = send(p, chain, id)
 	if payload then chain.card.staged = true end -- B1's Show exemption: never closed or refused as stale
 	busy(p, chain)
@@ -518,6 +698,7 @@ local function snapshot(p)
 		pending = pend and { id = pend.id, at = pend.at } or nil,
 		returned = chain and chain.returned or nil, returnAt = chain and chain.returnAt or nil,
 		started = chain and chain.started or nil, now = os.clock(),
+		beat = chain and chain.beat and { pattern = chain.beat.pattern, bpm = chain.beat.bpm, swing = chain.beat.swing } or nil,
 	}
 end
 local function age(p, s)
@@ -538,7 +719,7 @@ local function makeHook()
 	DAW.Opened:Connect(function(q)
 		if typeof(q) == "Instance" then opened[q.UserId] = (opened[q.UserId] or 0) + 1 end
 	end)
-	hook.OnInvoke = function(cmd, userId, a, b)
+	hook.OnInvoke = function(cmd, userId, a, b, c)
 		local p = Players:GetPlayerByUserId(userId)
 		if not p then return nil end
 		local uid = p.UserId
@@ -564,6 +745,12 @@ local function makeHook()
 			end
 			local res = Contracts.Pick(p, id)
 			return { ok = type(res) == "table" and res.ok == true, reason = type(res) == "table" and res.reason or nil, id = id }
+		end
+		if cmd == "Deliver" then -- Session_Deliver's own handler; the answer trimmed to plain fields (a bindable copies it)
+			local res = Contracts.Deliver(p, a, b, c or 0)
+			if type(res) ~= "table" then return nil end
+			return { ok = res.ok == true, reason = res.reason, stars = res.stars, xp = res.xp, cred = res.cred, again = res.again,
+				brief = res.brief, changed = res.changed }
 		end
 		if cmd == "ChooseToken" then return M.Choose(p, a, b) end
 		if cmd == "Get" then return M.Get(p) end
@@ -627,6 +814,10 @@ function M.Init(c)
 	Tour.Changed:Connect(function(p, what, at)
 		local ok, err = pcall(onChanged, p, what, at)
 		if not ok then report("tour changed: " .. tostring(err)) end
+	end)
+	Contracts.Delivered:Connect(function(...)
+		local ok, err = pcall(onDelivered, ...)
+		if not ok then report("delivered: " .. tostring(err)) end
 	end)
 	local W = walkIns()
 	if W and W.OnReset then W.OnReset(dropForWalkIns) end -- WalkIns' hook Reset drops a Day One chain too (F6)

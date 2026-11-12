@@ -151,6 +151,21 @@ eq("Delivered: the delivery finished the tour", R.Delivered(tour(STEPS, { done =
 eq("Delivered: skipped", R.Delivered(tour({ "take", "deliver" }, { done = true, skipped = true }), true), nil)
 eq("Delivered: deliver not written yet", R.Delivered(tour({ "take" }), true), nil)
 eq("Delivered: a junk own flag is not your laptop", R.Delivered(tour({ "take", "deliver" }), "yes"), nil)
+-- B3's real path, step by step on one saved tour (D1-T3): ON MONITORS pressed before any delivery leaves { open, take,
+-- monitors }. While you make the beat the tour names no card (Next nil: the chain only holds the first visit for
+-- HoldMax), and a Delivered read before Tour writes "deliver" queues nothing; Systems/DayOne writes "deliver" first,
+-- and then the delivery queues card 3 from anywhere. Card 2 is stale on that save, and card 3 ends the tour
+local old = tour({ "open", "take", "monitors" })
+eq("B3 path: before the delivery Next names no card", R.Next(old), nil)
+eq("B3 path: Delivered before deliver is written queues nothing", R.Delivered(old, true), nil)
+old.got.deliver = true -- Tour.Advance(p, "deliver"), as Systems/DayOne's Delivered listener runs it first
+eq("B3 path: after the delivery Next is spend", R.Next(old), "spend")
+eq("B3 path: the delivery queues spend at the hub", R.Delivered(old, false), "spend")
+eq("B3 path: the delivery queues spend at your laptop", R.Delivered(old, true), "spend")
+eq("B3 path: card 2 is stale on that save", R.Stale(old, "speakers"), true)
+for _, id in ipairs(STEPS) do old.got[id] = true end
+old.done = true -- Tour.Finish (card 3's rack or save)
+eq("B3 path: card 3's end finishes the tour (no card after)", R.Next(old), nil)
 
 -- Starter: the one brief marked starter ----------------------------------------------------------------------------
 local st = R.Starter(BRIEFS)
