@@ -1,4 +1,5 @@
--- OK Studio client (v1): panel UI, toasts, console meter animation, panel auto-close, the walk-in card (WalkInUI).
+-- OK Studio client (v1): panel UI, toasts, console meter animation, panel auto-close, the walk-in card (WalkInUI), the
+-- tour's coach marks (CoachUI).
 -- Studio-only test seam: the OK_UI attribute PanelCommand = "os" | "tab:<Name>" | "unlock:<id>" | "card:self" |
 -- "banner:<text>" (as a LifeBanner) | "level:<n>" (a LEVEL UP banner, nothing else) | "nolife" (Story, on a career that came
 -- back without its life) | "dayjoin" (the DAY toast's read as a client whose UI is built only now: DayToasts = the toasts a
@@ -99,6 +100,14 @@ do
 end
 -- studio tour card under the HUD + outline on the current target (server decides progress)
 local tour = require(RS.OK.Modules.TourUI).Build(gui, Theme, hud.Chip)
+-- coach marks on the live beat-maker controls for the tour's take, deliver and monitors steps (its own ScreenGui, OK_Coach;
+-- the Day One plan, Task 5); it gets every Tour payload. A failure here must not take the pill, the dailies or the toasts
+-- with it
+local coach = nil
+do
+  local ok, res = pcall(function() return require(RS.OK.Modules.CoachUI).Build(Theme) end)
+  if ok then coach = res else warn("[OK][ERR] CoachUI: " .. tostring(res)) end
+end
 -- daily requests pill under the HUD (shown when the tour card is not)
 local daily = Instance.new("TextLabel")
 daily.Name = "Daily"; daily.Position = UDim2.fromOffset(12, 66); daily.Size = UDim2.fromOffset(312, 30)
@@ -118,7 +127,10 @@ Event.OnClientEvent:Connect(function(kind, payload)
     sourcePos = (src and src:IsA("BasePart")) and src.Position or nil
     panel.Open(payload.tab, payload) -- opens at once; the Career tab's data follows in the background
   elseif kind == "Toast" then panel.Toast(payload.text or "")
-  elseif kind == "Tour" then tour.Set(payload); daily.Visible = ui:GetAttribute("TourVisible") ~= true and daily.Text ~= ""
+  elseif kind == "Tour" then
+    tour.Set(payload)
+    if coach then coach.Set(payload) end
+    daily.Visible = ui:GetAttribute("TourVisible") ~= true and daily.Text ~= ""
   elseif kind == "Daily" then
     daily.Text = string.format("DAILY REQUESTS %d/%d%s", payload.count or 0, payload.total or 3, (payload.streak or 0) > 0 and ("  ·  🔥 STREAK " .. payload.streak) or "")
     ui:SetAttribute("DailyCount", payload.count or 0); ui:SetAttribute("DailyStreak", payload.streak or 0)

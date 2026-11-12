@@ -109,7 +109,9 @@ local TIER_STATUS = { -- 4.6 - 4.8, by the play's speaker tier
 	"On your desk monitors · everyone in your room hears it",
 	"On your studio monitors · the whole studio hears it",
 }
-local openRoom = nil -- the open beat maker's room kind (the OpenDAW payload's room), nil at the hub's PC and laptops
+-- the open beat maker's room kind (the OpenDAW payload's room), nil at the hub's PC and laptops; a delivery made at a room's
+-- laptop shows its result at once, with no listen-back cutaway (req.OnDeliver; the Day One plan, Task 5)
+local openRoom = nil
 -- is your own room play on (your plot's RoomPlaying folder)?
 local function myRoomPlay()
 	local k = player:GetAttribute("PlotSlot")
@@ -274,6 +276,13 @@ req.OnDeliver = function()
 	-- listen-back: the camera cuts to the vocal booth, where the artist nods to two bars of your beat with their
 	-- reaction overhead; then the camera comes back and the result screen shows the stars, pay and credit
 	listenToken += 1
+	-- none at a room's laptop (openRoom: your bedroom's, say): that booth is the hub's, about 6,000 studs from your plot, so
+	-- there is no cutaway, no artist in it and no playback, and the result screen shows at once (the Day One plan, Task 5:
+	-- Day One's card 2 waits only for that screen; the Your Rooms plan's R-T12 later replaces this with its `booth` payload)
+	if openRoom then
+		req.ShowResult(res)
+		return
+	end
 	local my = listenToken
 	local brief = Briefs.BriefById[res.brief]; local artist = brief and Artists.ArtistById[brief.artist]
 	local cam = workspace.CurrentCamera
@@ -627,9 +636,15 @@ Event.OnClientEvent:Connect(function(kind, payload)
 		loading = false
 	end
 	enter(payload.seated == true)
-	-- sessions: refresh the card; a first-timer with nothing taken sees the requests straight away
+	-- sessions: refresh the card; an open that asks for the presets (payload.presets: Day One's "Make it now", which took
+	-- the starter request just before; the Day One plan, Tasks 2 and 5) shows the preset chooser, as taking a request at
+	-- the picker does (OnTake), when a request is active; else (that pick was refused: preflight m12) the usual rule: a
+	-- first-timer with nothing taken sees the requests straight away
+	local wantPresets = payload.presets == true
 	task.spawn(function()
-		if fetchSessions() and not sess.active and (sess.deliveries or 0) == 0 and #(sess.offers or {}) > 0 then req.ShowPicker() end
+		if not fetchSessions() then return end
+		if wantPresets and sess.active then req.ShowPresets()
+		elseif not sess.active and (sess.deliveries or 0) == 0 and #(sess.offers or {}) > 0 then req.ShowPicker() end
 	end)
 end)
 

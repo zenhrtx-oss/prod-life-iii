@@ -12,6 +12,7 @@
  "ReplicatedStorage/OK/Modules/CardFeel": 1536077960,
  "ReplicatedStorage/OK/Modules/CareerRules": 254380066,
  "ReplicatedStorage/OK/Modules/CareerSim": 478878530,
+ "ReplicatedStorage/OK/Modules/CoachUI": 1296420361,
  "ReplicatedStorage/OK/Modules/ContentFilter": 533611937,
  "ReplicatedStorage/OK/Modules/CypherUI": 1025808678,
  "ReplicatedStorage/OK/Modules/DAWConfig": 1061993412,
@@ -70,8 +71,8 @@
  "ServerScriptService/OK/Services/LightingService": 1166050520,
  "ServerScriptService/OK/Services/MonitorService": 1190777560,
  "ServerScriptService/OK/Services/SystemLoader": 1798620181,
- "StarterPlayer/StarterPlayerScripts/OK/ClientMain": 197410292,
- "StarterPlayer/StarterPlayerScripts/OK/DAWClient": 1280598291,
+ "StarterPlayer/StarterPlayerScripts/OK/ClientMain": 747502132,
+ "StarterPlayer/StarterPlayerScripts/OK/DAWClient": 378893151,
  "StarterPlayer/StarterPlayerScripts/OK/GatesClient": 1316369589,
  "StarterPlayer/StarterPlayerScripts/OK/RoomClient": 1205312932
 }
