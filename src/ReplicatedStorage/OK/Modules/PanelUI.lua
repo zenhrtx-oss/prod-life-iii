@@ -153,7 +153,7 @@ function M.Build(gui, Theme)
     end
     line("Your credits", Theme.gold, 18, Theme.fontBlack, CREDITS_ORDER)
     if #credits == 0 then
-      line("No credits yet. Take a session request at the studio PC or a laptop and deliver it: the song goes here with your name on it.", Theme.text, 15, Theme.font, CREDITS_ORDER + 1)
+      line("No credits yet. Take a session request in the beat maker and deliver it: the song goes here with your name on it.", Theme.text, 15, Theme.font, CREDITS_ORDER + 1)
     else
       line(#credits .. (#credits == 1 and " song" or " songs") .. " with your beat on it, newest first.", Theme.muted, 13, Theme.font, CREDITS_ORDER + 1)
       for i = #credits, 1, -1 do
@@ -197,14 +197,14 @@ function M.Build(gui, Theme)
     if d and d.v == 2 and d.slots then
       local n = 0
       for i = 1, 3 do local sl = d.slots["s" .. i] or d.slots[i] or d.slots[tostring(i)]; if sl then n += 1; local hits = select(2, sl.pattern:gsub("[^0%-]", "")); line(string.format("Slot %d  <b>%d BPM</b>   %d hits%s", i, sl.bpm or 0, hits, (sl.swing or 0) > 0 and ("   swing " .. sl.swing .. "%") or ""), Theme.text, 15, Theme.mono, i) end end
-      if n == 0 then line("No beat saved yet. Go to the studio PC in the control room and use Make a beat.", Theme.text, 15, Theme.font, 1) end
+      if n == 0 then line("No beat saved yet. Walk up to a laptop or PC and use Make a beat.", Theme.text, 15, Theme.font, 1) end
     elseif d and d.pattern then
       local hits = select(2, d.pattern:gsub("1", ""))
       line(string.format("Your beat  <b>%d BPM</b>   %d hits   save #%d", d.bpm or 0, hits, d.saves or 1), Theme.text, 15, Theme.mono, 1)
     else
-      line("No beat saved yet. Go to the studio PC in the control room and use Make a beat.", Theme.text, 15, Theme.font, 1)
+      line("No beat saved yet. Walk up to a laptop or PC and use Make a beat.", Theme.text, 15, Theme.font, 1)
     end
-    line("Go to the studio PC in the control room and use Make a beat. Press ON MONITORS so everyone in the room hears it.", Theme.text, 14, Theme.font, 2)
+    line("Walk up to a laptop or PC and use Make a beat. Press the speaker button so people nearby hear it.", Theme.text, 14, Theme.font, 2)
     line("Session requests pay money. Spend it at the gear rack: Roll FX for hat rolls, the Swing Unit for swing, voices for the keys. The 808 and the music box are free. Three beat slots.", Theme.muted, 14, Theme.font, 4)
     footer.Text = "Beat Maker · Backspace / B to close"
   end
@@ -218,7 +218,7 @@ function M.Build(gui, Theme)
     if life then lifeRows(LifeRules.Public(life, Config.Life), 2) end
     line(string.format("Level %d   ·   XP %d   ·   Money %s   ·   Beats saved %d", p.level or 1, p.xp or 0, Format.Money(p.cred or 0), (p.daw and p.daw.saves) or 0), Theme.accent2, 15, Theme.mono, 4)
     local credits = type(p.credits) == "table" and p.credits or {}
-    line(#credits == 0 and "No credits yet. Take a session request at the studio PC or a laptop." or ("Your credits (" .. #credits .. ")"), Theme.text, 15, Theme.fontBlack, 5)
+    line(#credits == 0 and "No credits yet. Take a session request in the beat maker." or ("Your credits (" .. #credits .. ")"), Theme.text, 15, Theme.fontBlack, 5)
     for i = #credits, math.max(1, #credits - 7), -1 do
       local c = credits[i]
       line(string.format("%s  <font color='#9696a5'>%s · prod. you</font>  %s", c.t or "?", c.a or "?", string.rep("★", c.s or 0)), Theme.text, 14, Theme.font, 10 + (#credits - i))

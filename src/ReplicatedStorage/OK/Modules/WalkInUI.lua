@@ -29,6 +29,19 @@
 --   ("<NAME> LEFT", how long he waited, his parting line; neutral tone, token "note:<token>"). Both queue until
 --   nothing defers them and no other result card shows, so a stat change never goes unexplained.
 -- A choice sends only WalkIn_Choose(token, index) (0 = walk away); the server rolls and applies everything.
+-- Day One (the Day One plan, Task 4): the same card draws Systems/DayOne's cards from its own remote, DayOne ("arrive"
+-- with DayOneRules.Card's payload, "leave" with { token }, through the same handlers; on Build one DayOne_Get, arrived
+-- when no card shows and no DayOne event came while it was out, so a card already open on the server isn't missed and
+-- a closed one never comes back). A card is a Day One card by the remote it came on, never by its payload's own fields
+-- (fix 1, review minor 7). Its payload's `header` replaces "N OF M TODAY" (DAY ONE) and its `walk` replaces WALK AWAY's
+-- label (SKIP, kept through every repaint). A payload with `now` (card 2, "play it on your speakers?", and card 3,
+-- "spend it?", fix 1) is not deferred by the beat maker: only the listen-back cutaway (Request.Cutaway) and the result
+-- screen (Request.Overlay == "result" while the beat maker shows) hold it, and it arms like any card that opened by
+-- itself. A visitor with no id (cards 2 and 3) gets no face: the portrait square is hidden and the name and tag start at
+-- the card's padding. A choice goes to DayOne_Choose(token, index) (index 0 is SKIP; "stale" ends the card quietly,
+-- nothing else to show), the server is never told of its deferral (no WalkIn_Deferred), and on a short phone its line
+-- stays (card 1's pay and card 3's tool and goal are only there; there is no walker's bubble to say it): the body
+-- scrolls instead.
 -- Explainers (Wave 3 design 4.5): a card or result whose payload carries hint = { term, text } shows it as its last
 -- footer line, Card.Hint / Result.Hint (a Mark "i" and the muted Label), full width under WALK AWAY's row (the Aura
 -- line beside it) or under OK; a line added between the Aura line and the hint goes above it. On a card whose body
@@ -254,7 +267,9 @@ function M.Build(Theme)
 	local function cred() return tonumber(player:GetAttribute("Cred")) or 0 end
 	local function costOf(c) return math.max(0, math.floor(tonumber(c.cost) or 0)) end
 
-	local cur = nil        -- the visit on screen: { token, card, today, max, seen = the card has been open }
+	-- the visit on screen: { token, card, today, max, seen = the card has been open, source ("dayone" for a Day One card),
+	-- now (the beat maker doesn't defer it), walk (the bottom button's label), noFace (no portrait square) }
+	local cur = nil
 	local forced = false   -- the chip was tapped: show the card even while deferred
 	local busy = false     -- a WalkIn_Choose call is out
 	local shown = {}       -- the open / deferred / chip state last applied
@@ -280,7 +295,8 @@ function M.Build(Theme)
 				part.cost.TextColor3 = broke and Theme.muted or Theme.ledOn
 			end
 		end
-		walkAway.Text = #list == 0 and "OK" or "WALK AWAY" -- a news-only follow-up has nothing to choose
+		-- the payload's own label (Day One's SKIP; preflight m14: kept on every repaint), else a news-only follow-up's OK
+		if cur and cur.walk then walkAway.Text = cur.walk else walkAway.Text = #list == 0 and "OK" or "WALK AWAY" end
 	end
 
 	-- positions everything from the viewport (real, or ForceViewport). layoutBody lays out the scrolling middle (his line
@@ -336,9 +352,11 @@ function M.Build(Theme)
 		local W = math.max(220, math.min(500, vp.X - 32))
 		local inner = W - 2 * PAD
 		portrait.Position = UDim2.fromOffset(PAD, top); portraitScale.Scale = head / PORTRAIT
+		local face = not (cur and cur.noFace) -- a Day One card with no visitor id: no square, the name at the padding
+		portrait.Visible = face
 		local headerW = math.ceil(measure(header.Text, 10, Theme.fontBlack, 1000).X) + 20
 		header.Position = UDim2.fromOffset(W - PAD - headerW, top + math.floor((head - 22) / 2)); header.Size = UDim2.fromOffset(headerW, 22)
-		local textX = PAD + head + 10
+		local textX = face and (PAD + head + 10) or PAD
 		local textW = math.max(40, W - PAD - headerW - 8 - textX)
 		nameL.Position = UDim2.fromOffset(textX, top + m.nameY); nameL.Size = UDim2.fromOffset(textW, 22)
 		tagL.Position = UDim2.fromOffset(textX, top + m.tagY); tagL.Size = UDim2.fromOffset(textW, 14)
@@ -350,7 +368,8 @@ function M.Build(Theme)
 		local room = math.max(MIN, (vp.Y - 2 * m.margin) - fixed - beatBelow)
 		local withLine = true
 		local contentH = layoutBody(inner, m, withLine)
-		if contentH > room and tight then withLine = false; contentH = layoutBody(inner, m, withLine) end -- his bubble says it too
+		-- his bubble says it too; a Day One card has no bubble and its line carries the pay, the tool and the goal: it stays
+		if contentH > room and tight and not (cur and cur.source == "dayone") then withLine = false; contentH = layoutBody(inner, m, withLine) end
 		local width = inner
 		if contentH > room then width = inner - 8; contentH = layoutBody(width, m, withLine) end -- the scroll bar gets its own lane
 		-- the hint, laid out after the body (which is exactly as with no hint): the card's last footer line, under WALK
@@ -410,11 +429,16 @@ function M.Build(Theme)
 	local function placeChip()
 		local vp = viewport()
 		local base, lowest = gui.AbsolutePosition.Y, 0
-		local function take(g)
-			if g and g:IsA("GuiObject") and g.Visible then lowest = math.max(lowest, g.AbsolutePosition.Y + g.AbsoluteSize.Y - base) end
+		local function take(g, reserve)
+			if g and g:IsA("GuiObject") and (g.Visible or reserve) then lowest = math.max(lowest, g.AbsolutePosition.Y + g.AbsoluteSize.Y - base) end
 		end
 		local ui = pg:FindFirstChild("OK_UI")
-		if ui then for _, n in ipairs({ "HUD", "Career", "Daily", "Tour" }) do take(ui:FindFirstChild(n)) end end
+		if ui then
+			for _, n in ipairs({ "HUD", "Career", "Daily" }) do take(ui:FindFirstChild(n)) end
+			-- the DAY ONE pill's row is kept while it has a step to show, even hidden under this open card (TourUI hides its
+			-- frame then): when the card flips to deferred, the chip appears under the pill, never on it (fix 1, minor 3)
+			take(ui:FindFirstChild("Tour"), ui:GetAttribute("TourVisible") == true)
+		end
 		local cy = pg:FindFirstChild("OK_Cypher")
 		take(cy and cy:FindFirstChild("Bar"))
 		local ph = pg:FindFirstChild("OK_Phone")
@@ -454,6 +478,18 @@ function M.Build(Theme)
 	end
 	-- for CardFeel.Result: the beat maker or the cutaway is up, or went down within the last second
 	local function dawUp() return (dawOrCutaway()) or os.clock() - dawDownAt <= 1 end
+	-- what still defers a `now` card (Day One's cards 2 and 3, shown over the beat maker): the listen-back cutaway (the beat
+	-- maker's gui is off but its frame may still read Visible, so the Request card is read either way), or the result
+	-- screen while the beat maker shows. Read only; dawOrCutaway keeps the close time
+	local function nowHolds()
+		local dg = pg:FindFirstChild("OK_DAW")
+		local d = dg and dg:FindFirstChild("DAW")
+		if not d then return false end
+		if not (reqCard and reqCard:IsDescendantOf(d)) then reqCard = d:FindFirstChild("Request", true) end
+		if not reqCard then return false end
+		if reqCard:GetAttribute("Cutaway") == true then return true end
+		return d:IsA("GuiObject") and d.Visible and reqCard:GetAttribute("Overlay") == "result"
+	end
 	local function cypherBusy()
 		local cy = RS.OK:FindFirstChild("Cypher")
 		return Rules.CypherHolds(cy and cy:GetAttribute("Phase"), player:GetAttribute("CypherIn"), cy and cy:GetAttribute("Round"))
@@ -477,11 +513,13 @@ function M.Build(Theme)
 	-- phone card shows is not taken: the card opens by itself once the phone card closes, deferred and armed as usual)
 	local function refresh(force)
 		local daw, compactDaw = dawOrCutaway()
+		if cur and cur.now then daw = nowHolds() end -- shown over the beat maker: only the cutaway and the result screen hold it
 		local deferred = cur ~= nil and ((not forced and (daw or (cypherBusy() and not shown.open))) or (phoneOpen() and not shown.open))
 		local open = cur ~= nil and not deferred
 		local chipOn = deferred and not compactDaw -- over the phone beat maker the chip would sit on its pads
 		if not force and open == shown.open and deferred == shown.deferred and chipOn == shown.chip then return end
-		if cur and deferred ~= shown.deferred then tellDeferred(cur.token, deferred, cur.seen == true) end
+		-- a Day One card has no walker to tell (WalkIn_Deferred is the walk-ins' own)
+		if cur and cur.source ~= "dayone" and deferred ~= shown.deferred then tellDeferred(cur.token, deferred, cur.seen == true) end
 		local wasOpen = shown.open
 		shown.open, shown.deferred, shown.chip = open, deferred, chipOn
 		card.Visible = open; chip.Visible = chipOn
@@ -544,17 +582,26 @@ function M.Build(Theme)
 		CardFeel.Result(r, dawUp())
 	end
 
-	local function arrive(p)
+	-- src: "dayone" when it came on the DayOne remote (or its Get), nil for a walk-in
+	local function arrive(p, src)
 		if type(p) ~= "table" or type(p.card) ~= "table" then return end
+		local dayone = src == "dayone"
+		-- the same Day One card again (the Build's DayOne_Get and its "arrive" both brought it): already up, no second riser
+		if dayone and cur and p.token ~= nil and cur.token == p.token then return end
 		local c = p.card
-		-- beatText: the second footer line for the payload's beat (nil: none); beatGood: a best beat to show
-		cur = { token = p.token, card = c, today = p.today, max = p.max, beatText = CardFeel.BeatLine(c.beat, c.beatMin), beatGood = type(c.beat) == "table" }
-		forced = false
 		local v = type(c.visitor) == "table" and c.visitor or {}
+		-- beatText: the second footer line for the payload's beat (nil: none); beatGood: a best beat to show. A Day One
+		-- card's header, bottom label, `now` and missing face (see the file's header)
+		cur = { token = p.token, card = c, today = p.today, max = p.max, beatText = CardFeel.BeatLine(c.beat, c.beatMin), beatGood = type(c.beat) == "table",
+			source = dayone and "dayone" or nil, now = dayone and p.now == true,
+			walk = (dayone and type(p.walk) == "string" and p.walk ~= "") and p.walk or nil, noFace = dayone and v.id == nil }
+		forced = false
 		nameL.Text = tostring(v.name or "?")
 		tagL.Text = tostring(c.tag or v.style or "")
-		header.Text = string.format("%d OF %d TODAY", tonumber(p.today) or 0, tonumber(p.max) or 0)
-		setPortrait(v) -- a new card replaces the last one's copy
+		header.Text = (dayone and type(p.header) == "string" and p.header ~= "") and p.header
+			or string.format("%d OF %d TODAY", tonumber(p.today) or 0, tonumber(p.max) or 0)
+		-- a new card replaces the last one's copy; a Day One card with no visitor id (cards 2 and 3) shows no face
+		if cur.noFace then setPortrait(nil) else setPortrait(v) end
 		lineL.Text = (type(c.line) == "string" and c.line ~= "") and ("“" .. c.line .. "”") or ""
 		local nw = type(c.news) == "table" and c.news or nil
 		newsHead.Text = nw and tostring(nw.headline or "") or ""
@@ -598,8 +645,9 @@ function M.Build(Theme)
 			if costOf(c) > cred() then gui:SetAttribute("LastChoose", "afford"); note(REASONS.afford); return end
 		end
 		local token = cur.token
+		local remote = cur.source == "dayone" and "DayOne_Choose" or "WalkIn_Choose" -- Day One answers { ok } with no result card
 		busy = true
-		local ok, res = pcall(function() return RS.OK.Remotes.WalkIn_Choose:InvokeServer(token, index) end)
+		local ok, res = pcall(function() return RS.OK.Remotes[remote]:InvokeServer(token, index) end)
 		busy = false
 		local r = (ok and type(res) == "table") and res or { ok = false, reason = "error" }
 		gui:SetAttribute("LastChoose", r.ok and "ok" or tostring(r.reason))
@@ -629,30 +677,55 @@ function M.Build(Theme)
 		end
 	end)
 
+	-- "leave": the visit is over (a Day One card: closed on the server, by a choice, its expiry or a step done another way)
+	local function leave(payload)
+		-- he left before his card ever showed (deferred until it expired, you left the hub or respawned): his news was
+		-- applied on arrival, so it still gets told
+		local nw = cur and cur.token == payload.token and not cur.seen and cur.card.news
+		if type(nw) == "table" and tostring(nw.headline or "") ~= "" then table.insert(queued, nw) end
+		-- he gave up waiting (the card stood for the whole limit): his note, through the result card
+		local n = payload.note
+		if type(n) == "table" then
+			local line = tostring(n.line or "")
+			table.insert(queued, { token = "note:" .. tostring(payload.token), key = "note", tone = "neutral", chips = {},
+				headline = string.upper(tostring(n.name or "?")) .. " LEFT", text = "waited " .. tostring(n.waited or "a while"),
+				note = line ~= "" and ("“" .. line .. "”") or "" })
+		end
+		endVisit(payload.token)
+	end
 	local ev = RS.OK.Remotes:FindFirstChild("WalkIn")
 	if ev then
 		ev.OnClientEvent:Connect(function(kind, payload)
 			if kind == "arrive" then arrive(payload)
 			elseif kind == "beat" then beatUpdate(payload)
 			elseif kind == "result" and type(payload) == "table" then endVisit(payload.token); showResult(payload)
-			elseif kind == "leave" and type(payload) == "table" then
-				-- he left before his card ever showed (deferred until it expired, you left the hub or respawned): his news was
-				-- applied on arrival, so it still gets told
-				local nw = cur and cur.token == payload.token and not cur.seen and cur.card.news
-				if type(nw) == "table" and tostring(nw.headline or "") ~= "" then table.insert(queued, nw) end
-				-- he gave up waiting (the card stood for the whole limit): his note, through the result card
-				local n = payload.note
-				if type(n) == "table" then
-					local line = tostring(n.line or "")
-					table.insert(queued, { token = "note:" .. tostring(payload.token), key = "note", tone = "neutral", chips = {},
-						headline = string.upper(tostring(n.name or "?")) .. " LEFT", text = "waited " .. tostring(n.waited or "a while"),
-						note = line ~= "" and ("“" .. line .. "”") or "" })
-				end
-				endVisit(payload.token)
+			elseif kind == "leave" and type(payload) == "table" then leave(payload)
 			end
 		end)
 	else
 		warn("[OK][ERR] WalkInUI: ReplicatedStorage.OK.Remotes.WalkIn is missing (run build/17_career_remotes.lua)")
+	end
+	-- Day One's cards (Systems/DayOne): the same arrive and leave; then the card the server has open now, if none shows yet
+	-- (this gui outlives a respawn, but a Build after the card's "arrive" would miss it)
+	local d1ev = RS.OK.Remotes:FindFirstChild("DayOne")
+	if d1ev then
+		local d1Events = 0 -- DayOne events since Build: the stream is newer than a Get reply that was out meanwhile
+		d1ev.OnClientEvent:Connect(function(kind, payload)
+			d1Events += 1
+			if kind == "arrive" then arrive(payload, "dayone")
+			elseif kind == "leave" and type(payload) == "table" then leave(payload)
+			end
+		end)
+		task.spawn(function()
+			local get = RS.OK.Remotes:FindFirstChild("DayOne_Get")
+			if not get then return end
+			local before = d1Events
+			local ok, p = pcall(function() return get:InvokeServer() end)
+			-- dropped when any DayOne event came while it was out: a "leave" would otherwise reopen a closed card (minor 8)
+			if ok and type(p) == "table" and cur == nil and d1Events == before then arrive(p, "dayone") end
+		end)
+	else
+		warn("[OK][ERR] WalkInUI: ReplicatedStorage.OK.Remotes.DayOne is missing (run build/20_day_one.lua)")
 	end
 	player:GetAttributeChangedSignal("Cred"):Connect(function() if cur then paintChoices() end end)
 	-- the footer follows your Aura band, unless a refusal note shows (it comes back with the band line when it ends)

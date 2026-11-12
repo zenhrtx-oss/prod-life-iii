@@ -10,8 +10,9 @@
 -- (4) DayOneRules.Starter(Data/Artists' briefs) is j1, and its artist is juno (JUNO VALE, a Color3 colour).
 -- (5) Systems/Tour (a fresh clone): the step ids are still open, take, deliver, monitors and gear, in that order;
 --     RewardXP is 50; each step's text is Data/DayOne's hub line for it with {artist} filled with the starter artist's
---     name (ruling B2), no "{" left in any of them, and the take step names JUNO VALE; Tour exposes Changed (an event)
---     and Finish.
+--     name (ruling B2), no "{" left in any of them, and the take step names JUNO VALE; each step's roomText (D1-T4: the
+--     DAY ONE pill's line in your own plot, sent in the client payload) is Data/DayOne's room line filled the same way,
+--     no "{" either; Tour exposes Changed (an event) and Finish.
 -- Nothing is parented into the place but the fresh clones, which are destroyed at once. Marker "T120 OK".
 -- The expected red, before build/20_day_one.lua: (1) "ReplicatedStorage.OK.Remotes.DayOne missing".
 local RS = game:GetService("ReplicatedStorage")
@@ -96,11 +97,17 @@ for i, id in ipairs(IDS) do
 	local want = Rules.Fill(D.Steps[id].hub, { artist = juno.name })
 	assert(s.text == want, "Tour step " .. id .. " reads '" .. tostring(s.text) .. "', want Data/DayOne's hub line filled: '" .. want .. "'")
 	assert(not tostring(s.text):find("{", 1, true), "Tour step " .. id .. " still holds a '{': " .. tostring(s.text))
+	-- D1-T4: the room line the client payload carries (roomText), filled the same way
+	local wantRoom = Rules.Fill(D.Steps[id].room, { artist = juno.name })
+	assert(s.roomText == wantRoom, "Tour step " .. id .. "'s roomText reads '" .. tostring(s.roomText) .. "', want Data/DayOne's room line filled: '" .. wantRoom
+		.. "' (before the D1-T4 sync of Systems/Tour: the expected red)")
+	assert(not tostring(s.roomText):find("{", 1, true), "Tour step " .. id .. "'s roomText still holds a '{': " .. tostring(s.roomText))
 end
+assert(Tour.Steps[2].roomText:find("JUNO VALE", 1, true), "the take step's room line doesn't name JUNO VALE: " .. Tour.Steps[2].roomText)
 assert(Tour.Steps[2].text:find("JUNO VALE", 1, true), "the take step doesn't name JUNO VALE: " .. Tour.Steps[2].text)
 assert(Tour.RewardXP == 50, "Tour.RewardXP is " .. tostring(Tour.RewardXP) .. ", want 50")
 assert(typeof(Tour.Changed) == "RBXScriptSignal", "Tour.Changed is a " .. typeof(Tour.Changed) .. ", want an event (RBXScriptSignal)")
 assert(type(Tour.Finish) == "function", "Tour.Finish is a " .. type(Tour.Finish) .. ", want a function")
-table.insert(out, "Tour: open, take, deliver, monitors, gear; RewardXP 50; texts are Data/DayOne's hub lines, no '{'; Changed and Finish")
+table.insert(out, "Tour: open, take, deliver, monitors, gear; RewardXP 50; texts are Data/DayOne's hub lines and roomTexts its room lines, no '{'; Changed and Finish")
 
 return "T120 OK\n" .. table.concat(out, "\n")

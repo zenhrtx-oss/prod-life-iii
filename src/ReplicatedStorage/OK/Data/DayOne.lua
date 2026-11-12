@@ -7,7 +7,7 @@
 --   {goal}, {goalprice} and {goalfollowers} the Desk monitors (spk_monitors), {xp} Config.DayOne.PrivateXP, {reward}
 --   Tour.RewardXP, {reason} a Rooms.PlayLocal refusal code. The starter artist's name comes only through {artist}.
 -- Cards[id] = { name, tag, line (or lines = { tool, none }), face (a portrait of the starter's artist), now (shown over
---   the beat maker), choices = { { key, text } } }. A choice's index is its key's order; index 0 is Skip.
+--   the beat maker: cards 2 and 3; D1-T4 fix 1 for card 3), choices = { { key, text } } }. A choice's index is its key's order; index 0 is Skip.
 -- Steps[id] = { hub, room }: the DAY ONE pill's line per Tour step, at the hub and in your own plot (§5).
 -- Marks[id]: the coach marks over the live beat-maker controls (§6); labels with no token.
 local D = {}
@@ -40,7 +40,8 @@ D.Cards = {
 			{ key = "private", text = "Keep it private. Headphones on." }, -- 2.5
 		},
 	},
-	-- §3 Card 3: you've got money. spend it?
+	-- §3 Card 3: you've got money. spend it? (over the beat maker too, D1-T4 fix 1: on a phone the compact beat maker would
+	-- hide it, and it holds the first visitor while it waits)
 	spend = {
 		name = "YOUR MONEY", -- 3.1
 		tag = "FIRST PAYDAY · THE GEAR RACK", -- 3.2
@@ -49,6 +50,7 @@ D.Cards = {
 			none = "you've got {money}. the rack can wait. next goal: {goal}, {goalprice} and {goalfollowers} followers.", -- 3.4
 		},
 		face = false,
+		now = true,
 		choices = {
 			{ key = "rack", text = "Hit the gear rack." }, -- 3.5
 			{ key = "save", text = "Save it for the monitors." }, -- 3.6

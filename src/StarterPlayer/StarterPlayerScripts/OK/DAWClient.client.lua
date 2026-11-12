@@ -260,7 +260,7 @@ req.OnDeliver = function()
 		local r = res.reason
 		local m = r == "missing" and ("Not yet: " .. table.concat(res.missing or {}, ", "))
 			or r == "copy" and string.format("Make it yours: change %d more pads", math.max(1, Check.MinChanged - (res.changed or 0)))
-			or r == "away" and "Deliver from the studio PC or a studio laptop"
+			or r == "away" and "Stand at a laptop or PC to deliver"
 			or r == "locked" and "That beat uses something you haven't unlocked yet"
 			or r == "noactive" and "Take a request first"
 			or r == "expired" and "That daily request was yesterday's · take one of today's"
@@ -583,7 +583,7 @@ ui.OnMonitors = function()
 		elseif reason == "off" then msg = "The monitors are switched off"
 		elseif reason == "empty" then msg = "Add a few hits first"
 		elseif reason == "locked" then msg = "That beat uses something you haven't unlocked yet"
-		elseif reason == "away" then msg = "Use the studio PC or a studio laptop for the monitors"
+		elseif reason == "away" then msg = "Stand at a laptop or PC to play it"
 		else msg = "Couldn't play on the monitors (" .. tostring(reason) .. ")" end
 		root:SetAttribute("Status", msg)
 		root:SetAttribute("LastBroadcast", reason)
@@ -597,6 +597,13 @@ local function resolve(fullName)
 	return node
 end
 Event.OnClientEvent:Connect(function(kind, payload)
+	-- the Gear tab opened by the server while the beat maker is open (Day One's card 3, "Hit the gear rack.", shown over
+	-- it; the rack's own prompt can't fire then: the modal turns prompts off): the beat maker closes first, or the tab
+	-- (OK_UI, under OK_DAW) would open hidden behind it (D1-T4 fix 1)
+	if kind == "OpenPanel" then
+		if type(payload) == "table" and payload.tab == "Gear" and ui.IsOpen() then ui.Hide() end
+		return
+	end
 	if kind ~= "OpenDAW" then return end
 	local src = payload.source and resolve(payload.source)
 	sourcePos = (src and src:IsA("BasePart")) and src.Position or nil

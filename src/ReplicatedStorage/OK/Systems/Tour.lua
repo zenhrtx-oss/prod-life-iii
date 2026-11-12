@@ -3,7 +3,9 @@
 -- Steps can be finished in any order; the tracker always points at the first one left.
 -- Progress lives in the profile: prof.tour = { got = {credits=true, ...}, done = bool, skipped = bool, d1 = Day One's
 -- saved state (Systems/DayOne writes it; this module never reads it) }.
--- The client gets "Tour" events { done, count, total, text, target } and highlights the target.
+-- The client gets "Tour" events { done, count, total, text, target, step, roomText } and highlights the target;
+-- roomText (Day One, Task 4) is the step's room line for the DAY ONE pill in your own plot, in that payload only
+-- (M.State keeps its shape: WalkIns and Phone read it).
 -- "monitors" counts when the beat goes on air or into the line, or the line is full, so a newcomer is never
 -- stuck waiting for someone else's beat. Finishing pays a one-time +RewardXP; skipping pays nothing.
 -- A room play (ON SPEAKERS at your own room's laptop, Systems/Rooms.Played; the Your Rooms plan, Task 7) counts for
@@ -63,13 +65,24 @@ local function doneText()
 	end
 	return "Studio tour complete · +" .. M.RewardXP .. " XP"
 end
+-- the step's room line (Data/DayOne Steps[id].room, {artist} filled; Task 4), for the pill in your own plot; the hub
+-- line when it is missing or keeps a token (never a "{" on the pill)
+local function room(id)
+	local step = DayOne and type(DayOne.Steps) == "table" and DayOne.Steps[id]
+	if not (DayOneRules and type(step) == "table" and type(step.room) == "string") then return hub(id) end
+	local text, left = DayOneRules.Fill(step.room, WORDS)
+	if left then return hub(id) end
+	return text
+end
 M.Steps = {
-	{ id = "open",     text = hub("open"),     target = "Workspace.OKStudio.ControlRoom.Screen_Main" },
-	{ id = "take",     text = hub("take"),     target = "Workspace.OKStudio.ControlRoom.Screen_Main" },
-	{ id = "deliver",  text = hub("deliver"),  target = "Workspace.OKStudio.ControlRoom.Screen_Main" },
-	{ id = "monitors", text = hub("monitors"), target = "Workspace.OKStudio.ControlRoom.Screen_Main" },
-	{ id = "gear",     text = hub("gear"),     target = "Workspace.OKStudio.ControlRoom.GearRack.Panel" },
+	{ id = "open",     text = hub("open"),     roomText = room("open"),     target = "Workspace.OKStudio.ControlRoom.Screen_Main" },
+	{ id = "take",     text = hub("take"),     roomText = room("take"),     target = "Workspace.OKStudio.ControlRoom.Screen_Main" },
+	{ id = "deliver",  text = hub("deliver"),  roomText = room("deliver"),  target = "Workspace.OKStudio.ControlRoom.Screen_Main" },
+	{ id = "monitors", text = hub("monitors"), roomText = room("monitors"), target = "Workspace.OKStudio.ControlRoom.Screen_Main" },
+	{ id = "gear",     text = hub("gear"),     roomText = room("gear"),     target = "Workspace.OKStudio.ControlRoom.GearRack.Panel" },
 }
+local stepById = {}
+for _, s in ipairs(M.Steps) do stepById[s.id] = s end
 local ctx
 
 local function state(prof)
@@ -92,8 +105,13 @@ function M.State(player)
 	return { done = t.done == true, skipped = t.skipped == true, count = n, total = #M.Steps,
 		text = s and s.text or "", target = s and s.target or "", step = s and s.id or "" }
 end
+-- the client's payload: State plus the current step's room line ("" when done; Task 4)
 local function send(player)
-	if player.Parent then RS.OK.Remotes.InteractionEvent:FireClient(player, "Tour", M.State(player)) end
+	if not player.Parent then return end
+	local s = M.State(player)
+	local cur = stepById[s.step]
+	s.roomText = cur and cur.roomText or ""
+	RS.OK.Remotes.InteractionEvent:FireClient(player, "Tour", s)
 end
 function M.Advance(player, id)
 	local t = state(ctx.Data.GetProfile(player))

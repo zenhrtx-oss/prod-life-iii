@@ -42,8 +42,9 @@
 --   Either way the monitors step is advanced (PlayLocal's Played does it too, a frame late: Advance is idempotent) and
 --   card 3 is queued AfterSpeakers out. Expiry: as private. A delivery or a monitors step that finishes the tour (gear
 --   bought early) ends the chain at once, as card 3's end does.
--- * Card 3 ("spend": your money, DayOneRules.Tool's cheapest tool you can buy, the Desk monitors as the next goal):
---   rack opens the Gear tab at your bedroom's RackSpot (Gear.OpenFor) when you stand within
+-- * Card 3 ("spend", over the beat maker too, D1-T4 fix 1: your money, DayOneRules.Tool's cheapest tool you can buy,
+--   the Desk monitors as the next goal): rack opens the Gear tab at your bedroom's RackSpot (Gear.OpenFor; the client
+--   closes an open beat maker when a Gear OpenPanel arrives, so the tab isn't under it) when you stand within
 --   Config.Interaction.PanelCloseDistance of it (the panel closes past that), else the toast `rackFar` (no plot, or too
 --   far); save does nothing more. Then Tour.Finish (the tour's +RewardXP and its done toast) and the chain ends at once,
 --   arming the first visit. Expiry: as save.
