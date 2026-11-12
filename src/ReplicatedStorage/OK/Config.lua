@@ -259,6 +259,87 @@ Config.AutosaveSeconds = 120
 -- each airing is whole bars lasting MinSeconds..MaxSeconds (closest to TargetSeconds), GapSeconds of silence between.
 -- Enabled = false switches the monitors off (the "music beds" question is the user's call).
 Config.Monitors = { Enabled = true, QueueSize = 4, MinSeconds = 12, MaxSeconds = 20, TargetSeconds = 16, GapSeconds = 3, LeadSeconds = 0.5 }
+-- your rooms (Systems/Rooms, Modules/RoomRules, Data/RoomCatalog): each player claims one of Slots plots, far from the
+-- hub (Modules/RoomRules.PlotOrigin), with a landing and a ladder of rooms, one Kinds row each (`gate` = the
+-- Config.Career.Gates id that owns it; none = always owned). Room-local coordinates have their origin on the floor at
+-- the room's centre, north -Z. at = the room's centre in plot-local studs; size = its interior (x, z); limit = the items
+-- it holds (posters count); plaques / posters = its wall spots. grid = its free floor as { x0, z0, x1, z1 } areas: a
+-- 1-stud cell (cx, cz) covers [cx, cx+1) x [cz, cz+1) and must lie wholly inside one area. keep = areas no item may
+-- touch (the spawn, the Entrance -> VisitorSpot walkway, the pigeon's spot). anchors = { x, y, z, nx, nz } (a position
+-- and a horizontal facing) for the code-built stand-in only: an imported room brings its own (the bedroom's are its
+-- Sockets, copied from ok_assets' bedroom_setup.lua). The bedroom's grid and keep are first guesses that Task 10's
+-- capture tunes; home and real get grid, keep and anchors in Task 2. Speakers: tier 1 = the laptop's own speakers (no
+-- gear); eq = { low, mid, high } dB on an EqualizerSoundEffect. Posters: research/rooms/copy_2026-11-12.md §9's words,
+-- colors (RGB), styles and their names; PosterColorInk = the word's ink on each color. spec/room_rules_spec.lua holds a
+-- literal copy (Task 2's t100 check pins it to this table): keep the two equal.
+Config.Rooms = {
+  Slots = 12, PlotOrigin = { 6000, 0, -2000 }, PlotCols = 4, PlotSpacing = 2000,
+  Hall = { 3000, 0, 0 }, -- the shared building's hall origin (build/19_rooms.lua builds it there; preflight m3: fixed)
+  Template = "Env_bedroom_starter", PlayCooldown = 1, Edit = { burst = 5, every = 0.2 }, ItemParts = 12,
+  Landing = { length = 110, width = 8 }, -- plot-local x 0..110, z 0..8; its front door at x 0
+  DoorModes = { "open", "friends", "locked" }, DoorDefault = "friends",
+  Kinds = { -- ladder order
+    bedroom = { order = 1, at = { 10, -8 }, size = { 12.36, 14.83 }, limit = 6, plaques = 3, posters = 0, booth = false,
+      grid = { { -1, -0.5, 2, 2 }, { 3, 0.5, 5.8, 3 }, { -6, -7, -3, -1 } },
+      keep = { { 0.6, 1.8, 2.6, 3.8 },                                            -- Spawn (its 2 x 2 plate)
+        { 1.0, -1.5, 2.9, 1.0 }, { 1.7, 1.0, 3.7, 3.0 }, { 2.4, 3.0, 4.7, 6.2 },  -- Entrance -> VisitorSpot, 1.2 wide
+        { -1.2, -0.5, 0.7, 1.5 } },                                               -- CritterSpot (the pigeon, turned)
+      anchors = { Entrance = { 4.0849, 0, 5.5897, 0, -1 }, VisitorSpot = { 1.6014, 0, -0.7986, -0.5764, -0.8172 },
+        CritterSpot = { -0.2027, 0, 0.6081, 0.6332, 0.774 },
+        Plaque_1 = { 6.1784, 5.3919, -4.3986, -1, 0 }, Plaque_2 = { 6.1784, 5.3919, -2.2014, -1, 0 },
+        Plaque_3 = { 6.1784, 5.3919, 0, -1, 0 },
+        Desk_Speaker_L = { -2.2297, 3, -6.8059, 0, 1 }, Desk_Speaker_R = { 1.0135, 3, -6.8059, 0, 1 } } },
+    -- home and real: Task 2's code-built stand-ins (Modules/RoomBuild): door on the south wall's east end, desk on the north
+    -- wall, booth in the north-west corner; first guesses until the user's imports land (their free floor goes here then)
+    home = { order = 2, gate = "home_studio", at = { 40, -10.6 }, size = { 24, 20 }, limit = 16, plaques = 6, posters = 4, booth = true,
+      grid = { { -5, -4, 5, 9 }, { 5, -9, 11, 4 }, { -11, -2, -5, 9 } },
+      keep = { { 5, 5.5, 7, 7.5 },                                                -- Spawn (its 2 x 2 plate)
+        { 5.4, 3.8, 8.6, 9.1 }, { 3.4, -0.2, 6.6, 5.1 }, { 1.4, -4.2, 4.6, 1.0 },  -- Entrance -> VisitorSpot
+        { -2.5, 1, -0.5, 3 },                                                      -- CritterSpot
+        { 6, 8.4, 10, 10 } },                                                      -- just inside the door
+      anchors = { Entrance = { 8, 0, 8.5, 0, -1 }, VisitorSpot = { 2, 0, -3.6, -0.5764, -0.8172 },
+        CritterSpot = { -1.5, 0, 2, 0.6332, 0.774 },
+        Desk_Speaker_L = { -1.6, 3, -9.3, 0, 1 }, Desk_Speaker_R = { 1.6, 3, -9.3, 0, 1 },
+        Plaque_1 = { 11.9, 5.4, -7.5, -1, 0 }, Plaque_2 = { 11.9, 5.4, -5, -1, 0 }, Plaque_3 = { 11.9, 5.4, -2.5, -1, 0 },
+        Plaque_4 = { 11.9, 5.4, 0, -1, 0 }, Plaque_5 = { 11.9, 5.4, 2.5, -1, 0 }, Plaque_6 = { 11.9, 5.4, 5, -1, 0 },
+        Poster_1 = { -11.9, 5.5, -6, 1, 0 }, Poster_2 = { -11.9, 5.5, -2, 1, 0 }, Poster_3 = { -11.9, 5.5, 2, 1, 0 },
+        Poster_4 = { -11.9, 5.5, 6, 1, 0 },
+        BoothSpot = { -8.5, 0, -6.5, 0, 1 }, BoothCam = { -8.5, 5, -1.5, 0, -1 } } },
+    real = { order = 3, gate = "real_studio", at = { 85, -14.6 }, size = { 36, 28 }, limit = 24, plaques = 10, posters = 6, booth = true,
+      grid = { { -8, -7, 8, 12 }, { 8, -12, 17, 8 }, { -17, -4, -8, 13 } },
+      keep = { { 11, 9, 13, 11 },                                                 -- Spawn (its 2 x 2 plate)
+        { 9.4, 5.2, 14.6, 13.1 }, { 5.4, -1.5, 10.6, 6.4 }, { 1.4, -8.2, 6.6, -0.3 }, -- Entrance -> VisitorSpot
+        { -3, 2, -1, 4 },                                                           -- CritterSpot
+        { 12, 12.4, 16, 14 } },                                                     -- just inside the door
+      anchors = { Entrance = { 14, 0, 12.5, 0, -1 }, VisitorSpot = { 2, 0, -7.6, -0.5764, -0.8172 },
+        CritterSpot = { -2, 0, 3, 0.6332, 0.774 },
+        Desk_Speaker_L = { -2.1, 3, -13.4, 0, 1 }, Desk_Speaker_R = { 2.1, 3, -13.4, 0, 1 },
+        Plaque_1 = { 17.9, 5.4, -11.25, -1, 0 }, Plaque_2 = { 17.9, 5.4, -8.75, -1, 0 }, Plaque_3 = { 17.9, 5.4, -6.25, -1, 0 },
+        Plaque_4 = { 17.9, 5.4, -3.75, -1, 0 }, Plaque_5 = { 17.9, 5.4, -1.25, -1, 0 }, Plaque_6 = { 17.9, 5.4, 1.25, -1, 0 },
+        Plaque_7 = { 17.9, 5.4, 3.75, -1, 0 }, Plaque_8 = { 17.9, 5.4, 6.25, -1, 0 }, Plaque_9 = { 17.9, 5.4, 8.75, -1, 0 },
+        Plaque_10 = { 17.9, 5.4, 11.25, -1, 0 },
+        Poster_1 = { -17.9, 5.5, -10, 1, 0 }, Poster_2 = { -17.9, 5.5, -6, 1, 0 }, Poster_3 = { -17.9, 5.5, -2, 1, 0 },
+        Poster_4 = { -17.9, 5.5, 2, 1, 0 }, Poster_5 = { -17.9, 5.5, 6, 1, 0 }, Poster_6 = { -17.9, 5.5, 10, 1, 0 },
+        BoothSpot = { -13.5, 0, -10, 0, 1 }, BoothCam = { -13.5, 5, -4, 0, -1 } } },
+  },
+  Speakers = {
+    { gear = nil,            rolloff = { 2, 8 },   volume = 0.5, eq = { -20, -4, 0 } },
+    { gear = "spk_monitors", rolloff = { 6, 24 },  volume = 1.0, eq = { -6, 0, 0 } },
+    { gear = "spk_studio",   rolloff = { 10, 45 }, volume = 1.4, eq = { 0, 0, 2 } },
+  },
+  PosterWords = { "LOUD", "GRIND", "DREAM", "BASS", "VIBES", "FIRE", "GOLD", "NIGHT", "FOCUS", "HUSTLE", "RISE", "SOON" },
+  PosterColors = {
+    { 235, 64, 52 }, { 255, 150, 40 }, { 255, 214, 60 }, { 0, 200, 120 },
+    { 60, 130, 255 }, { 150, 90, 240 }, { 230, 45, 145 }, { 28, 28, 34 },
+  },
+  PosterStyles = 3,
+  PosterColorNames = { "RED", "ORANGE", "YELLOW", "GREEN", "BLUE", "PURPLE", "PINK", "BLACK" },
+  PosterStyleNames = { "BOLD", "FRAMED", "STACKED" },
+  PosterColorInk = {
+    { 245, 245, 245 }, { 24, 24, 28 }, { 24, 24, 28 }, { 24, 24, 28 },
+    { 245, 245, 245 }, { 245, 245, 245 }, { 245, 245, 245 }, { 245, 245, 245 },
+  },
+}
 -- per-player cooldown between uses of one interactable (s), and server-wide cooldowns for shared state
 Config.Cooldowns = { Console = 2, Door = 1, TV = 1, LightSwitch = 3, Mic = 1, Computer = 1, CreditsWall = 0.5, Station = 1, GearRack = 1, Cypher = 1, StudioTwoDoor = 1 }
 Config.GlobalCooldowns = { Door = 3, LightSwitch = 3 }

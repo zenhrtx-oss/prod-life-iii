@@ -3,6 +3,7 @@
 -- enforces per-player and server-wide cooldowns (Config.Cooldowns / Config.GlobalCooldowns), runs the registered
 -- handler, then fires M.Used(player, kind, inst) for the tour and analytics.
 -- In Studio only, M._RunHandler(kind, player, inst) runs a registered handler directly for tests.
+-- M.Adopt(root) readies a room built at runtime (Systems/Rooms) before it is parented into Workspace.
 local CS, TS, Players = game:GetService("CollectionService"), game:GetService("TweenService"), game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local Config = require(RS.OK.Config)
@@ -102,15 +103,17 @@ local function tv(player, inst)
 end
 
 -- sounds, door at start ------------------------------------------------------------
+-- the kind's licensed sound on one tagged part (attachSfx at Init; Adopt for a room built later)
+local function sfxOn(inst, def)
+	local s = inst:FindFirstChild("SFX") or Instance.new("Sound")
+	s.Name = "SFX"; s.SoundId = def.id; s.Volume = def.volume or 0.6
+	s.RollOffMode = Enum.RollOffMode.InverseTapered; s.RollOffMinDistance = 6; s.RollOffMaxDistance = 40
+	s.Parent = inst
+end
 local function attachSfx()
 	for kind, def in pairs(Config.SFX or {}) do
 		for _, inst in ipairs(CS:GetTagged("OK_Interactable")) do
-			if inst:IsDescendantOf(workspace) and inst:GetAttribute("Kind") == kind and inst:IsA("BasePart") then
-				local s = inst:FindFirstChild("SFX") or Instance.new("Sound")
-				s.Name = "SFX"; s.SoundId = def.id; s.Volume = def.volume or 0.6
-				s.RollOffMode = Enum.RollOffMode.InverseTapered; s.RollOffMinDistance = 6; s.RollOffMaxDistance = 40
-				s.Parent = inst
-			end
+			if inst:IsDescendantOf(workspace) and inst:GetAttribute("Kind") == kind and inst:IsA("BasePart") then sfxOn(inst, def) end
 		end
 	end
 end
@@ -183,6 +186,24 @@ local function hook(inst)
 			end
 		end
 	end)
+end
+
+-- a room built at runtime (Systems/Rooms, the Your Rooms plan): call it with `root` still unparented, then parent root
+-- once, straight into Workspace, so the added-tag signal below hooks every tagged part in it. A clone keeps its
+-- template's OK_Hooked mark (hook() would skip it), so this clears the mark on every tagged BasePart under root and
+-- gives each its kind's SFX, as attachSfx does at Init. Parenting root anywhere outside Workspace first would make
+-- hook() return early and never run again. Returns how many tagged parts it adopted.
+function M.Adopt(root)
+	local n = 0
+	for _, d in ipairs(root:GetDescendants()) do
+		if d:IsA("BasePart") and CS:HasTag(d, "OK_Interactable") then
+			d:SetAttribute("OK_Hooked", nil)
+			local def = Config.SFX and Config.SFX[d:GetAttribute("Kind")]
+			if def then sfxOn(d, def) end
+			n += 1
+		end
+	end
+	return n
 end
 
 function M.Init(c)
