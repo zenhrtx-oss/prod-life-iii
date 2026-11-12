@@ -1,15 +1,16 @@
--- OK Studio system: walk-ins. Artists, sponsor reps, fans and rivals (Data/WalkIns) walk into the hub rooms as an NPC
--- (Modules/Visitor), offer a choice card, roll a hidden outcome (Modules/WalkInRules) and move Money and the career
--- stats (Systems/Career); some outcomes plant a follow-up that comes back a few visits later.
--- * Presence timer: per player, `remaining` seconds, from Config.WalkIns.FirstDelay on first entering the hub (FirstEver
+-- OK Studio system: walk-ins. Artists, sponsor reps, fans and rivals (Data/WalkIns) walk into the hub rooms, or into your
+-- own room, as an NPC (Modules/Visitor), offer a choice card, roll a hidden outcome (Modules/WalkInRules) and move Money
+-- and the career stats (Systems/Career); some outcomes plant a follow-up that comes back a few visits later.
+-- * Presence timer: per player, `remaining` seconds, from Config.WalkIns.FirstDelay on first being present (FirstEver
 --   instead while prof.walkins.count is 0: the very first visit, Wave 3 design 4.4) and from Gap after each visit ends
 --   (or a visitor leaves without arriving; FirstEver again, with no burst, while count is still 0). A 1 s loop counts
---   it down only while the player is in the hub rooms (WalkInRules.InHub). At 0 a visit starts once the tour is done
---   or skipped (not needed while count is 0, so a new player's first card comes without the tour), no cypher round
---   holds the player (WalkInRules.CypherHolds: one that listens or votes holds everyone; a lobby, the build and the
---   reveal hold only that round's entrants), no visit is in flight for the player and today's count (UTC day) is under
---   DailyMax. Server-wide at most MaxWalking visitors are out at once (from spawn until gone); the rest wait, first
---   come, first walk.
+--   it down only while the player is present: in the hub rooms or in one of their own rooms (WalkInRules.Present on
+--   Systems/Rooms' BoxesFor, required lazily; never another player's plot, a landing or the hall). At 0 a visit starts
+--   where the player is, once the tour is done or skipped (not needed while count is 0, so a new player's first card
+--   comes without the tour), no cypher round holds the player (WalkInRules.CypherHolds: one that listens or votes holds
+--   everyone; a lobby, the build and the reveal hold only that round's entrants), no visit is in flight for the player
+--   and today's count (UTC day) is under DailyMax. Server-wide at most MaxWalking visitors are out at once (from spawn
+--   until gone); the rest wait, first come, first walk.
 -- * Rush hour (Wave 1b): every re-arm after FirstDelay draws through nextGap (WalkInRules.RushGap on Config.WalkIns.Rush),
 --   so now and then a burst of 2-3 visits comes Short seconds apart and the quiet gap after it adds back what they saved.
 --   A burst starts only while today leaves room for its smallest size before DailyMax (WalkInRules.RushRoom), so
@@ -17,17 +18,22 @@
 --   unfinished tour also ends one, and a first-ever visit that never arrived starts none). The player attribute
 --   BusyDay is true from the re-arm that starts a burst until the one that arms its quiet gap; reaching DailyMax, the
 --   hook's Reset and leaving end a burst (its saved seconds dropped). The burst lives in server memory only.
--- * The daily Aura heal (Wave 1b): after 5 s in the hub each UTC day (once a session), Aura in the red moves up to
---   Config.Career.Sources.AuraHeal's max toward 0 through Career.Add "AuraHeal", whose gate (dailyMax 1) holds it to
---   once a UTC day across sessions; a heal that pays sends the toast "the internet forgot. +N AURA".
--- * The pick is stored in prof.walkins.next until he arrives, so a respawn or a trip out of the hub never rerolls it.
+-- * The daily Aura heal (Wave 1b): after 5 s present (the hub or your rooms) each UTC day (once a session), Aura in the
+--   red moves up to Config.Career.Sources.AuraHeal's max toward 0 through Career.Add "AuraHeal", whose gate (dailyMax 1)
+--   holds it to once a UTC day across sessions; a heal that pays sends the toast "the internet forgot. +N AURA".
+-- * The pick is stored in prof.walkins.next until he arrives, so a respawn or a trip away never rerolls it.
 --   A queued sponsor_drop that no longer applies (the deal it was planted for is gone or changed, or Aura is back at
 --   that sponsor's floor) is taken out of the queue when it would be picked, stored pick included, and never applied.
 -- * Arrival counts the visit (today, count, last, seen), rolls and applies a follow-up's news, queues sponsor_drop when
 --   Aura is under the sponsor's floor, and sends the card. WalkIn_Choose(token, index) applies one choice exactly once
 --   (0 = WALK AWAY). Unanswered for ExpireSeconds (ExpireBusySeconds while another visit waits for a walking slot), or
---   when the target leaves the hub or the server or respawns, he walks out with no stat change; a visit that arrived
---   stays counted.
+--   when the target leaves the place the visit takes place in (the hub, or that room of theirs) or the server or
+--   respawns, he walks out with no stat change; a visit that arrived stays counted.
+-- * Your rooms (the Your Rooms plan, Task 5): a visit takes place where it was scheduled (rec.place: "hub" or one of the
+--   player's room kinds) and ends ("left_hub") once they are no longer there, a step out onto their landing included. In
+--   a room he walks in from its Entrance to its VisitorSpot (Visitor's opts.route; he arrives there facing the player
+--   and leaves back the same way) and the pigeon sits at its CritterSpot; both are the room's anchors, Rooms.Anchor on
+--   the player's own plot (a room without them fails the visit, reported).
 -- * Money path: a choice's cost through DataService.SpendCred; then the outcome's money on its own (AddCred "WalkIn"
 --   or TakeCred); stats through Career.Add "WalkIn" / Career.Take. No XP from walk-ins; phone items may pay XP through
 --   Config.XP.Sources.Phone. Chips and the overhead tag show what was actually applied. A choice resolves against the
@@ -88,8 +94,9 @@
 --   arrival; telemetry CardExpire and CardNote). No other way a visit ends leaves one. While the client reports the card
 --   deferred (WalkIn_Deferred, the beat maker or a cutaway hides it), his bubble says a W.WaitLines line every
 --   Config.WalkIns.WaitLineSeconds, the first that long after the deferral began. A visitor of kind critter (the pigeon)
---   is a Visitor.SpawnSpot figure on the lounge coffee table instead of a walker; it holds a MaxWalking slot like any
---   visitor, its card opens wherever the player is in the hub, and it flies off after the result.
+--   is a Visitor.SpawnSpot figure on the lounge coffee table (in your room: at its CritterSpot) instead of a walker; it
+--   holds a MaxWalking slot like any visitor, its card opens wherever the player is in the hub (or that room), and it
+--   flies off after the result.
 -- * Remotes: WalkIn (server -> client: "arrive", "result", "leave", "beat"), WalkIn_Choose, WalkIn_Deferred (client -> server:
 --   token, deferred, seen). In Studio the scheduler is paused while ReplicatedStorage.OK's WalkInsPaused attribute is true
 --   (tools/test.py sets it around Play), and while that attribute is there at all (true or false: the test hold) no burst
@@ -98,7 +105,10 @@
 --   waiting line without waiting it out; its Sent(userId) returns every WalkIn send since the last call; Rush(userId, k)
 --   makes the next re-arm start a burst of k, Rush(userId, 0) ends one, Rush(userId) reads { left, saved, busy }; and
 --   Heal(userId) runs the heal now past the hold and the session memory, never past the gate, and returns what it paid;
---   DailyMaxFor(userId) returns today's cap, Wave 3; Rel(userId) returns a copy of prof.walkins.rel, and SetRel(userId,
+--   DailyMaxFor(userId) returns today's cap, Wave 3; DueWithin(userId, s, ignorePause) is M.DueWithin, and
+--   HealSteps(userId, n) runs the loop's heal step n times on a fresh session heal clock past the hold, each with its real
+--   presence check, and returns what it paid (Your Rooms Task 5);
+--   Rel(userId) returns a copy of prof.walkins.rel, and SetRel(userId,
 --   rel) replaces it with a copy of `rel` (not a table: none) through state()'s repair, never reporting, and returns what
 --   it kept).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
@@ -154,13 +164,45 @@ local function paused() return RunService:IsStudio() and RS.OK:GetAttribute("Wal
 local function held() return RunService:IsStudio() and RS.OK:GetAttribute("WalkInsPaused") ~= nil end
 local function utcDay() return ctx.Data._day() end
 local function between(range) return timeRng:NextInteger(range[1], range[2]) end
-local function inHub(p)
-	if p.Parent ~= Players then return false end
+-- Systems/Rooms, required lazily on first use (never at load); nil when it can't be (then the hub alone counts)
+local roomsMod
+local function rooms()
+	if roomsMod == nil then
+		local ok, res = pcall(function() return require(RS.OK.Systems.Rooms) end)
+		roomsMod = ok and res or false
+		if not ok then report("rooms: " .. tostring(res)) end
+	end
+	return roomsMod or nil
+end
+-- p's own rooms' boxes (Rooms.BoxesFor: never another player's plot, never the landing or the hall); {} without them.
+-- A failing read is reported at most every 10 s (a room visitor asks every Heartbeat)
+local boxesReportedAt = -math.huge
+local function boxesFor(p)
+	local R = rooms()
+	if not R then return {} end
+	local ok, res = pcall(R.BoxesFor, p)
+	if not ok or type(res) ~= "table" then
+		if os.clock() - boxesReportedAt >= 10 then boxesReportedAt = os.clock(); report("rooms boxes: " .. tostring(res)) end
+		return {}
+	end
+	return res
+end
+-- where `pos` counts for p's walk-ins (WalkInRules.Present on p's own rooms): "hub", the kind of one of p's rooms
+-- ("bedroom", ...), or nil. The one rule for the scheduler's checks and for a visitor in your room (his opts.present)
+local function presentAt(p, pos)
+	local boxes = boxesFor(p)
+	local where, i = Rules.Present(pos.X, pos.Y, pos.Z, boxes)
+	if where == "room" then return boxes[i].kind or "room" end
+	return where
+end
+-- where p counts as present now (presentAt their root): "hub", one of their room kinds, or nil (out of the server, no
+-- character, or anywhere else)
+local function present(p)
+	if p.Parent ~= Players then return nil end
 	local c = p.Character
 	local root = c and c:FindFirstChild("HumanoidRootPart")
-	if not root then return false end
-	local pos = root.Position
-	return Rules.InHub(pos.X, pos.Y, pos.Z)
+	if not root then return nil end
+	return presentAt(p, root.Position)
 end
 -- does a cypher round hold p's walk-ins (WalkInRules.CypherHolds on its Phase and Round and p's CypherIn)? RS.OK.Cypher is
 -- made by BeatBattles' Init, and no folder (or no phase) holds nothing
@@ -592,15 +634,16 @@ local function nextPick(p, st)
 	return pick
 end
 
--- the in-flight record for a pick (blocks the scheduler and the hook's Spawn for the player until it ends)
-local function newRecord(p, pick)
+-- the in-flight record for a pick (blocks the scheduler and the hook's Spawn for the player until it ends); `place` is
+-- where the visit takes place (present(p) when it was scheduled: "hub" or one of the player's room kinds)
+local function newRecord(p, pick, place)
 	local item = pick.item
 	local entryCtx = pick.entry and type(pick.entry.ctx) == "table" and pick.entry.ctx or {}
 	local sponsorId = item.sponsor or entryCtx.sponsor or Career.Get(p).sponsor
 	local fill = filler(sponsorId) -- refilled with your best beat's bpm on arrival (onArrive)
 	local v = Content.VisitorById[item.visitor]
 	local rec = { token = Http:GenerateGUID(false), kind = pick.kind, id = pick.id, handle = nil, arrived = false, arrivedAt = nil,
-		player = p, item = item, entry = pick.entry, fill = fill, sponsorId = sponsorId, beat = false,
+		player = p, place = place, item = item, entry = pick.entry, fill = fill, sponsorId = sponsorId, beat = false,
 		def = { id = v.id, name = fill(NAMES[v.id] or v.id), style = v.style, color = v.color, sig = v.sig } }
 	pending[p.UserId] = rec
 	return rec
@@ -694,19 +737,39 @@ local function endVisit(rec, reason)
 	end
 end
 
+-- the Visitor opts a visit in p's room `kind` adds (the hub adds none): he counts p as there while p is in that room
+-- (presentAt), a walker walks in from its Entrance to its VisitorSpot (opts.route), a critter (`spot`) sits at its
+-- CritterSpot (opts.at); the anchors are Rooms.Anchor's, from p's own plot. A room without them errors (the asset
+-- contract names all three): the visit can't start
+local function roomOpts(p, kind, spot, opts)
+	local R = rooms()
+	assert(R, "a visit in a room needs Systems/Rooms")
+	opts.present = function(pos) return presentAt(p, pos) == kind end
+	if spot then
+		opts.at = R.Anchor(p, kind, "CritterSpot")
+		assert(opts.at, "the " .. tostring(kind) .. " has no CritterSpot")
+	else
+		local entrance, stand = R.Anchor(p, kind, "Entrance"), R.Anchor(p, kind, "VisitorSpot")
+		assert(entrance and stand, "the " .. tostring(kind) .. " has no Entrance or VisitorSpot")
+		opts.route = { entrance, stand }
+	end
+end
+
 local pump
--- put a visitor on the floor for p (a critter on the lounge coffee table, `spot`); he holds a walking slot until he is
--- gone. nil when he can't be built
-local function spawnVisitor(def, p, onArrive, onGone, spot)
+-- put a visitor on the floor for p at `place` (present(p): "hub", or one of p's room kinds: roomOpts); in the hub a
+-- critter (`spot`) sits on the lounge coffee table. He holds a walking slot until he is gone. nil when he can't be built
+local function spawnVisitor(def, p, place, onArrive, onGone, spot)
 	local handle
 	local ok, err = pcall(function()
-		handle = (spot and Visitor.SpawnSpot or Visitor.Spawn)(def, p, { walkins = W,
+		local opts = { walkins = W,
 			onArrive = function() onArrive(handle) end,
 			onGone = function()
 				if live[handle] then live[handle] = nil; liveCount -= 1 end
 				if onGone then onGone() end
 				pump()
-			end })
+			end }
+		if place ~= "hub" then roomOpts(p, place, spot, opts) end
+		handle = (spot and Visitor.SpawnSpot or Visitor.Spawn)(def, p, opts)
 	end)
 	if not ok then report("visitor " .. tostring(def.id) .. ": " .. tostring(err)); return nil end
 	live[handle] = p.UserId
@@ -781,14 +844,16 @@ local function onArrive(rec)
 	if not ok then report("arrival: " .. tostring(err)); endVisit(rec, "error") end
 end
 
--- the record's visitor walks in now (MaxWalking already allowed for; a critter appears on the lounge coffee table
--- instead); false when the visit could not start
+-- the record's visitor walks in now, where the visit takes place (rec.place: the hub, or your room from its Entrance;
+-- MaxWalking already allowed for; a critter appears on the lounge coffee table or at your room's CritterSpot instead);
+-- false when the visit could not start (the player is no longer there: "left_hub")
 local function walkIn(rec)
 	local p = rec.player
 	if pending[p.UserId] ~= rec then return false end
-	if not inHub(p) then endVisit(rec, "left_hub"); return false end
+	local place = present(p)
+	if not place or place ~= rec.place then endVisit(rec, "left_hub"); return false end
 	local v = Content.VisitorById[rec.item.visitor]
-	local handle = spawnVisitor(rec.def, p, function() onArrive(rec) end, function() endVisit(rec, "gone") end, v and v.kind == "critter")
+	local handle = spawnVisitor(rec.def, p, place, function() onArrive(rec) end, function() endVisit(rec, "gone") end, v and v.kind == "critter")
 	if not handle then endVisit(rec, "error"); return false end
 	rec.handle = handle
 	return true
@@ -878,11 +943,14 @@ end
 -- the tour gate: done or skipped, or no walk-in yet (count 0: the first-ever visit comes without it, design 4.4)
 local function tourOk(p, st) return st.count == 0 or Tour.State(p).done end
 
--- one scheduler check for p with the presence timer run out; true when it started a visit (queued for a walking slot).
--- Refused while a phone DM is open (PhoneBusy, set by Systems/Phone): one card at a time
+-- one scheduler check for p with the presence timer run out; true when it started a visit (queued for a walking slot)
+-- where p is (the hub or one of their rooms). Refused while a phone DM is open (PhoneBusy, set by Systems/Phone): one
+-- card at a time
 local function schedule(p)
 	local uid = p.UserId
-	if pending[uid] or p:GetAttribute("PhoneBusy") == true or not inHub(p) or cypherHolds(p) then return false end
+	if pending[uid] or p:GetAttribute("PhoneBusy") == true then return false end
+	local place = present(p)
+	if not place or cypherHolds(p) then return false end
 	local st = state(p)
 	if not tourOk(p, st) then return false end
 	local day = st.day
@@ -891,7 +959,7 @@ local function schedule(p)
 	if not can then return false end
 	local pick = nextPick(p, st)
 	if not pick then remaining[uid] = nextGap(p, false); return false end
-	local rec = newRecord(p, pick)
+	local rec = newRecord(p, pick, place)
 	table.insert(waiting, { uid = uid, rec = rec, start = function() walkIn(rec) end })
 	pump()
 	return true
@@ -909,28 +977,35 @@ local function healNow(p)
 	end
 	return paid
 end
--- the loop's heal (in the hub, the hold off): one try once HEAL_SECONDS in-hub seconds of this session's UTC day have
--- passed, so a player still here after UTC midnight gets the new day's
+-- the loop's heal (present: in the hub or one of your rooms; the hold off): one try once HEAL_SECONDS present seconds of
+-- this session's UTC day have passed, so a player still here after UTC midnight gets the new day's. Returns what it paid
 local function heal(p)
 	local uid, day = p.UserId, utcDay()
 	local h = heals[uid]
 	if not h or h.day ~= day then h = { day = day, seconds = 0 }; heals[uid] = h end
-	if h.done then return end
+	if h.done then return 0 end
 	h.seconds += 1
-	if h.seconds < HEAL_SECONDS then return end
+	if h.seconds < HEAL_SECONDS then return 0 end
 	h.done = true
-	healNow(p)
+	return healNow(p)
+end
+-- the loop's heal step for p: one heal second while present (the hub or one of your rooms) and the hold is off, or past
+-- the hold with `force` (the hook's HealSteps). Returns where p is (present(p)) and what this step paid
+local function healStep(p, force)
+	local here = present(p)
+	local paid = 0
+	if here and (force or not held()) then paid = heal(p) end
+	return here, paid
 end
 
--- the 1 s loop's step for one player: the heal clock; the first arm on entering the hub (FirstEver while no walk-in has
--- come yet, count 0; else FirstDelay); presence counts only in the hub, only between visits, and not behind an open
--- phone DM (PhoneBusy), so a walk-in never fires the moment a DM closes: a timer that already ran out behind it is
--- re-armed (nextGap), and during a burst one under the short minimum is raised to it
+-- the 1 s loop's step for one player: the heal clock; the first arm on first being present (FirstEver while no walk-in
+-- has come yet, count 0; else FirstDelay); presence counts only in the hub or one of your own rooms (present), only
+-- between visits, and not behind an open phone DM (PhoneBusy), so a walk-in never fires the moment a DM closes: a timer
+-- that already ran out behind it is re-armed (nextGap), and during a burst one under the short minimum is raised to it
 local function tick(p)
 	local uid = p.UserId
 	if not ready[uid] then return end
-	local here = inHub(p)
-	if here and not held() then heal(p) end
+	local here = healStep(p, false)
 	if remaining[uid] == nil then
 		if here then remaining[uid] = between((state(p).count == 0 and W.FirstEver) or W.FirstDelay) end
 		return
@@ -970,14 +1045,14 @@ end
 function M.Busy(p) return pending[p.UserId] ~= nil end
 
 -- is a walk-in due within s seconds? The presence timer is set and at or under s, and every scheduler check would pass
--- now: in the hub, the tour gate (tourOk: done, or count 0), no cypher holding p, today under DailyMaxFor (a new UTC day rolls
--- over first). The timer alone is never read as "due": a capped player's sits at 0 for the day. The pause blocks it
--- unless ignorePause (the Phone hook's Tick runs under the suite's pause)
+-- now: present (the hub or one of your rooms), the tour gate (tourOk: done, or count 0), no cypher holding p, today under
+-- DailyMaxFor (a new UTC day rolls over first). The timer alone is never read as "due": a capped player's sits at 0 for
+-- the day. The pause blocks it unless ignorePause (the Phone hook's Tick runs under the suite's pause)
 function M.DueWithin(p, s, ignorePause)
 	if not ignorePause and paused() then return false end
 	local left = remaining[p.UserId]
 	if left == nil or left > s then return false end
-	if not inHub(p) or cypherHolds(p) then return false end
+	if not present(p) or cypherHolds(p) then return false end
 	local st = state(p)
 	if not tourOk(p, st) then return false end
 	local day = st.day
@@ -992,14 +1067,15 @@ function M.Aired(p) return aired[p.UserId] == true end
 -- fn(player) runs inside the hook Reset, before it returns (module-level, so Init order doesn't matter)
 function M.OnReset(fn) table.insert(onReset, fn) end
 
--- an in-flight visit ends when it expires or its target is no longer in the hub (or the server). While another visit
+-- an in-flight visit ends when it expires or its target is no longer where it takes place (rec.place: the hub, or that
+-- room of theirs; the landing, the hall and another room don't count) or in the server: "left_hub". While another visit
 -- waits for a walking slot, a standing visitor gives his up after ExpireBusySeconds (a card left open at the beat maker
 -- or by an AFK player must not hold one of the MaxWalking slots for the whole ExpireSeconds). A deferred card's
 -- visitor says the next W.WaitLines line (cycling) once WaitLineSeconds have passed since the last one (or the deferral)
 local function upkeep(rec, now)
 	local limit = (#waiting > 0) and (W.ExpireBusySeconds or 90) or W.ExpireSeconds
 	if rec.arrived and now - rec.arrivedAt >= limit then endVisit(rec, "expired"); return end
-	if not inHub(rec.player) then endVisit(rec, "left_hub"); return end
+	if present(rec.player) ~= rec.place then endVisit(rec, "left_hub"); return end -- "left_hub" also means "left your room"
 	local lines = Content.WaitLines
 	if rec.deferred and #lines > 0 and now - rec.lineAt >= W.WaitLineSeconds then
 		rec.lineAt = now
@@ -1054,10 +1130,13 @@ end
 
 -- Studio-only test seam ---------------------------------------------------------------------------------------------
 
--- the hook's Spawn: skips pause, presence, tour, cypher, DailyMax and MaxWalking; still the hub and one per player.
--- id = a card or follow-up id (stored as the pick), nil = the scheduler's own pick
+-- the hook's Spawn: skips pause, the presence timer, tour, cypher, DailyMax and MaxWalking; still present (the hub or
+-- one of your rooms: the visit takes place there) and one per player. id = a card or follow-up id (stored as the pick),
+-- nil = the scheduler's own pick
 local function spawnNow(p, id)
-	if pending[p.UserId] or not inHub(p) then return false end
+	if pending[p.UserId] then return false end
+	local place = present(p)
+	if not place then return false end
 	local st = state(p)
 	local pick
 	if id == nil then
@@ -1067,17 +1146,18 @@ local function spawnNow(p, id)
 		if pick then st.next = { kind = pick.kind, id = pick.id }; ctx.Data.MarkDirty(p) end
 	end
 	if not pick then return false end
-	return walkIn(newRecord(p, pick))
+	return walkIn(newRecord(p, pick, place))
 end
 
--- n decoys (no card: they walk to p and leave on arrival) through the walking limit
+-- n decoys (no card: they walk to p, where p is when each is admitted, and leave on arrival) through the walking limit
 local function spawnExtra(p, n)
-	if not inHub(p) then return 0 end
+	if not present(p) then return 0 end
 	for i = 1, n do
 		local v = ARTISTS[(i - 1) % #ARTISTS + 1]
 		local def = { id = v.id, name = NAMES[v.id] or v.id, style = v.style, color = v.color, sig = v.sig }
 		table.insert(waiting, { uid = p.UserId, start = function()
-			if inHub(p) then spawnVisitor(def, p, function(h) h:Leave() end) end
+			local place = present(p)
+			if place then spawnVisitor(def, p, place, function(h) h:Leave() end) end
 		end })
 	end
 	pump()
@@ -1147,6 +1227,18 @@ local function makeHook()
 		end
 		if cmd == "Heal" then return healNow(p) end -- past the hold and the session memory, never the gate
 		if cmd == "DailyMaxFor" then return M.DailyMaxFor(p) end -- today's cap (Wave 3: Cold.dailyMax while cold)
+		if cmd == "DueWithin" then return M.DueWithin(p, tonumber(a) or 0, b == true) end -- (s, ignorePause), Your Rooms Task 5
+		if cmd == "HealSteps" then -- the loop's heal step `a` times (at most 20) past the hold, each with its real presence
+			-- check, on a fresh session heal clock (cleared again after, so nothing carries into the next test); what it paid
+			heals[uid] = nil
+			local paid = 0
+			for _ = 1, math.clamp(math.floor(tonumber(a) or 0), 0, 20) do
+				local _, n = healStep(p, true)
+				paid += n
+			end
+			heals[uid] = nil
+			return paid
+		end
 		if cmd == "Rel" then return relCopy(state(p).rel) end -- the relationships (Wave 3), a copy
 		if cmd == "SetRel" then -- replaced by a copy of `a` (not a table: none), repaired by state() with no report; returns what it kept
 			local st, rel = state(p), {}

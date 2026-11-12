@@ -1,6 +1,6 @@
 -- CLI spec for Modules/WalkInRules (odds, resolve, money path, tags, scheduling, queue, pick, gates, source, the first
--- card, caps, seeding, exclude, Revalidate, CapKeys, MarkSent, the rush-hour gap and its room, rooms and routes, the
--- cypher's hold).
+-- card, caps, seeding, exclude, Revalidate, CapKeys, MarkSent, the rush-hour gap and its room, rooms and routes,
+-- presence (the hub or your own rooms), the cypher's hold).
 -- Run: sh tools/spec.sh walkin_rules
 local R = require("../src/ReplicatedStorage/OK/Modules/WalkInRules")
 local Format = require("../src/ReplicatedStorage/OK/Modules/Format")
@@ -1103,6 +1103,40 @@ eq("InHub corridor just south", R.InHub(11.9, 3, -0.5), false)
 eq("InHub lounge south", R.InHub(30, 3, -10), true)
 eq("InHub lounge corner", R.InHub(12, 3, -12), true)
 eq("InHub corridor high", R.InHub(6, 25, 5), false)
+
+-- Present (the Your Rooms plan, Task 5): where a position counts for walk-ins. The hub first (InHub: "hub", no index),
+-- else the first of your rooms' boxes ({ x0, z0, x1, z1 }, world x and z, edges inside; Rooms.BoxesFor) that holds it
+-- with 0 <= y < 20 ("room", its index), else nil. Two rooms side by side, as RoomRules.Box gives slot 1's bedroom and home
+local BOXES = { { 6003.82, -2015.415, 6016.18, -2000.585 }, { 6028, -2020.6, 6052, -2000.6 } }
+local function present(x, y, z, boxes)
+	local where, i = R.Present(x, y, z, boxes)
+	return tostring(where) .. "/" .. tostring(i)
+end
+eq("Present hub, no boxes", present(30, 3, 0, {}), "hub/nil")
+eq("Present hub corridor", present(6, 3, 5, BOXES), "hub/nil")
+eq("Present room 1", present(6010, 3, -2008, BOXES), "room/1")
+eq("Present room 2", present(6040, 3, -2010, BOXES), "room/2")
+eq("Present room 2 edge", present(6028, 3, -2020.6, BOXES), "room/2")
+eq("Present room 2 far edge", present(6052, 3, -2000.6, BOXES), "room/2")
+eq("Present room floor y 0", present(6040, 0, -2010, BOXES), "room/2")
+eq("Present room y 19.9", present(6040, 19.9, -2010, BOXES), "room/2")
+eq("Present room y 20", present(6040, 20, -2010, BOXES), "nil/nil")
+eq("Present room high y 25", present(6040, 25, -2010, BOXES), "nil/nil")
+eq("Present under the floor", present(6040, -0.1, -2010, BOXES), "nil/nil")
+eq("Present outside both", present(6100, 3, -2010, BOXES), "nil/nil")
+eq("Present between the rooms", present(6020, 3, -2010, BOXES), "nil/nil")
+eq("Present just south of room 2 (its wall)", present(6040, 3, -2000.5, BOXES), "nil/nil")
+eq("Present on the landing (plot-local z 0..8)", present(6040, 3, -1996, BOXES), "nil/nil")
+eq("Present Studio Two passage", present(6, 3, 15, BOXES), "nil/nil")
+eq("Present nil boxes", present(6040, 3, -2010, nil), "nil/nil")
+eq("Present nil boxes in the hub", present(50, 3, 0, nil), "hub/nil")
+-- the hub wins over a box that overlaps it; the hub's own height rule (y 25) is not rescued by the box
+local OVER = { { 0, -20, 100, 20 } }
+eq("Present hub over a box", present(30, 3, 0, OVER), "hub/nil")
+eq("Present box around the hub, off the hub", present(98, 3, 0, OVER), "room/1")
+eq("Present hub high inside a box", present(30, 25, 0, OVER), "nil/nil")
+-- the first box that holds the point wins
+eq("Present first box wins", present(10, 3, 18, { { 0, 15, 20, 30 }, { 0, 0, 50, 50 } }), "room/1")
 
 -- CypherHolds (launch audit A2/A4 "for scale"): walk-ins and phone pops wait for everyone while the room listens to the
 -- entries or votes; in a lobby, the build and the reveal only for that round's entrants (CypherIn equal to the cypher's

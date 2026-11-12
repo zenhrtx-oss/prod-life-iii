@@ -1,8 +1,9 @@
 -- OK Studio WalkInRules: every walk-in rule as a pure function. The odds tilt, readiness and a choice's chance, rolling
 -- a choice or a follow-up's news, the money path, the overhead tag, the daily cap, the rush-hour gap and its room, the
 -- follow-up queue, picking the next visitor or phone pop (source, life gates, group caps, the starter pool, seen seeding,
--- re-checking a stored pick, the artist cooldown at send), the walking queue, name filling, the hub rooms, a visitor's
--- route and when a cypher round holds a player's walk-ins and phone pops.
+-- re-checking a stored pick, the artist cooldown at send), the walking queue, name filling, the hub rooms, where a player
+-- counts as present (the hub or one of their own rooms), a visitor's route and when a cypher round holds a player's
+-- walk-ins and phone pops.
 -- Pure: no Roblox globals and no other modules. Config values, the rng (`rng(lo, hi)` -> whole number) and Format come in
 -- as arguments, so Studio and the luau CLI (spec/walkin_rules_spec.lua) run the same rules.
 local M = {}
@@ -584,6 +585,19 @@ function M.InHub(x, y, z)
 	if y >= 20 then return false end
 	if x >= 0 and x < 12 then return z >= 0 and z <= 10 end
 	return x >= 12 and x <= 94 and z >= -12 and z <= 12
+end
+
+-- where a position counts for walk-ins (the Your Rooms plan, Task 5): "hub" (InHub, no index) first; else "room" and the
+-- index of the first of `boxes` (your own rooms' interiors, each { x0, z0, x1, z1 } in world x and z with its edges
+-- inside: Systems/Rooms' BoxesFor) that holds it with 0 <= y < 20; else nil (a passage, the hall, a landing, someone
+-- else's room). nil boxes = none
+function M.Present(x, y, z, boxes)
+	if M.InHub(x, y, z) then return "hub" end
+	if y < 0 or y >= 20 then return nil end
+	for i, b in ipairs(boxes or {}) do
+		if x >= b[1] and x <= b[3] and z >= b[2] and z <= b[4] then return "room", i end
+	end
+	return nil
 end
 
 -- does a cypher round hold a player's walk-ins and phone pops? phase = RS.OK.Cypher's Phase attribute (nil before

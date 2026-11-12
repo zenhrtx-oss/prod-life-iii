@@ -3,15 +3,18 @@
 -- Modules/VisitorLooks (an id without one gets the fallback figure in his colour, wearing his sig), built and posed by
 -- Modules/VisitorFigure, at most 16 parts, PrimaryPart Torso; the plate and the bubble sit VisitorLooks.Info's `plate`
 -- over his Head (1.2 above his figure's top). He walks from the corridor mouth along WalkInRules.Route to the target
--- producer, faces them and arrives; says lines; walks back out the way he came and destroys himself. While he walks,
+-- producer, faces them and arrives; says lines; walks back out the way he came and destroys himself. In your own room
+-- (the Your Rooms plan, Task 5) he walks opts.route instead: in at its first point (the room's Entrance), along it to
+-- its last (VisitorSpot), where he arrives facing you; he leaves back along it. opts.present says whether the target
+-- still counts as there (your room); without it, the hub rooms (WalkInRules.InHub). While he walks,
 -- his position moves every Heartbeat but his figure is posed only about VisitorLooks.POSE_HZ times a second (launch
 -- audit A14: every pose is a CFrame write per part, replicated to every client); he is posed at once when he spawns,
 -- arrives (or snaps in) and turns to face the player. No Humanoid, no pathfinding, never collides. Stateless: every
 -- number comes from opts.walkins (Config.WalkIns: WalkSpeed, ArriveDistance, WalkTimeout, Waypoints, Spawn). Lives
 -- under Workspace.OK_Visitors (outside OKStudio, never archivable).
 -- SpawnSpot is the critter (the pigeon, design 4.3, VisitorLooks.Pigeon): the same Handle surface, but a small figure
--- that appears on the lounge coffee table's top face, arrives on the next Heartbeat and leaves by flying up for a
--- second. No lights.
+-- that appears on the lounge coffee table's top face (in your room: at opts.at, its CritterSpot), arrives on the next
+-- Heartbeat and leaves by flying up for a second. No lights.
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local RunService = game:GetService("RunService")
 local WalkInRules = require(RS.OK.Modules.WalkInRules)
@@ -20,7 +23,7 @@ local Looks = require(RS.OK.Modules.VisitorLooks)
 local Figure = require(RS.OK.Modules.VisitorFigure)
 
 local M = {}
-local FLOOR_Y = 0          -- the floor top in every hub room (build/02_shell.lua)
+local FLOOR_Y = 0          -- the floor top in every hub room (build/02_shell.lua) and every room of yours (Config.Rooms)
 local CHECK_EVERY = 0.5    -- seconds between re-aim checks (and re-facing once arrived)
 local REAIM_MOVE = 3       -- studs the target must move before the route is re-aimed
 local ARRIVE_SLACK = 0.5   -- he arrives within ArriveDistance + this
@@ -40,6 +43,9 @@ local function flatDist(x1, z1, x2, z2)
 	local dx, dz = x2 - x1, z2 - z1
 	return math.sqrt(dx * dx + dz * dz)
 end
+
+-- a position from a Vector3 or a CFrame (a room anchor)
+local function posOf(v) return typeof(v) == "CFrame" and v.Position or v end
 
 -- the point `ad` studs short of (tx, tz) on the straight line from (x, z); (x, z) itself when already that close
 local function stopToward(x, z, tx, tz, ad)
@@ -117,26 +123,49 @@ local function build(def, target)
 end
 
 -- def = { id, name, style, color = {r, g, b}, sig } (a Data/WalkIns visitor with its display name filled in);
--- target = the Player he walks to; opts = { walkins = Config.WalkIns, onArrive = fn?, onGone = fn? }
+-- target = the Player he walks to; opts = { walkins = Config.WalkIns, onArrive = fn?, onGone = fn?, route = { point }?,
+-- present = fn(pos)? }.
+-- * route (your room; points are Vector3s or CFrames, only x and z are used: Systems/WalkIns passes the room's Entrance
+--   and VisitorSpot): he starts at route[1] and walks the rest in order. He is never re-aimed at the target and never
+--   arrives by distance (preflight F4): he arrives at the last point, then faces the target; WalkTimeout snaps him
+--   there. Leave walks the route back and he vanishes at route[1]. Without a route: the hub's (Handle:_aim).
+-- * present(pos) -> truthy while the target's root position still counts for the visit (your room); without it, the hub
+--   rooms (WalkInRules.InHub). Not present: he leaves.
 function M.Spawn(def, target, opts)
 	-- id feeds the VisitorId attribute and name the Visitor attribute; SetAttribute(k, nil) would drop either silently
 	assert(type(def) == "table" and type(def.id) == "string" and type(def.name) == "string", "Visitor.Spawn needs def.id and def.name")
 	assert(opts and opts.walkins, "Visitor.Spawn needs opts.walkins (Config.WalkIns)")
 	local w = opts.walkins
+	local route
+	if opts.route ~= nil then
+		assert(type(opts.route) == "table" and #opts.route >= 1, "Visitor.Spawn: opts.route needs at least one point")
+		route = {}
+		for i, pt in ipairs(opts.route) do
+			local pos = posOf(pt)
+			route[i] = { pos.X, pos.Z }
+		end
+	end
+	local home = route and route[1] or w.Spawn -- where he comes in, and where Leave takes him
 	local model, parts, bubble, line = build(def, target)
 	local now = os.clock()
 	local self = setmetatable({
 		Model = model, Arrived = false,
-		_w = w, _target = target, _onArrive = opts.onArrive, _onGone = opts.onGone,
+		_w = w, _target = target, _onArrive = opts.onArrive, _onGone = opts.onGone, _present = opts.present,
+		_route = route, _home = home,
 		_state = "walking",   -- walking -> arrived -> leaving -> gone (leaving and gone can come from any state)
 		_parts = parts, _bubble = bubble, _line = line,
-		_x = w.Spawn[1], _z = w.Spawn[2], _lx = 1, _lz = 0, _phase = 0, _poseClock = 0, -- _poseClock: A14's (VisitorLooks.PoseStep)
+		_x = home[1], _z = home[2], _lx = 1, _lz = 0, _phase = 0, _poseClock = 0, -- _poseClock: A14's (VisitorLooks.PoseStep)
 		_path = {},           -- points still to walk: { x, z, chain = reached adds it to the trail, back = reached pops it }
 		_trail = {},          -- the route waypoints walked so far, in order (he leaves back along them)
 		_since = now, _checkedAt = now, _aimX = nil, _aimZ = nil,
 	}, Handle)
-	local root = self:_targetRoot()
-	if root then self:_aim(root.Position.X, root.Position.Z) end
+	if route then
+		for i = 2, #route do table.insert(self._path, { x = route[i][1], z = route[i][2], chain = true }) end
+		if route[2] then self:_face(route[2][1], route[2][2]) end -- facing his first step
+	else
+		local root = self:_targetRoot()
+		if root then self:_aim(root.Position.X, root.Position.Z) end
+	end
 	self:_pose(0)
 	model.Parent = folder()
 	self._destroying = model.Destroying:Connect(function() self:_gone(true) end) -- removed from outside: still onGone once
@@ -215,6 +244,12 @@ function Handle:_arrive(tx, tz)
 	if self._onArrive then task.spawn(self._onArrive) end
 end
 
+-- does the target's root position still count for this visit? opts.present when it was given, else the hub rooms
+function Handle:_here(pos)
+	if self._present then return self._present(pos) and true or false end
+	return WalkInRules.InHub(pos.X, pos.Y, pos.Z)
+end
+
 function Handle:_tick(dt)
 	local w = self._w
 	if self._state == "leaving" then
@@ -224,12 +259,17 @@ function Handle:_tick(dt)
 	end
 	local root = self:_targetRoot()
 	local pos = root and root.Position
-	if not pos or not WalkInRules.InHub(pos.X, pos.Y, pos.Z) then self:Leave(); return end
+	if not pos or not self:_here(pos) then self:Leave(); return end
 	local now = os.clock()
 	local check = now - self._checkedAt >= CHECK_EVERY
 	if check then self._checkedAt = now end
 	if self._state == "arrived" then
 		if check then self:_face(pos.X, pos.Z); self:_pose(0) end
+		return
+	end
+	if self._route then -- your room (preflight F4): its points in order, never re-aimed at or closed toward the target
+		self:_walk(now - self._since >= w.WalkTimeout and math.huge or dt * w.WalkSpeed) -- too long: snap to its end
+		if not self._path[1] then self:_arrive(pos.X, pos.Z) else self:_stride(dt) end
 		return
 	end
 	if check and (not self._aimX or flatDist(self._aimX, self._aimZ, pos.X, pos.Z) > REAIM_MOVE) then self:_aim(pos.X, pos.Z) end
@@ -253,13 +293,14 @@ function Handle:Say(text)
 	self._bubble.Enabled = has
 end
 
--- turn round and walk back out the way he came, then destroy himself (within WalkTimeout). No-op once leaving or gone
+-- turn round and walk back out the way he came (the hub's corridor mouth, or your room's route back to its first point),
+-- then destroy himself (within WalkTimeout). No-op once leaving or gone
 function Handle:Leave()
 	if self._state == "leaving" or self._state == "gone" then return end
 	self._state, self._since = "leaving", os.clock()
 	local path = {}
 	for i = #self._trail, 1, -1 do table.insert(path, { x = self._trail[i][1], z = self._trail[i][2], back = true }) end
-	table.insert(path, { x = self._w.Spawn[1], z = self._w.Spawn[2] })
+	table.insert(path, { x = self._home[1], z = self._home[2] })
 	self._path = path
 end
 
@@ -304,27 +345,37 @@ local function buildSpot(def, target)
 	return model, parts, bubble, line
 end
 
-local Spot = setmetatable({}, { __index = Handle }) -- Say, Destroy, _targetRoot and _face come from the walker
+local Spot = setmetatable({}, { __index = Handle }) -- Say, Destroy, _targetRoot, _here and _face come from the walker
 Spot.__index = Spot
 
--- a critter's figure on the lounge coffee table: def and opts as Spawn (opts.walkins is not needed). Arrived and
--- onArrive come on the next Heartbeat, never inside this call; it leaves on its own when the target leaves the hub
+-- a critter's figure: def and opts as Spawn (opts.walkins and opts.route are not used). It sits on the lounge coffee
+-- table (the lowest free table slot), or with opts.at (a CFrame or Vector3: your room's CritterSpot) with its feet there,
+-- with no table and no table slot (preflight m13). Arrived and onArrive come on the next Heartbeat, never inside this
+-- call; it leaves on its own when the target no longer counts as there (opts.present, else the hub rooms)
 function M.SpawnSpot(def, target, opts)
 	assert(type(def) == "table" and type(def.id) == "string" and type(def.name) == "string", "Visitor.SpawnSpot needs def.id and def.name")
 	opts = opts or {}
-	local top = coffeeTable()
+	local at = opts.at ~= nil and posOf(opts.at) or nil
+	local top
+	if not at then top = coffeeTable() end -- before anything is built
 	local model, parts, bubble, line = buildSpot(def, target)
-	local n = 0
-	while taken[n] do n += 1 end -- the lowest free slot
-	taken[n] = true
-	local offset = math.ceil(n / 2) * SPOT_GAP * ((n % 2 == 1) and 1 or -1) -- 0, +1.5, -1.5, +3, ...
+	local n, x, y, z
+	if at then
+		x, y, z = at.X, at.Y, at.Z
+	else
+		n = 0
+		while taken[n] do n += 1 end -- the lowest free slot
+		taken[n] = true
+		local offset = math.ceil(n / 2) * SPOT_GAP * ((n % 2 == 1) and 1 or -1) -- 0, +1.5, -1.5, +3, ...
+		x, y, z = top.Position.X + offset, top.Position.Y + top.Size.Y / 2, top.Position.Z
+	end
 	local now = os.clock()
 	local self = setmetatable({
 		Model = model, Arrived = false,
-		_target = target, _onArrive = opts.onArrive, _onGone = opts.onGone,
+		_target = target, _onArrive = opts.onArrive, _onGone = opts.onGone, _present = opts.present,
 		_state = "spot",      -- spot -> arrived -> leaving -> gone
-		_parts = parts, _bubble = bubble, _line = line, _slot = n,
-		_x = top.Position.X + offset, _y = top.Position.Y + top.Size.Y / 2, _z = top.Position.Z, _lx = 1, _lz = 0,
+		_parts = parts, _bubble = bubble, _line = line, _slot = n, -- _slot: nil away from the table
+		_x = x, _y = y, _z = z, _lx = 1, _lz = 0,
 		_since = now, _checkedAt = now,
 	}, Spot)
 	local root = self:_targetRoot()
@@ -352,7 +403,7 @@ function Spot:_tick(dt)
 	end
 	local root = self:_targetRoot()
 	local pos = root and root.Position
-	if not pos or not WalkInRules.InHub(pos.X, pos.Y, pos.Z) then self:Leave(); return end
+	if not pos or not self:_here(pos) then self:Leave(); return end
 	if not self.Arrived then -- the first Heartbeat after SpawnSpot
 		self._state = "arrived"
 		self.Arrived = true
@@ -372,7 +423,7 @@ function Spot:Leave()
 end
 
 function Spot:_gone(external)
-	if self._state ~= "gone" then taken[self._slot] = nil end -- its slot is free for the next one
+	if self._state ~= "gone" and self._slot ~= nil then taken[self._slot] = nil end -- its table slot is free for the next one
 	Handle._gone(self, external)
 end
 
