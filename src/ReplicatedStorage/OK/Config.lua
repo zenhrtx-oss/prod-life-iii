@@ -352,6 +352,18 @@ Config.Rooms = {
     { 245, 245, 245 }, { 245, 245, 245 }, { 245, 245, 245 }, { 245, 245, 245 },
   },
 }
+-- Day One (Systems/DayOne, Modules/DayOneRules, Data/DayOne): the opening chain of cards in your bedroom. Times in
+-- seconds. Enabled = false: no chain starts, and the tour is the passive tracker. A chain starts once you wake up in your
+-- bedroom (or after WakeWait), and card 1 follows FirstCard later. LookAround = card 1's "look around first" brings it
+-- back that much later, once, if at least ReturnMin seconds are then left before HoldMax (a later look never brings it
+-- back); HoldMax = the first-ever walk-in waits at most this long after the chain starts unless a card is open or
+-- queued, and a returned card 1 closes then (with Config.WalkIns.FirstEver's 20, a first visit by ~90 s);
+-- CardSeconds = an unanswered card closes. AfterDeliver = card 2 after the first delivery at your laptop; AfterSpeakers =
+-- card 3 after card 2; VisitAfter = the first visitor's range once the chain ends. HaggleOdds = card 1's haggle wins this
+-- percent of the time and pays HaggleBonus (money) once, on the starter's first delivery; PrivateXP = "keep it private"
+-- pays this XP once. spec/day_one_spec.lua holds a literal copy (Task 2's t120 check pins it to this table): keep the two equal.
+Config.DayOne = { Enabled = true, FirstCard = 1, WakeWait = 20, LookAround = 30, ReturnMin = 15, HoldMax = 70, CardSeconds = 180,
+  AfterDeliver = 3, AfterSpeakers = 4, VisitAfter = { 5, 7 }, HaggleOdds = 50, HaggleBonus = 50, PrivateXP = 10 }
 -- per-player cooldown between uses of one interactable (s), and server-wide cooldowns for shared state
 Config.Cooldowns = { Console = 2, Door = 1, TV = 1, LightSwitch = 3, Mic = 1, Computer = 1, CreditsWall = 0.5, Station = 1, GearRack = 1, Cypher = 1, StudioTwoDoor = 1 }
 Config.GlobalCooldowns = { Door = 3, LightSwitch = 3 }
