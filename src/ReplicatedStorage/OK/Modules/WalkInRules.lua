@@ -1,8 +1,8 @@
 -- OK Studio WalkInRules: every walk-in rule as a pure function. The odds tilt, readiness and a choice's chance, rolling
 -- a choice or a follow-up's news, the money path, the overhead tag, the daily cap, the rush-hour gap and its room, the
--- follow-up queue, picking the next visitor or phone pop (source, life gates, group caps, the first card, seen seeding,
--- re-checking a stored pick, the artist cooldown at send), the walking queue, name filling, the hub rooms and a
--- visitor's route.
+-- follow-up queue, picking the next visitor or phone pop (source, life gates, group caps, the starter pool, seen seeding,
+-- re-checking a stored pick, the artist cooldown at send), the walking queue, name filling, the hub rooms, a visitor's
+-- route and when a cypher round holds a player's walk-ins and phone pops.
 -- Pure: no Roblox globals and no other modules. Config values, the rng (`rng(lo, hi)` -> whole number) and Format come in
 -- as arguments, so Studio and the luau CLI (spec/walkin_rules_spec.lua) run the same rules.
 local M = {}
@@ -184,7 +184,8 @@ function M.Plant(state, plant, defaultAt, rng, ctx)
 end
 
 -- a system plant's `at` for this state (a tier visit): before any walk-in (count 0) both ends move one later, so it can never
--- be the first walk-in, which is the gentle first card's. Any other time, the same range. Never changes the table given
+-- be the first walk-in, which is the starter pool's (a `first` card). Any other time, the same range. Never changes the
+-- table given
 function M.AfterFirst(state, at)
 	if state.count == 0 then return { at[1] + 1, at[2] + 1 } end
 	return at
@@ -338,43 +339,75 @@ local function cardEligible(card, state, deck, opts, ignoreExclude)
 	return true
 end
 
--- no burst when a gate opens (design 4.2): every card eligible under `opts` whose seen is still nil joins at the
--- lowest seen among the eligible cards that have one (0 when none has), so it joins the least-seen rotation evenly.
+-- no burst when a gate opens (design 4.2; Wave 3 Task 5 fix round 1): a card that joins the rotation late, or comes
+-- back to it after its gate was closed, joins at the rotation's least-seen level, never alone below it, so it is drawn
+-- evenly with the rest instead of on every visit the artist cooldown allows until it catches up.
+-- * The rotation is the cards eligible under `opts` with no group cap. Its level is the lowest seen among them that is
+--   at most 1 under their median seen: a card further behind has been closed while the rest moved on, and one ahead of
+--   the rest never lifts them.
+-- * Every eligible uncapped card whose seen is nil or under that level is set to it.
+-- * A capped card is rationed by its cap (its seen sits low on purpose) and keeps a seen it has; a new one joins at the
+--   lowest seen among the eligible cards. With no uncapped card seen yet, the level is that lowest seen too (0 when no
+--   eligible card has one).
 -- Mutating: the caller runs it before Pick. Returns how many cards it changed
 function M.Seed(state, deck, opts)
-	local low, fresh = nil, {}
+	local open, levels, low = {}, {}, nil
 	for _, card in ipairs(deck.cards) do
 		if cardEligible(card, state, deck, opts) then
+			table.insert(open, card)
 			local seen = state.seen[card.id]
-			if seen == nil then
-				table.insert(fresh, card)
-			elseif low == nil or seen < low then
-				low = seen
+			if seen ~= nil then
+				if low == nil or seen < low then low = seen end
+				if not card.cap then table.insert(levels, seen) end
 			end
 		end
 	end
-	for _, card in ipairs(fresh) do state.seen[card.id] = low or 0 end
-	return #fresh
+	local level = low or 0
+	if #levels > 0 then
+		table.sort(levels)
+		local median = levels[(#levels + 1) // 2]
+		for _, seen in ipairs(levels) do
+			if seen >= median - 1 then level = seen; break end
+		end
+	end
+	local changed = 0
+	for _, card in ipairs(open) do
+		local seen = state.seen[card.id]
+		if card.cap then
+			if seen == nil then
+				state.seen[card.id] = low or 0
+				changed += 1
+			end
+		elseif seen == nil or seen < level then
+			state.seen[card.id] = level
+			changed += 1
+		end
+	end
+	return changed
 end
 
 -- the next visit, or the next phone pop with opts.source = "phone": a due follow-up of that source wins; then, when
--- opts.career says visits 0, the first eligible card marked `first` (no rng draw); else an eligible card among the
--- least seen, by weight (whole numbers, default 1) with one rng(1, total) draw. A sponsor's card needs opts.aura
--- (nil = 0) at or above that sponsor's floor in deck.sponsors; the other filters are cardEligible's. Pure: reads
--- state, never changes it
+-- opts.career says visits 0 and the eligible cards marked `first` (the starter pool, Task 5b+) weigh more than 0 in all,
+-- one of those; else an eligible card among the least seen. Either pool is drawn by weight (whole numbers, default 1),
+-- in deck order, with one rng(1, total) draw. A sponsor's card needs opts.aura (nil = 0) at or above that sponsor's floor
+-- in deck.sponsors; the other filters are cardEligible's. Pure: reads state, never changes it
 function M.Pick(state, deck, opts)
 	local entry = dueEntry(state, deck, opts)
 	if entry then return { kind = "followup", entry = entry, followup = deck.followups[entry.id] } end
 	local firstVisit = opts.career ~= nil and opts.career.visits == 0
-	local pool, fewest = {}, math.huge
+	local pool, fewest, starters, startersWeight = {}, math.huge, {}, 0
 	for _, card in ipairs(deck.cards) do
 		if cardEligible(card, state, deck, opts) then
-			if firstVisit and card.first then return { kind = "card", card = card } end
+			if firstVisit and card.first then
+				table.insert(starters, card)
+				startersWeight += card.weight or 1
+			end
 			local seen = state.seen[card.id] or 0
 			if seen < fewest then pool, fewest = {}, seen end
 			if seen == fewest then table.insert(pool, card) end
 		end
 	end
+	if startersWeight > 0 then pool = starters end
 	local total = 0
 	for _, card in ipairs(pool) do total += card.weight or 1 end
 	if total <= 0 then return nil end
@@ -536,6 +569,17 @@ function M.InHub(x, y, z)
 	if y >= 20 then return false end
 	if x >= 0 and x < 12 then return z >= 0 and z <= 10 end
 	return x >= 12 and x <= 94 and z >= -12 and z <= 12
+end
+
+-- does a cypher round hold a player's walk-ins and phone pops? phase = RS.OK.Cypher's Phase attribute (nil before
+-- BeatBattles' Init), cypherIn = the player's CypherIn attribute (the round they entered), round = the cypher's Round
+-- attribute. Everyone waits while the room listens to the entries or votes, which takes two or more submitted beats; a
+-- lobby, which one producer can open, the build and the reveal hold only that round's entrants (a CypherIn left from an
+-- earlier round holds nothing), launch audit A2/A4. WalkIns, Phone, WalkInUI and PhoneUI all ask this
+function M.CypherHolds(phase, cypherIn, round)
+	if phase == "listen" or phase == "vote" then return true end
+	if phase == "lobby" or phase == "build" or phase == "reveal" then return type(cypherIn) == "number" and cypherIn == round end
+	return false
 end
 
 -- the walk to a target: the waypoint chain of the target's room (each { x, z }), then a stop `arriveDistance` studs

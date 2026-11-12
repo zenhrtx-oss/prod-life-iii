@@ -132,6 +132,14 @@ function Monitor:_next()
 	self:_start(entry)
 end
 
+-- the "inline" refusal for an owner already on air (position 0) or in line (position n, wait in s), else nil. Enqueue
+-- answers with it, and Systems/DAW asks first, before its flip check walks the history (launch audit A12)
+function Monitor:InLine(uid)
+	local at = self:_find(uid)
+	if not at then return nil end
+	return { ok = false, reason = "inline", position = at, wait = at > 0 and self:_waitFor(at) or 0 }
+end
+
 -- returns { ok = true, position = 0 (on air) / n (place in line), wait = seconds }  or  { ok = false, reason }
 -- reasons: "off", "inline" (already on air or in line; position given), "full"
 function Monitor:History() return self.history end
@@ -164,8 +172,8 @@ function Monitor:Enqueue(owner, pattern, bpm, swing, flipOf, kit, voice)
 	if mc.Enabled == false then return { ok = false, reason = "off" } end
 	if self.reserved then return { ok = false, reason = "cypher" } end
 	local uid = owner.UserId
-	local at = self:_find(uid)
-	if at then return { ok = false, reason = "inline", position = at, wait = at > 0 and self:_waitFor(at) or 0 } end
+	local inline = self:InLine(uid)
+	if inline then return inline end
 	if #self.queue + (self.current and 1 or 0) >= (mc.QueueSize or 4) then return { ok = false, reason = "full" } end
 	local loops, dur = M.LoopsFor(bpm, DAWCfg.Steps, mc)
 	local neon = typeof(owner) == "Instance" and owner:GetAttribute("NeonColor") or nil

@@ -583,7 +583,7 @@ eq("View junk story", #junkView.story, 0)
 -- DiscoText: "DAY n · <visitor> · <kind>"
 eq("DiscoText placement", L.DiscoText({ d = 9, kind = "placement", v = "navx" }, P), "DAY 9 · LIL NAV X · PLACEMENT")
 eq("DiscoText trackone", L.DiscoText({ d = 9, kind = "trackone", v = "homekid" }, P), "DAY 9 · A KID FROM BACK HOME · TRACK ONE")
-eq("DiscoText hit fiction", L.DiscoText({ d = 9, kind = "hit", v = "navx" }, namesFor("fiction")), "DAY 9 · STIRRUP PEONY · HIT")
+eq("DiscoText hit fiction", L.DiscoText({ d = 9, kind = "hit", v = "navx" }, namesFor("fiction")), "DAY 9 · PEONY ROLLER · HIT")
 eq("DiscoText unknown kind", L.DiscoText({ d = 9, kind = "remix", v = "navx" }, P), nil)
 
 -- FirstText, DayToast, Banner

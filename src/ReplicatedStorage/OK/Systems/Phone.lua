@@ -1,6 +1,8 @@
 -- OK Studio system: the phone. DMs and NEWS (Data/WalkIns cards with source = "phone", and phone follow-ups) pop on
 -- the player's phone anywhere in the game, on a per-player timer that runs only in eligible time (design 4.1): the
--- tour done, the cypher idle, no walk-in in flight or due within Config.Phone.WalkInDueSeconds, no opened DM awaiting
+-- tour done, no cypher round holding the player (WalkInRules.CypherHolds: one that listens or votes holds everyone; a
+-- lobby, the build and the reveal hold only that round's entrants), no walk-in in flight or due within
+-- Config.Phone.WalkInDueSeconds, no opened DM awaiting
 -- its choice (the PhoneBusy player attribute, which also holds the walk-in scheduler), and the send gate: fewer than
 -- MaxWaiting un-opened pops, and today's opened pops plus the un-opened ones under DailyMax (a waiting pop holds its
 -- day slot until it opens or is dropped). The first pop FirstDelay after the later of joining and finishing the tour,
@@ -35,7 +37,10 @@
 --   the tour ends. M.Withdraw(player, id) takes an unopened one back (a thaw), uncounted, with its "expire".
 -- * They remember you (Wave 3, design 4.3): an outcome's `rel` (a DM's choice or any NEWS: a NEWS card's one choice, a
 --   phone follow-up's news) goes through WalkIns.WriteRel, the relationships' one writer (two_sessions writes to the
---   hometown kid); the pick passes prof.walkins.rel as opts.rel. A phone choice never rolls with a relationship tilt.
+--   hometown kid); the pick passes prof.walkins.rel as opts.rel. A rolled choice on a phone card tilts by the card's
+--   visitor's score as a walk-in's does (fix round 1, the controller's 11-06 ruling: a DM from mom is mom's card), through
+--   the one rule WalkIns.RelTiltFor: a sure choice (every NEWS card's) never does, nor a sender nobody has a relationship
+--   with (score 0), nor a follow-up's news (ResolveNews takes no tilt).
 -- * Telemetry (Systems/Funnel, source "phone"): PhoneOpen (detail = the app), PhoneExpire (detail waited | opened |
 --   taken), CardChoice ("<index>:<outcome key>"; a count, value 1), CardReady after a `ready` choice's CardChoice
 --   (detail = the outcome key, value = the readiness x 100, rounded), CardWalkAway, CardNews (the outcome key).
@@ -45,7 +50,7 @@
 --   send since the last call); its Quiet(uid, on) keeps "pop" and
 --   "result" from reaching that client and drops its Phone_Open / Phone_Choose, so server tests never open a live card,
 --   and its ReadyChance(uid, cardId, index) returns the chance Choose would roll that choice at now (WalkInRules.
---   RollChance at prof.level); CanSend(uid) reads the send gate (Wave 3: false while cold).
+--   RollChance at prof.level, with the relationship tilt); CanSend(uid) reads the send gate (Wave 3: false while cold).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local RunService, Http = game:GetService("RunService"), game:GetService("HttpService")
 local Config = require(RS.OK.Config)
@@ -86,11 +91,11 @@ local function careerOf(p)
 	return have
 end
 local function between(range) return timeRng:NextInteger(range[1], range[2]) end
--- RS.OK.Cypher is made by BeatBattles' Init; no folder (or no phase) reads as idle
-local function cypherIdle()
+-- does a cypher round hold p's phone (WalkInRules.CypherHolds on its Phase and Round and p's CypherIn)? RS.OK.Cypher is
+-- made by BeatBattles' Init, and no folder (or no phase) holds nothing
+local function cypherHolds(p)
 	local cy = RS.OK:FindFirstChild("Cypher")
-	local phase = cy and cy:GetAttribute("Phase")
-	return phase == nil or phase == "idle"
+	return Rules.CypherHolds(cy and cy:GetAttribute("Phase"), p:GetAttribute("CypherIn"), cy and cy:GetAttribute("Round"))
 end
 -- one player's Pick / Resolve / ResolveNews / Plant draws: SetRng values first (held to [lo, hi]), then random. The
 -- phone's own list and Random, never WalkIns' (its tests force walk-in draws)
@@ -276,7 +281,8 @@ function M.Choose(player, token, index)
 	end
 	local choice = choices[index]
 	local have = careerOf(player)
-	local res = Rules.Resolve(choice, have, W.Odds, rngFor(uid))
+	-- a rolled choice tilts by the card's visitor's score, as a walk-in's does (fix round 1; WalkIns.RelTiltFor)
+	local res = Rules.Resolve(choice, have, W.Odds, rngFor(uid), WalkIns.RelTiltFor(player, e.item, choice))
 	local cost = res.ok and res.deltas.cost or 0
 	if not res.ok or (cost > 0 and not ctx.Data.SpendCred(player, cost)) then return { ok = false, reason = "afford" } end
 	remove(uid, e) -- before anything is applied: the same token again is stale, and PhoneBusy never outlives the card
@@ -396,7 +402,7 @@ local function canSend(p)
 end
 -- eligible time (design 4.1): the timer runs only while every one of these holds
 local function eligible(p, ignorePause)
-	if not Tour.State(p).done or not cypherIdle() then return false end
+	if not Tour.State(p).done or cypherHolds(p) then return false end
 	if WalkIns.Busy(p) or WalkIns.DueWithin(p, P.WalkInDueSeconds, ignorePause) then return false end
 	if p:GetAttribute("PhoneBusy") == true then return false end
 	return canSend(p)
@@ -531,11 +537,12 @@ local function makeHook()
 		end
 		if cmd == "Open" then open(p, a); return true end
 		if cmd == "Choose" then return M.Choose(p, a, b) end
-		if cmd == "ReadyChance" then -- Resolve's chance for card `a`'s choice `b` now (RollChance, careerOf: prof.level); nil if none
+		if cmd == "ReadyChance" then -- Resolve's chance for card `a`'s choice `b` now (RollChance, careerOf: prof.level, and the
+			-- relationship tilt Choose adds); nil if none
 			local card = Content.CardById[a]
 			local choice = card and card.choices and card.choices[tonumber(b) or 0]
 			if not choice then return nil end
-			return Rules.RollChance(choice, careerOf(p), W.Odds)
+			return Rules.RollChance(choice, careerOf(p), W.Odds, WalkIns.RelTiltFor(p, card, choice))
 		end
 		if cmd == "Age" then -- every pop was sent (and opened) `a` seconds earlier; the expiry sweep runs now
 			local s = tonumber(a) or 0

@@ -9,7 +9,13 @@
 -- ours. (g) the writer never reaches the profile or ClientProfile. (h) a transform the store runs twice (as it does when the
 -- key moved under it) decides on its last run: saved when nothing moved, refused when another writer came in between.
 -- (i) a change made while the leave save waits is written by one more release. (j) an old session's save landing after
--- a leave and reload is refused without touching the new session (still dirty, not lockLost).
+-- a leave and reload is refused without touching the new session (still dirty, not lockLost). (k) the shutdown (launch
+-- audit A9): with an autosave pass under way on a slow store, from the moment _Shutdown starts no ordinary save reaches
+-- the store, every release is issued at once (before the save in flight returns), one wait covers them, every profile
+-- ends released with its last Money, and the players leaving during that wait add no second release. (l)
+-- DataService.Saving (A7) is true only for a profile this session writes. (m) Config.Data.LockWaits waits 30 s before a
+-- takeover (A8), under 40 with retries. (n) While closing, a profile not releasing yet gets no ordinary save: Save
+-- answers "closing" and writes nothing, and an autosave pass asks Save nothing.
 local RS, SSS = game:GetService("ReplicatedStorage"), game:GetService("ServerScriptService")
 local Http = game:GetService("HttpService")
 local function freshRequire(mod) local c = mod:Clone(); c.Parent = mod.Parent; c.Name = "_fresh_" .. mod.Name; local ok, r = pcall(require, c); c:Destroy(); if not ok then error(r) end; return r end
@@ -182,6 +188,155 @@ local okJ = Sv.Save(pj) -- the old session's save, finished by the store after t
 assert(not okJ and newer and not newer._lockLost, "the old session's save marked the new one lockLost, or went through")
 assert(Sv._Autosave() == 1 and stored(d2, "u_7410").cred == newer.cred, "the old session's late save cleared the new session's dirty flag")
 table.insert(out, "(j) an old session's late save is refused and leaves the new session dirty and saving")
+
+-- k) the shutdown, an autosave pass under way. The store runs one key's requests one at a time, in call order, as a real
+-- DataStore queues them, so the release of the key the autosave is writing lands after that save. Every request is
+-- logged when it is called (seq) and when it returns (done), with afterClose = called once _Shutdown had started and
+-- release = it wrote no lock. The four players leave 0.05 s into the shutdown's wait (DataService._OnLeave, what
+-- PlayerRemoving runs), while their releases are in the store
+do
+  local dk, log, busy = {}, {}, {}
+  local seq, closed = 0, false
+  local sk = { delay = 0 }
+  function sk:UpdateAsync(k, fn)
+    seq += 1
+    local e = { k = k, called = seq, afterClose = closed }
+    table.insert(log, e)
+    local q = busy[k] or {}; busy[k] = q
+    table.insert(q, e)
+    while q[1] ~= e do task.wait() end
+    if sk.delay > 0 then task.wait(sk.delay) end
+    local old = dk[k] ~= nil and Http:JSONDecode(dk[k]) or nil
+    local new = fn(old)
+    if new ~= nil then dk[k] = Http:JSONEncode(new) end
+    e.release = new ~= nil and new.lock == nil
+    seq += 1; e.done = seq
+    table.remove(q, 1)
+    return new
+  end
+  local Sk = newDS(); Sk._SetStoreForTest(sk); clock(Sk)
+  local profs, pks = {}, {}
+  for i = 1, 4 do
+    local pk = { UserId = 7420 + i }
+    local pr = Sk.Load(pk)
+    Sk.GrantCred(pk, 10 * i, "Test")
+    profs[i], pks[i] = pr, pk
+  end
+  t += 1
+  sk.delay = 0.2
+  local n0 = #log
+  local autosaved
+  task.spawn(function() autosaved = Sk._Autosave() end) -- runs until its first save waits in the store
+  assert(#log == n0 + 1, "the autosave pass did not start a save (" .. (#log - n0) .. " requests)")
+  local first = log[n0 + 1]
+  local leftDuring = nil -- how many of the leaves came while closing, with their releases under way
+  if Sk._OnLeave then
+    task.spawn(function()
+      task.wait(0.05)
+      leftDuring = 0
+      for i = 1, 4 do
+        if profs[i]._releasing then leftDuring += 1 end
+        task.spawn(Sk._OnLeave, pks[i]) -- each in its own thread, as PlayerRemoving runs its handlers
+      end
+    end)
+  end
+  closed = true
+  local t0 = os.clock()
+  local done = Sk._Shutdown(5)
+  local took = os.clock() - t0
+  assert(done == true, "the shutdown did not finish within its 5 s deadline")
+  local releases = 0
+  for i = n0 + 1, #log do
+    local e = log[i]
+    assert(not e.afterClose or e.release, "an ordinary save of " .. e.k .. " reached the store after the shutdown began: the autosave pass kept going")
+    if e.release then
+      releases += 1
+      assert(e.called < first.done, "the release of " .. e.k .. " was issued only after the save in flight (" .. first.k .. ") returned: the shutdown waited before releasing")
+    end
+  end
+  assert(releases == 4, releases .. " releases for 4 profiles")
+  for i = 1, 4 do
+    local doc = stored(dk, "u_" .. (7420 + i))
+    assert(doc.lock == nil and doc.cred == profs[i].cred, "u_" .. (7420 + i) .. " after the shutdown: lock " .. tostring(doc.lock) .. ", Money "
+      .. tostring(doc.cred) .. " (want released, " .. profs[i].cred .. ")")
+  end
+  assert(autosaved == 1, "the autosave pass wrote " .. tostring(autosaved) .. " profiles, want only the one in flight when the shutdown began")
+  assert(type(Sk._OnLeave) == "function", "DataService has no _OnLeave (the 5c-2 fix1 leave handler)")
+  assert(leftDuring == 4, "the leaves did not all come while the releases were under way (" .. tostring(leftDuring) .. " of 4)")
+  table.insert(out, string.format("(k) shutdown under an autosave pass: no ordinary save after it began, 4 releases issued before the save in flight "
+    .. "returned, all released with their Money in %.2f s; the 4 players leaving during the wait added no second release", took))
+  Sk._SetStoreForTest(nil)
+end
+
+-- l) DataService.Saving: true for a profile this session writes, false once its load failed, its lock was lost or a newer
+-- build wrote it (flagged by hand, then through the real paths), and false for any profile with no store
+do
+  local dl = {}
+  local Sl = newDS(); Sl._SetStoreForTest(jsonStore(dl)); clock(Sl)
+  local prl = Sl.Load({ UserId = 7430 })
+  assert(Sl.Saving(prl) == true, "Saving is " .. tostring(Sl.Saving(prl)) .. " for a loaded profile on a store")
+  for _, flag in ipairs({ "_loadFailed", "_lockLost", "_newerSchema" }) do
+    prl[flag] = true
+    assert(Sl.Saving(prl) == false, "Saving is " .. tostring(Sl.Saving(prl)) .. " for a profile flagged " .. flag)
+    prl[flag] = nil
+  end
+  local Se = newDS(); Se._SetStoreForTest({ UpdateAsync = function() error("throttled") end })
+  local pre = Se.Load({ UserId = 7431 })
+  assert(pre._loadFailed == true and Se.Saving(pre) == false, "a load that always errors: _loadFailed " .. tostring(pre._loadFailed) .. ", Saving " .. tostring(Se.Saving(pre)))
+  put(dl, "u_7432", { v = Sl.SchemaVersion + 1, cred = 5 })
+  local prn = Sl.Load({ UserId = 7432 })
+  assert(prn._newerSchema == true and Sl.Saving(prn) == false, "a stored v" .. (Sl.SchemaVersion + 1) .. ": _newerSchema " .. tostring(prn._newerSchema)
+    .. ", Saving " .. tostring(Sl.Saving(prn)))
+  Sl._SetStoreForTest(nil); Se._SetStoreForTest(nil)
+  assert(Sl.Persistent == false and Sl.Saving(prl) == false, "with no store Saving is " .. tostring(Sl.Saving(prl)))
+  table.insert(out, "(l) Saving: true on a store; false when flagged _loadFailed, _lockLost or _newerSchema, after a failed load, for a newer stored v, and with no store")
+end
+
+-- m) the takeover wait: Config.Data.LockWaits (30 s in all, longer than a slow leave save), and with the load's own error
+-- retries still well inside the 60 s other callers wait on a load
+do
+  local waits, sum, retries = Cfg.Data.LockWaits, 0, 0
+  for _, w in ipairs(waits) do sum += w end
+  for _, d in ipairs(freshRequire(SSS.OK.Services.DataService)._retryDelays) do retries += d end
+  assert(table.concat(waits, ",") == "1,2,3,6,8,10", "Config.Data.LockWaits is {" .. table.concat(waits, ", ") .. "}, want {1, 2, 3, 6, 8, 10}")
+  assert(sum == 30 and sum + retries <= 40, string.format("lock waits %d s plus error retries %d s: want 30 and at most 40", sum, retries))
+  table.insert(out, string.format("(m) LockWaits {%s}: %d s before a takeover, %d s with the error retries", table.concat(waits, ", "), sum, sum + retries))
+end
+
+-- n) the two closing guards. The store's s.wait runs as the shutdown's first release reaches it, while the other profile
+-- is still cached and not releasing (the shutdown spawns its releases one by one): there an ordinary Save answers
+-- "closing" and writes nothing (DataService.Save's guard), and an autosave pass asks Save nothing (_Autosave's guard;
+-- Save is spied for it). Both profiles end released
+do
+  local dn = {}
+  local sn = jsonStore(dn)
+  local Sn = newDS(); Sn._SetStoreForTest(sn); clock(Sn)
+  local pa, pb = { UserId = 7450 }, { UserId = 7451 }
+  local prA, prB = Sn.Load(pa), Sn.Load(pb)
+  Sn.GrantCred(pa, 5, "Test"); Sn.GrantCred(pb, 5, "Test")
+  t += 1
+  local seen = nil
+  sn.wait = function()
+    local op = (not prA._releasing and pa) or (not prB._releasing and pb) or nil
+    if not op then seen = false; return end
+    local calls0 = sn.calls
+    local okS, whyS = Sn.Save(op)
+    local realSave, asked = Sn.Save, 0
+    Sn.Save = function(...) asked += 1; return realSave(...) end
+    local okA, n = pcall(Sn._Autosave)
+    Sn.Save = realSave
+    seen = { k = "u_" .. op.UserId, okS = okS, whyS = whyS, writes = sn.calls - calls0, n = okA and n or ("error " .. tostring(n)), asked = asked }
+  end
+  assert(Sn._Shutdown(5), "the shutdown did not finish")
+  assert(seen, "no profile was cached and not releasing when the shutdown's first release reached the store")
+  assert(seen.okS == false and seen.whyS == "closing" and seen.writes == 0, "an ordinary save of " .. seen.k .. " while closing answered " .. tostring(seen.okS)
+    .. ", " .. tostring(seen.whyS) .. " and made " .. seen.writes .. " store write(s): want false, closing, 0")
+  assert(seen.n == 0 and seen.asked == 0, "an autosave pass while closing returned " .. tostring(seen.n) .. " and asked Save " .. seen.asked
+    .. " time(s): want 0 and 0")
+  assert(stored(dn, "u_7450").lock == nil and stored(dn, "u_7451").lock == nil, "the shutdown left a profile locked")
+  table.insert(out, "(n) while closing, a profile not releasing yet: Save answers closing and writes nothing; an autosave pass asks Save nothing; both released")
+  Sn._SetStoreForTest(nil)
+end
 
 S._SetStoreForTest(nil); Sv._SetStoreForTest(nil); Tv._SetStoreForTest(nil)
 return "T74 OK: " .. table.concat(out, "; ")

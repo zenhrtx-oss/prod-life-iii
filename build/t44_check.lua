@@ -119,8 +119,8 @@ table.insert(out, "(c) door toasts: 'NEEDS 1 PLACEMENT · 300 AURA · $5,000', m
 local tv = Instance.new("Part"); tv.Name = "_t44_tv"
 local gui = Instance.new("SurfaceGui"); gui.Name = "ScreenText"; gui.Parent = tv
 local lbl = Instance.new("TextLabel"); lbl.Name = "Label"; lbl.Text = "ORIGINAL"; lbl.Parent = gui
-local A, B = Unlocks.TickerText("RED BULB", "Maya"), Unlocks.TickerText("NYKE", "Ola")
-assert(A == "SPONSORED BY\nRED BULB\nprod. Maya", "ticker text: " .. A)
+local A, B = Unlocks.TickerText("GLOW GUM", "Maya"), Unlocks.TickerText("STACKS BANK", "Ola") -- pure formatting: any sponsor name will do, whatever the roster
+assert(A == "SPONSORED BY\nGLOW GUM\nprod. Maya", "ticker text: " .. A)
 local function saved() return tv:GetAttribute("TickerSaved") end
 Unlocks._TickerStep(tv, false, { A })
 assert(lbl.Text == A and saved() == "ORIGINAL", "the first write should show the sponsor and keep the original in TickerSaved")

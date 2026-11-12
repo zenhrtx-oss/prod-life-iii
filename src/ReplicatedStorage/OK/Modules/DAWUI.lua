@@ -5,15 +5,26 @@
 --   View (drums|keys), Scale, NoteLen, Chord (bool), Voice, Voices (owned, csv)
 --   Command (string): play | stop | clear | undo | save | close | monitors | page1 | page2 | slot:N | swing | kit | paint:t:a:b | tap:t:s
 --     | keys | view:keys | view:drums | note:step:semi[:len] | unnote:step:semi | scale | len | voice | chord | stamp:step:semi | accent:step
--- Layout is a pure function of the viewport (and Compact). Rows come from #Cfg.Tracks.
+--   Set by the client (DAWClient): Touch (bool: a touch screen, so 44 px targets in any layout: launch audit A11) and
+--   TopbarFree (Rect: the Roblox top bar's free area in this gui's space; nil without a bar). Published for RequestUI
+--   (phones): HeaderRight, CloseLeft (the header row's right edge, or the band's limit, closeLeft − 6, once a button is
+--   dropped, so the chip stays hidden; and the close button's left edge; both in the window).
+-- Layout is a pure function of the viewport (and Compact, Touch and TopbarFree). Rows come from #Cfg.Tracks.
+-- Phones (Compact): the top band keeps off the bar's own buttons (Modules/DAWLayout: launch audit A1, A3): the header row
+-- [1–8][9–16] · [KIT][KEYS] starts right of them (an expanded unibar drops KIT, KEYS, then the page buttons); the slots
+-- are a row of the transport column, over SAVE, and CLEAR shares a row with SWING to make room; the column's six rows
+-- are placed by hand (its list layout is set aside).
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 local Roll = require(script.Parent:WaitForChild("PianoRoll"))
+local DAWLayout = require(script.Parent:WaitForChild("DAWLayout"))
 
 local M = {}
 
 local MIN_TOUCH = 44
+local CELL_INSET = 6 -- a pad is its row's height less this (3 px above and below)
+local GRID_FOOT = 4 -- between the grid's bottom and the footer
 
 -- rollModule (optional) replaces Modules/PianoRoll: edit-mode tests pass a fresh copy past the require cache
 function M.Build(gui, Theme, Cfg, rollModule)
@@ -93,8 +104,11 @@ function M.Build(gui, Theme, Cfg, rollModule)
 	local swing = btn(transport, "SwingBtn", "SWING 0%", 5)
 	local spacer = new("Frame", { Name = "Spacer", BackgroundTransparency = 1, LayoutOrder = 7 }, transport)
 	local save = btn(transport, "Save", "SAVE", 9, Theme.accent2)
+	-- text that scales down when the phone layout narrows its button, never past its own size
+	local function fitText(b) new("UITextSizeConstraint", { MaxTextSize = b.TextSize }, b) end
+	fitText(swing)
 
-	-- header row: pager (compact) + slots
+	-- header row: pager (compact) + slots (compact: moved to the transport column by layout())
 	local header = row("HeaderRow", 0, root)
 	local pageBtns, slotBtns = {}, {}
 	for p = 1, 2 do
@@ -103,11 +117,12 @@ function M.Build(gui, Theme, Cfg, rollModule)
 			BackgroundColor3 = Theme.ledOn, BorderSizePixel = 0, Visible = false }, b)
 		pageBtns[p] = b
 	end
-	new("Frame", { Name = "Gap", BackgroundTransparency = 1, Size = UDim2.fromOffset(6, 10), LayoutOrder = 5 }, header)
+	local gap = new("Frame", { Name = "Gap", BackgroundTransparency = 1, Size = UDim2.fromOffset(6, 10), LayoutOrder = 5 }, header)
 	for sIdx = 1, Cfg.Slots do slotBtns[sIdx] = btn(header, "Slot" .. sIdx, tostring(sIdx), 10 + sIdx, nil, 15) end
-	new("Frame", { Name = "Gap2", BackgroundTransparency = 1, Size = UDim2.fromOffset(6, 10), LayoutOrder = 19 }, header)
+	local gap2 = new("Frame", { Name = "Gap2", BackgroundTransparency = 1, Size = UDim2.fromOffset(6, 10), LayoutOrder = 19 }, header)
 	local kitBtn = btn(header, "KitBtn", "KIT: STUDIO", 20, Color3.fromRGB(40, 50, 70), 13)
 	local keysBtn = btn(header, "KeysBtn", "KEYS", 21, Color3.fromRGB(32, 64, 32), 13)
+	fitText(kitBtn); fitText(keysBtn)
 
 	-- ruler + grid
 	local ruler = new("Frame", { Name = "Ruler", BackgroundTransparency = 1 }, root)
@@ -191,7 +206,13 @@ function M.Build(gui, Theme, Cfg, rollModule)
 			or ((guiSize.X > 0 and guiSize.Y > 0) and guiSize)
 			or (workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize) or Vector2.new(1280, 720)
 		local compact = root:GetAttribute("Compact")
+		local touch = root:GetAttribute("Touch") == true
+		local big = compact or touch -- 44 px targets: phones, and any touch screen
 		local pad = compact and 10 or 14
+		local headerH = big and 52 or 40
+		local footerH = 20
+		local th = touch and MIN_TOUCH or 32 -- desktop: the transport row's buttons
+		local deskGridY = headerH + (th + 2) + 22 -- desktop: the grid's top, under the header, the transport row and the ruler
 		local W, H
 		if compact then
 			root.AnchorPoint = Vector2.new(0, 0)
@@ -201,28 +222,44 @@ function M.Build(gui, Theme, Cfg, rollModule)
 			root.AnchorPoint = Vector2.new(0.5, 1)
 			root.Position = UDim2.new(0.5, 0, 1, -10)
 			W, H = math.min(vp.X - 24, 980), math.clamp(math.floor(vp.Y * 0.47), 280, 400)
+			-- touch: tall enough for 44 px pads: the grid's top, a 44 px pad and its inset per row, the grid's foot and footer
+			if touch then H = math.max(H, math.min(deskGridY + nT * (MIN_TOUCH + CELL_INSET) + GRID_FOOT + footerH, vp.Y - 20)) end
 		end
 		root.Size = UDim2.fromOffset(W, H)
-		local closeSize = compact and MIN_TOUCH or 32
+		-- phones: the band the Roblox top bar leaves free (TopbarFree is in this gui's space; the window sits 6 px in)
+		local band, coreRight, barBottom = nil, nil, 0
+		if compact then
+			local free, freeRight = root:GetAttribute("TopbarFree"), nil
+			if typeof(free) == "Rect" and free.Max.Y - 6 > 4 then -- the bar reaches the header row (4 px down)
+				barBottom = free.Max.Y - 6
+				coreRight = free.Min.X - 6
+				if free.Max.X > free.Min.X then freeRight = free.Max.X - 6 end
+			end
+			band = DAWLayout.Band(W, pad, coreRight, freeRight)
+		end
+		local closeSize = big and MIN_TOUCH or 32
 		close.Size = UDim2.fromOffset(closeSize, closeSize)
-		close.Position = UDim2.new(1, -(closeSize + pad - 4), 0, compact and 4 or 6)
+		close.Position = compact and UDim2.fromOffset(band.closeLeft, 4) or UDim2.new(1, -(closeSize + pad - 4), 0, big and 4 or 6)
 		hint.Position = UDim2.new(0, pad, 1, -18); hint.Size = UDim2.new(1, -2 * pad, 0, 16)
 		hint.Visible = not compact
 
-		local headerH = compact and 52 or 40
-		local footerH = 20
-		local hb = compact and MIN_TOUCH or 30
-		for _, b in ipairs(pageBtns) do b.Visible = compact; b.Size = UDim2.fromOffset(compact and 60 or 0, hb) end
-		for _, b in ipairs(slotBtns) do b.Size = UDim2.fromOffset(compact and MIN_TOUCH or 34, hb) end
-		local kitW = compact and 112 or 104
-		kitBtn.Size = UDim2.fromOffset(kitW, hb)
-		local keysW = compact and 70 or 64
-		keysBtn.Size = UDim2.fromOffset(keysW, hb)
-		local headerW = (compact and (2 * 60 + 6 + 6 + 6) or 0) + Cfg.Slots * ((compact and MIN_TOUCH or 34) + 6) + 12 + kitW + 6 + keysW
+		local hb = big and MIN_TOUCH or 30
+		-- phones: a button the band drops (a width of 0: an expanded unibar) is hidden, and the gap goes with KIT and KEYS
+		for _, b in ipairs(pageBtns) do b.Visible = compact and band.pager > 0; b.Size = UDim2.fromOffset(compact and band.pager or 0, hb) end
+		gap.Visible = not compact or (band.pager > 0 and (band.kit > 0 or band.keys > 0))
+		gap2.Visible = not compact -- phones: the slots are in the transport column, so one gap is enough
+		local slotW = touch and MIN_TOUCH or 34
+		if not compact then for _, b in ipairs(slotBtns) do b.Size = UDim2.fromOffset(slotW, hb) end end
+		local kitW = compact and band.kit or 104
+		kitBtn.Visible = kitW > 0; kitBtn.Size = UDim2.fromOffset(kitW, hb); kitBtn.TextScaled = compact
+		local keysW = compact and band.keys or 64
+		keysBtn.Visible = keysW > 0; keysBtn.Size = UDim2.fromOffset(keysW, hb); keysBtn.TextScaled = compact
+		local headerW = compact and band.width or (Cfg.Slots * (slotW + 6) + 12 + kitW + 6 + keysW)
 		title.Visible = not compact
 		title.Position = UDim2.fromOffset(pad, 6); title.Size = UDim2.fromOffset(200, 28)
-		header.Position = UDim2.fromOffset(compact and pad or (pad + 210), compact and 4 or 5)
+		header.Position = UDim2.fromOffset(compact and band.x or (pad + 210), big and 4 or 5)
 		header.Size = UDim2.fromOffset(headerW, hb)
+		if compact then root:SetAttribute("HeaderRight", band.right); root:SetAttribute("CloseLeft", band.closeLeft) end
 		if compact then
 			status.Position = UDim2.fromOffset(pad, H - 20); status.Size = UDim2.fromOffset(W - 2 * pad, 18)
 			status.TextXAlignment = Enum.TextXAlignment.Left
@@ -236,34 +273,46 @@ function M.Build(gui, Theme, Cfg, rollModule)
 		local gridX, gridY, gridW, gridH
 		if compact then
 			local colW = 150
-			list.FillDirection = Enum.FillDirection.Vertical
-			list.HorizontalAlignment = Enum.HorizontalAlignment.Left
-			list.VerticalAlignment = Enum.VerticalAlignment.Top
-			list.Padding = UDim.new(0, 4)
-			transport.Position = UDim2.fromOffset(pad, headerH)
-			local avail = H - headerH - footerH
+			-- under the bar's buttons when the bar is taller than the header band (the usual 58 px bar ends where it starts)
+			local top = (coreRight and coreRight > pad) and math.max(headerH, barBottom) or headerH
+			transport.Position = UDim2.fromOffset(pad, top)
+			local avail = H - top - footerH
 			transport.Size = UDim2.fromOffset(colW, avail)
 			local bh = math.clamp(math.floor((avail - 4 * 6) / 6), MIN_TOUCH, 56)
-			for _, b in ipairs({ play, monitors, clear, swing, save }) do b.Size = UDim2.fromOffset(colW, bh) end
-			bpmRow.Size = UDim2.fromOffset(colW, bh)
+			-- six rows by hand, 4 px apart: PLAY; – BPM +; MONITORS; CLEAR | SWING; the slots 1 | 2 | 3; SAVE (still
+			-- two rows under CLEAR)
+			list.Parent = nil
+			for _, b in ipairs(slotBtns) do b.Parent = transport end
+			local y = 0
+			for _, r in ipairs({ { play }, { bpmRow }, { monitors }, { clear, swing }, slotBtns, { save } }) do
+				local w = math.floor((colW - (#r - 1) * 6) / #r)
+				for i, b in ipairs(r) do b.Position = UDim2.fromOffset((i - 1) * (w + 6), y); b.Size = UDim2.fromOffset(w, bh) end
+				y += bh + 4
+			end
 			bpmDown.Size = UDim2.fromOffset(MIN_TOUCH, bh); bpmUp.Size = UDim2.fromOffset(MIN_TOUCH, bh)
 			bpmLabel.Size = UDim2.fromOffset(colW - 2 * MIN_TOUCH - 12, bh)
-			spacer.Size = UDim2.fromOffset(colW, 0)
-			gridX = pad + colW + 10; gridY = headerH + 18; gridW = W - gridX - pad; gridH = H - gridY - footerH - 4
+			spacer.Visible = false
+			swing.TextScaled = true
+			gridX = pad + colW + 10; gridY = headerH + 18; gridW = W - gridX - pad; gridH = H - gridY - footerH - GRID_FOOT
 		else
+			for _, b in ipairs(slotBtns) do b.Parent = header end
+			list.Parent = transport
 			list.FillDirection = Enum.FillDirection.Horizontal
 			list.HorizontalAlignment = Enum.HorizontalAlignment.Left
 			list.VerticalAlignment = Enum.VerticalAlignment.Center
 			list.Padding = UDim.new(0, 8)
+			spacer.Visible = true
+			swing.TextScaled = false
+			local bw = touch and MIN_TOUCH or 34 -- BPM – and +
 			transport.Position = UDim2.fromOffset(pad, headerH)
-			transport.Size = UDim2.fromOffset(W - 2 * pad, 34)
-			play.Size = UDim2.fromOffset(96, 32); bpmDown.Size = UDim2.fromOffset(34, 32); bpmUp.Size = UDim2.fromOffset(34, 32)
-			bpmLabel.Size = UDim2.fromOffset(84, 32); bpmRow.Size = UDim2.fromOffset(34 + 84 + 34 + 12, 32)
-			monitors.Size = UDim2.fromOffset(150, 32); clear.Size = UDim2.fromOffset(76, 32); swing.Size = UDim2.fromOffset(110, 32)
-			save.Size = UDim2.fromOffset(76, 32)
-			local used = 96 + (34 + 84 + 34 + 12) + 150 + 76 + 110 + 76 + 8 * 6
-			spacer.Size = UDim2.fromOffset(math.max(8, (W - 2 * pad) - used), 32)
-			gridX = pad; gridY = headerH + 34 + 22; gridW = W - 2 * pad; gridH = H - gridY - footerH - 4
+			transport.Size = UDim2.fromOffset(W - 2 * pad, th + 2)
+			play.Size = UDim2.fromOffset(96, th); bpmDown.Size = UDim2.fromOffset(bw, th); bpmUp.Size = UDim2.fromOffset(bw, th)
+			bpmLabel.Size = UDim2.fromOffset(84, th); bpmRow.Size = UDim2.fromOffset(bw + 84 + bw + 12, th)
+			monitors.Size = UDim2.fromOffset(150, th); clear.Size = UDim2.fromOffset(76, th); swing.Size = UDim2.fromOffset(110, th)
+			save.Size = UDim2.fromOffset(76, th)
+			local used = 96 + (bw + 84 + bw + 12) + 150 + 76 + 110 + 76 + 8 * 6
+			spacer.Size = UDim2.fromOffset(math.max(8, (W - 2 * pad) - used), th)
+			gridX = pad; gridY = deskGridY; gridW = W - 2 * pad; gridH = H - gridY - footerH - GRID_FOOT
 		end
 
 		grid.Position = UDim2.fromOffset(gridX, gridY); grid.Size = UDim2.fromOffset(gridW, gridH)
@@ -278,8 +327,8 @@ function M.Build(gui, Theme, Cfg, rollModule)
 				local c = cells[t][s]
 				if s >= s0 and s <= s1 then
 					c.Visible = true
-					c.Position = UDim2.fromOffset(labelW + (s - s0) * cellW + 2, (t - 1) * rowH + 3)
-					c.Size = UDim2.fromOffset(cellW - 4, rowH - 6)
+					c.Position = UDim2.fromOffset(labelW + (s - s0) * cellW + 2, (t - 1) * rowH + CELL_INSET / 2)
+					c.Size = UDim2.fromOffset(cellW - 4, rowH - CELL_INSET)
 				else
 					c.Visible = false
 				end
@@ -298,7 +347,7 @@ function M.Build(gui, Theme, Cfg, rollModule)
 		C._cellW, C._labelW, C._s0, C._s1 = cellW, labelW, s0, s1
 		local keysView = root:GetAttribute("View") == "keys"
 		grid.Visible = not keysView
-		roll.Layout(gridX, gridY, gridW, gridH, compact, s0, s1, labelW, cellW)
+		roll.Layout(gridX, gridY, gridW, gridH, compact, s0, s1, labelW, cellW, touch)
 		roll.SetVisible(keysView)
 	end
 
@@ -601,7 +650,7 @@ function M.Build(gui, Theme, Cfg, rollModule)
 	for _, a in ipairs({ "Pattern", "BPM", "Swing", "Slot", "Playing", "Step", "Status", "UndoUntil", "Page", "Level", "Unlocked", "Kit", "NoteLen", "Chord", "Voice", "Voices" }) do
 		root:GetAttributeChangedSignal(a):Connect(render)
 	end
-	for _, a in ipairs({ "Compact", "Page", "ViewportOverride", "View", "Scale" }) do root:GetAttributeChangedSignal(a):Connect(function() layout(); render() end) end
+	for _, a in ipairs({ "Compact", "Touch", "TopbarFree", "Page", "ViewportOverride", "View", "Scale" }) do root:GetAttributeChangedSignal(a):Connect(function() layout(); render() end) end
 	gui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() if root.Visible then layout(); render() end end)
 	layout()
 	render()

@@ -60,10 +60,14 @@ function M.Build(Theme)
 		copy = "Too close to another beat · change more pads", own = "You can't vote for your own entry", again = "You already voted",
 		far = "Come into the control room to vote", locked = "That beat uses gear you don't own", invalid = "That beat isn't valid",
 		busy = "A cypher is under way · join the next one", full = "This cypher is full", joined = "You're already in" }
-	-- phones: while the beat maker fills the screen, a 44 px SUBMIT / timer button sits over its REQUEST chip
+	-- phones: while the beat maker fills the screen, a 44 px SUBMIT / timer button sits over its REQUEST chip. The chip
+	-- is in OK_DAW (DeviceSafeInsets) and this gui keeps CoreUISafeInsets, so MiniSubmit takes the chip's rect on screen
+	-- at each refresh (launch audit A10), its text scaled down with the chip's width
 	local mini = new("TextButton", { Name = "MiniSubmit", AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, -72, 0, 10), Size = UDim2.fromOffset(124, MIN),
-		BackgroundColor3 = Theme.accent, TextColor3 = Theme.text, Font = Theme.fontBlack, TextSize = 14, Text = "", Visible = false, AutoButtonColor = true, ZIndex = 5 }, gui)
+		BackgroundColor3 = Theme.accent, TextColor3 = Theme.text, Font = Theme.fontBlack, TextSize = 14, Text = "", Visible = false, AutoButtonColor = true, ZIndex = 5,
+		TextScaled = true }, gui)
 	new("UICorner", { CornerRadius = UDim.new(0, 8) }, mini)
+	new("UITextSizeConstraint", { MaxTextSize = 14 }, mini)
 
 	local function daw() local g = player.PlayerGui:FindFirstChild("OK_DAW"); return g and g:FindFirstChild("DAW") end
 	mini.MouseButton1Click:Connect(function()
@@ -150,7 +154,14 @@ function M.Build(Theme)
 		local round = CY:GetAttribute("Round")
 		local left0 = math.max(0, math.ceil((CY:GetAttribute("EndsAt") or 0) - workspace:GetServerTimeNow()))
 		local inRound = player:GetAttribute("CypherIn") == round
-		mini.Visible = compactOpen and phase ~= "idle" and (inRound or phase == "vote")
+		local chip = compactOpen and d:FindFirstChild("RequestChip")
+		if chip then -- over the chip on screen, whatever the two guis' insets (AnchorPoint (1, 0): the chip's right edge)
+			local at = chip.AbsolutePosition - gui.AbsolutePosition
+			mini.Position = UDim2.fromOffset(at.X + chip.AbsoluteSize.X, at.Y)
+			mini.Size = UDim2.fromOffset(chip.AbsoluteSize.X, chip.AbsoluteSize.Y)
+		end
+		-- and hidden with it (a band too short for a 44 px chip: an expanded unibar)
+		mini.Visible = compactOpen and phase ~= "idle" and (inRound or phase == "vote") and chip ~= nil and chip.Visible
 		if mini.Visible then
 			local clock = string.format("%d:%02d", left0 // 60, left0 % 60)
 			if phase == "build" and inRound and player:GetAttribute("CypherSubmitted") ~= round then mini.Text = "SUBMIT · " .. clock

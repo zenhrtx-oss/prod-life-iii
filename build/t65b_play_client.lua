@@ -5,13 +5,15 @@
 -- (t65a pops them only once the DM has opened). (2) Standing still, choice 2 rolls bad: the inline result shows a
 -- "-N AURA" chip, then exactly one new sound, "Loss" (the reply and the "result" message carry the same result: one
 -- Loss), and LastReaction is "sit" on R15 ("skip:r6" on R6) with hum.Sit true within 0.5 s and released within 3 s.
--- (3) RS.OK.Cypher's Phase set to "lobby" here (a local change) holds the NEWS once the DM closes (OK): it waits
+-- (3) RS.OK.Cypher's Phase set to "vote" here (a local change) holds the NEWS once the DM closes (OK): it waits
 -- (Deferred) and the icon re-shakes, with Sounds unchanged: no buzz on a re-shake. (4) MuteMonitors set true here, then
--- Phase back: the NEWS opens, its result (spedup) shows and OK closes it with Sounds unchanged (the mishap opens by
--- itself after it, its riser muted too). (5) Since t65a's pops the log holds exactly three PhoneBuzz. (6, Task H)
+-- Phase "lobby", which holds only its entrants (launch audit A2/A4): with your CypherIn at the cypher's Round (a local
+-- change) the NEWS still waits; with a CypherIn from an earlier round it opens, its result (spedup) shows and OK closes
+-- it with Sounds unchanged (the mishap opens by itself after it, you no longer marked, its riser muted too). (5) Since
+-- t65a's pops the log holds exactly three PhoneBuzz. (6, Task H)
 -- MuteMonitors back off, the mishap open: choice 3 (borrowed: neutral, no money, plants mishap_owe) ends the SoundLog
 -- with Plant within 1.5 s of its result.
--- Everything this file changed is set back (Phase, MuteMonitors, no card left open, standing).
+-- Everything this file changed is set back (Phase, CypherIn, MuteMonitors, no card left open, standing).
 local Players, RS = game:GetService("Players"), game:GetService("ReplicatedStorage")
 local player = Players.LocalPlayer
 local t0 = os.clock(); while os.clock() - t0 < 12 do local h = player.Character and player.Character:FindFirstChildOfClass("Humanoid"); if h and h.Health > 0 then break end; task.wait(0.2) end
@@ -34,7 +36,7 @@ phone:SetAttribute("ForceViewport", nil); ui:SetAttribute("ForceViewport", nil)
 local dawClosed = -math.huge
 if daw.Visible then daw:SetAttribute("Command", "close"); dawClosed = os.clock(); task.wait(0.4) end
 if hum.Sit then hum.Sit = false; task.wait(0.4) end
-local was = { mute = player:GetAttribute("MuteMonitors"), phase = cy:GetAttribute("Phase") }
+local was = { mute = player:GetAttribute("MuteMonitors"), phase = cy:GetAttribute("Phase"), cypherIn = player:GetAttribute("CypherIn") }
 local out = {}
 
 local function run()
@@ -60,7 +62,7 @@ local function run()
 	phone:SetAttribute("Command", "choose:2")
 	assert(waitFor(function() return phone:GetAttribute("ResultKey") == "toomany" end, 6), "choice 2 with the draw forced to 100: ResultKey '"
 		.. tostring(phone:GetAttribute("ResultKey")) .. "', LastChoose '" .. tostring(phone:GetAttribute("LastChoose")) .. "', want toomany")
-	cy:SetAttribute("Phase", "lobby") -- holds the NEWS once the DM closes (step 3), even if its result closes by itself
+	cy:SetAttribute("Phase", "vote") -- holds the NEWS once the DM closes (step 3), even if its result closes by itself
 	local chips = phone:FindFirstChild("Card", true):FindFirstChild("Chips", true)
 	local chip
 	for _, c in ipairs(chips and chips:GetChildren() or {}) do
@@ -80,26 +82,34 @@ local function run()
 		.. (sounds() - s0) .. " new sounds, want one Loss (no Money, no Plant, one Loss for the reply and the message)")
 	table.insert(out, string.format("choice 2: toomany, chip '%s', then one Loss; LastReaction '%s'%s", chip, want, R15 and ", sat and stood up within 3 s" or ""))
 
-	-- 3. the NEWS waits behind the cypher lobby: the icon re-shakes, no buzz
+	-- 3. the NEWS waits behind the cypher's vote: the icon re-shakes, no buzz
 	phone:SetAttribute("Command", "ok")
 	assert(waitFor(function() return phone:GetAttribute("Open") == false end, 2), "OK did not close the DM's result")
 	assert(waitFor(function() return phone:GetAttribute("Deferred") == true end, 1), "the NEWS is not held (Deferred " .. tostring(phone:GetAttribute("Deferred"))
-		.. ", Pending " .. tostring(phone:GetAttribute("Pending")) .. ") with the cypher in its lobby")
+		.. ", Pending " .. tostring(phone:GetAttribute("Pending")) .. ") with the cypher voting")
 	local scale = phone:FindFirstChild("Shake", true)
 	assert(scale and scale:IsA("UIScale"), "no Shake UIScale on the phone icon")
 	local s1, peak = sounds(), 1
 	assert(waitFor(function() peak = math.max(peak, scale.Scale); return scale.Scale > 1.02 end, 14), string.format("the icon did not re-shake within 14 s (UIScale peak %.2f)", peak))
 	task.wait(0.3)
 	assert(sounds() == s1, "the re-shake played a sound: the log ends '" .. table.concat(newest(sounds() - s1), ",") .. "'")
-	table.insert(out, string.format("the NEWS held by the cypher lobby: the icon re-shook (scale %.2f), no sound", peak))
+	table.insert(out, string.format("the NEWS held by the cypher's vote: the icon re-shook (scale %.2f), no sound", peak))
 
-	-- 4. muted: the NEWS opens, shows its result and closes, all silent
+	-- 4. muted, and the cypher in a lobby, which holds only its entrants: as one the NEWS still waits; with a CypherIn from
+	-- an earlier round it opens, shows its result and closes, all silent
 	player:SetAttribute("MuteMonitors", true)
 	local s2 = sounds()
 	phone:SetAttribute("ResultKey", "")
-	cy:SetAttribute("Phase", was.phase)
-	assert(waitFor(function() return phone:GetAttribute("Open") == true and phone:GetAttribute("Card") == NEWS end, 2), "the NEWS did not open with the cypher idle (Open "
-		.. tostring(phone:GetAttribute("Open")) .. ", Card '" .. tostring(phone:GetAttribute("Card")) .. "')")
+	local round = cy:GetAttribute("Round") or 0
+	player:SetAttribute("CypherIn", round)
+	cy:SetAttribute("Phase", "lobby")
+	task.wait(0.6) -- the deferral re-check (0.2 s)
+	assert(phone:GetAttribute("Open") == false and phone:GetAttribute("Deferred") == true, "the NEWS opened for an entrant of the cypher's lobby (CypherIn "
+		.. round .. "; Open " .. tostring(phone:GetAttribute("Open")) .. ", Deferred " .. tostring(phone:GetAttribute("Deferred")) .. ")")
+	player:SetAttribute("CypherIn", round - 1)
+	assert(waitFor(function() return phone:GetAttribute("Open") == true and phone:GetAttribute("Card") == NEWS end, 2), "the NEWS did not open in the cypher's"
+		.. " lobby with your CypherIn from an earlier round (Open " .. tostring(phone:GetAttribute("Open")) .. ", Card '" .. tostring(phone:GetAttribute("Card")) .. "')")
+	player:SetAttribute("CypherIn", was.cypherIn) -- the mishap after it opens with you not in the lobby
 	assert(waitFor(function() return phone:GetAttribute("ResultKey") == "spedup" end, 3), "the NEWS result did not show (ResultKey '" .. tostring(phone:GetAttribute("ResultKey")) .. "')")
 	phone:SetAttribute("Command", "ok")
 	-- the mishap may open by itself right after (Open true again), so the check is that the NEWS is no longer on screen
@@ -108,7 +118,8 @@ local function run()
 	assert(sounds() == s2, "with MuteMonitors on the NEWS (and the mishap's open) played " .. (sounds() - s2) .. " sounds: '"
 		.. table.concat(newest(sounds() - s2), ",") .. "'")
 	player:SetAttribute("MuteMonitors", was.mute)
-	table.insert(out, "muted: the NEWS opened, showed spedup and closed with Sounds unchanged")
+	table.insert(out, "muted, the cypher in its lobby: held while you were its entrant (CypherIn " .. round .. "); with CypherIn " .. (round - 1)
+		.. " the NEWS opened, showed spedup and closed with Sounds unchanged")
 
 	-- 5. since t65a's pops: exactly three PhoneBuzz
 	local k = sounds() - base
@@ -137,6 +148,7 @@ end
 
 local ok, err = pcall(run)
 cy:SetAttribute("Phase", was.phase)
+player:SetAttribute("CypherIn", was.cypherIn)
 player:SetAttribute("MuteMonitors", was.mute)
 if phone:GetAttribute("Open") == true then phone:SetAttribute("Command", "ok") end
 waitFor(function() return not hum.Sit end, 3)

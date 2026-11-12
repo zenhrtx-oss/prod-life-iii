@@ -19,11 +19,11 @@
 -- input.resumeDay (nil = never), and gets no FIRE. No cold step draws from any rng.
 -- They remember you (Wave 3, design 4.3): sim.rel is prof.walkins.rel ({ [visitorId] = { score, flags } }) through the
 -- same pure rules Systems/WalkIns runs. An outcome's `rel` is WalkInRules.RelWrite for rel.who or the item's visitor on
--- the sim day, walk-in and phone alike; Pick and Seed get opts.rel; a rolled walk-in choice (never a phone pop's) tilts by
--- RelTilt of its card's visitor's score on input.odds, on top of the beat tilt; any signing resets rel.rep; under the
--- sponsor's floor with rel.rep's score 1 or more the system plants sponsor_warning (at dropAt) instead of sponsor_drop,
--- never while either one waits, and the warning's arrival plants the drop at WARNING_DROP_AT. No rel step draws an rng
--- value the server's wouldn't (a plant draws its `at` as the server's does).
+-- the sim day, walk-in and phone alike; Pick and Seed get opts.rel; a rolled choice, a walk-in's or (fix round 1) a phone
+-- pop's, tilts by RelTilt of its card's visitor's score on input.odds, on top of the beat tilt; any signing resets
+-- rel.rep; under the sponsor's floor with rel.rep's score 1 or more the system plants sponsor_warning (at dropAt) instead
+-- of sponsor_drop, never while either one waits, and the warning's arrival plants the drop at WARNING_DROP_AT. No rel
+-- step draws an rng value the server's wouldn't (a plant draws its `at` as the server's does).
 local M = {}
 
 local REQUESTS_PER_DAY = 3   -- first-time session requests a day while they last
@@ -173,9 +173,10 @@ local function tiltFor(sim, choice)
 	if not choice.beat then return 0 end
 	return sim.rules.BeatTilt(beatQ(sim), sim.input.odds)
 end
--- the relationship tilt a walk-in choice rolls with (Wave 3, design 4.3; Systems/WalkIns.Choose adds the same): RelTilt
--- of `visitor`'s score on input.odds for a rolled choice; 0 for a sure or beatMin choice (neither rolls), a score of 0
--- (so a deck without relationships never reads odds.relPer) and no visitor (a phone pop passes none)
+-- the relationship tilt a choice rolls with (Wave 3, design 4.3; Systems/WalkIns.RelTiltFor, which a walk-in's and a phone
+-- pop's choice both roll with): RelTilt of `visitor`'s score (the card's own visitor) on input.odds for a rolled choice; 0
+-- for a sure or beatMin choice (neither rolls), a score of 0 (a visitor with no relationship, so a deck without
+-- relationships never reads odds.relPer) and no visitor
 local function relTiltFor(sim, visitor, choice)
 	if visitor == nil or choice.sure or choice.beatMin then return 0 end
 	local e = sim.rel[visitor]
@@ -423,7 +424,7 @@ end
 -- the expected money of a choice for the greedy player, everything it leads to included: the rare outcome (rolled
 -- first, at rareOdds %), else good at p = the good chance (RollChance, the one rule Resolve rolls at: a beatMin choice by
 -- the best beat first, a sure choice certain, otherwise ChoiceChance with the beat tilt, so a `ready` choice is valued at
--- its readiness, and the relationship tilt of `visitor`'s score on a walk-in: nil for a phone pop) and bad otherwise,
+-- its readiness, and the relationship tilt of `visitor`'s score, the card's own visitor) and bad otherwise,
 -- minus the cost. `career` is the roll's career copy (rollCareer: level included), made once per choice and passed down.
 -- An outcome is worth its money plus, when it plants a follow-up, that follow-up's news at its own chance and the best
 -- of its choices affordable now (none = walking away, $0), recursively. PLANT_DEPTH bounds the recursion (the content's
@@ -447,9 +448,8 @@ local function outcomeMoney(sim, o, career, depth)
 	local p = sim.rules.Chance(r.odds, career, sim.input.odds) / 100
 	value += p * outcomeMoney(sim, r.good, career, depth + 1) + (1 - p) * outcomeMoney(sim, r.bad, career, depth + 1)
 	local best
-	local visitor = (f.source or "walkin") == "walkin" and f.visitor or nil
 	for _, c in ipairs(affordableChoices(sim, f)) do
-		local v = expectedMoney(sim, c, career, depth + 1, visitor)
+		local v = expectedMoney(sim, c, career, depth + 1, f.visitor)
 		if not best or v > best then best = v end
 	end
 	return value + (best or 0)
@@ -476,17 +476,16 @@ end
 -- random: uniform; greedy: the most expected money (first on ties); chaser: the first career thread, else random.
 -- input.prefer = { [cardId] = choiceIndex } pins the random policy (not greedy or chaser) to that choice of that card,
 -- with no draw, whenever it is affordable, and counts the pick in sim.pinned; otherwise the random policy draws as usual.
--- `phone`: a phone pop's item (greedy values it with no relationship tilt)
-local function chooseByPolicy(sim, item, phone)
+-- Greedy values a walk-in's and a phone pop's choices alike, with the item's visitor's relationship tilt
+local function chooseByPolicy(sim, item)
 	local affordable = affordableChoices(sim, item)
 	if #affordable == 0 then return nil end
 	local policy = sim.input.policy
 	if policy == "greedy" then
 		local career = rollCareer(sim)
-		local visitor = not phone and item.visitor or nil
 		local best, bestValue
 		for _, c in ipairs(affordable) do
-			local value = expectedMoney(sim, c, career, 0, visitor)
+			local value = expectedMoney(sim, c, career, 0, item.visitor)
 			if not best or value > bestValue then best, bestValue = c, value end
 		end
 		return best
@@ -506,12 +505,12 @@ local function chooseByPolicy(sim, item, phone)
 	return affordable[sim.rng(1, #affordable)]
 end
 
--- a choice rolls with its beat tilt plus, on a walk-in, its card's relationship tilt, and the best beat's quality
--- (Resolve's tilt and beatQ); a `beat` choice's roll is counted with its beat tilt (beatRolls, beatTilt), a roll the
--- relationship tilted with that tilt (relRolls, relTilt)
+-- a choice rolls with its beat tilt plus its card's relationship tilt (a walk-in's or a phone pop's, fix round 1 D), and
+-- the best beat's quality (Resolve's tilt and beatQ); a `beat` choice's roll is counted with its beat tilt (beatRolls,
+-- beatTilt), a roll the relationship tilted with that tilt (relRolls, relTilt). `phone`: the outcome's money is not paid
 local function resolveChoice(sim, item, choice, phone)
 	local beat = tiltFor(sim, choice)
-	local rel = relTiltFor(sim, not phone and item.visitor or nil, choice)
+	local rel = relTiltFor(sim, item.visitor, choice)
 	local res = sim.rules.Resolve(choice, rollCareer(sim), sim.input.odds, sim.rng, beat + rel, beatQ(sim))
 	if not res.ok then return end
 	if choice.beat then
@@ -529,7 +528,8 @@ end
 -- opts the server passes too (Shared shapes), so the life gates, the caps, aired and the first card hold in the sim.
 -- career is a copy of the career with visits = the walk-in count; day and week are the sim day and day // 7; a day with
 -- FIRE has aired a beat (receiveFire runs before any visit or pop); rel = sim.rel (the relationship gates). Seed first, so
--- a newly eligible card joins the least-seen rotation instead of winning the next draws back to back
+-- a newly eligible card, or one back from a closed gate, joins the least-seen rotation instead of winning the next draws
+-- back to back
 local function pickNext(sim, source, day)
 	local career = table.clone(sim.career)
 	career.visits = sim.walkins.count
@@ -601,7 +601,7 @@ local function pop(sim, day)
 	elseif item.news then
 		resolveChoice(sim, item, item.choices[1], true)
 	else
-		local choice = chooseByPolicy(sim, item, true)
+		local choice = chooseByPolicy(sim, item)
 		if choice then resolveChoice(sim, item, choice, true) end
 	end
 	sim.phoneAura += sim.career.aura - aura
@@ -689,7 +689,7 @@ end
 -- { day, kind = "thaw", event }), firstCold = the first day it went cold (nil: never). They remember you: rel = the
 -- relationships at the end ({ [visitorId] = { score, flags = { [flag] = day } } }), firstSeen = { [cardOrFollowupId] =
 -- the first day it came (a walk-in or an opened pop) }, relRolls = the rolls a relationship tilted, relTilt = their sum.
--- input.odds.relPer is required once a walk-in rolls with a non-zero score
+-- input.odds.relPer is required once a choice rolls with a non-zero score
 function M.Run(input)
 	assert(type(input.phonePerDay) == "number", "CareerSim.Run: input.phonePerDay must be a number (0 = no phone pops)")
 	assert(input.phonePerDay <= 0 or type(input.phoneSeed) == "number",

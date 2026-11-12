@@ -24,10 +24,10 @@
 -- They remember you (Wave 3, design 4.3; CareerSim keeps the relationships through the same pure rules): the 18 arc
 -- entries are in the deck (ARCS). Each seed set prints, for the random player, how many runs each one reached and its
 -- median first day among them, homer's runs to homekid_album (two hometown picks and a tape that blew up), and the mean
--- relationship tilt a rolled walk-in choice took. On the 200 seeds every arc entry is reached by some random or homer run
--- (no gate the deck can't open), except sponsor_warning: it stands in for a sponsor_drop, which itself comes on only a
--- few runs (a player holding a deal rarely falls under its floor; printed beside it), so career_sim_spec and t79a prove
--- it instead. The old mom cards, gated only on her silence, still come on most random runs.
+-- relationship tilt a rolled choice took (walk-in or phone). On the 200 seeds every arc entry is reached by some random
+-- or homer run (no gate the deck can't open), except sponsor_warning: it stands in for a sponsor_drop, which itself comes
+-- on only a few runs (a player holding a deal rarely falls under its floor; printed beside it), so career_sim_spec and
+-- t79a prove it instead. The old mom cards, gated only on her silence, still come on most random runs.
 -- Run: sh tools/spec.sh pacing
 local Sim = require("../src/ReplicatedStorage/OK/Modules/CareerSim")
 local R = require("../src/ReplicatedStorage/OK/Modules/WalkInRules")
@@ -299,7 +299,7 @@ local function check(seeds, tag)
 	end
 	line = line .. string.format("; cold in 60 days (runs) random %d, greedy %d, chaser %d, spend-down %d; neglect: quiet on day 4 %d/%d, cold earlier by Aura %d, cold again at the end of day %d %d",
 		colds.random or 0, colds.greedy or 0, colds.chaser or 0, colds["spend-down"] or 0, neglectQuiet4, #seeds, neglectEarly, NEGLECT_RESUME, neglectRechill)
-	-- the arcs: random runs reaching each entry (median first day), homer's album runs, the rel tilt a rolled walk-in took
+	-- the arcs: random runs reaching each entry (median first day), homer's album runs, the rel tilt a rolled choice took
 	local arcParts = {}
 	for _, list in ipairs({ ARCS, OLD_MOM, CONTEXT }) do
 		for _, id in ipairs(list) do

@@ -1,10 +1,11 @@
 -- Server, during play: the walk-in scheduler's Wave 1a rules through its Studio hook (paused; Spawn and the stored
--- pick). A fresh profile's first walk-in is gentle_first; mom's weekly cap holds on the cap keys (an old week's count
--- doesn't bind, this week's does, and the walk-in day counter never touches it); a stored pick whose gate closed is
+-- pick). A fresh profile's first walk-in is a starter (a `first` card: Task 5b+'s pool); mom's weekly cap holds on the
+-- cap keys (an old week's count doesn't bind, this week's does, and the walk-in day counter never touches it); a stored
+-- pick whose gate closed is
 -- re-picked, with the still-open gate as the control (Review Focus 3); the first HIT system-plants mom_plaque once;
 -- a capped card counts at arrival, not at the pick; an artist's DM holds his walk-ins (MarkSent) and re-picks a
 -- stored pick of his (Revalidate's cooldown). Last, a fame tier crossed before any walk-in (a real Add at count 0): its
--- visit is planted one later on both ends, the first walk-in is still gentle_first, and tier_buzzing comes after.
+-- visit is planted one later on both ends, the first walk-in is still a starter, and tier_buzzing comes after.
 local RS, Players, SSS = game:GetService("ReplicatedStorage"), game:GetService("Players"), game:GetService("ServerScriptService")
 local p = Players:GetPlayers()[1]; assert(p, "no player")
 local uid = p.UserId
@@ -39,6 +40,8 @@ local function stats() return career:Invoke("Get", uid) end
 local function pending() return wi:Invoke("Pending", uid) end
 local function arrived() local r = pending(); return r ~= nil and r.arrived == true end
 local function visitorOf(id) local item = Content.CardById[id] or Content.FollowupById[id]; return item and item.visitor end
+-- a starter: a card of the starter pool (`first`, Task 5b+), the only cards the first walk-in draws from
+local function isStarter(id) local c = Content.CardById[id]; return c ~= nil and c.first == true end
 local function queued(id)
 	for _, q in ipairs(walkins().queue) do if q.id == id then return q end end
 	return nil
@@ -73,11 +76,11 @@ local function run()
 	teleport(LOUNGE)
 	local day, week = Rules.CapKeys(os.time())
 
-	-- gentle first: a fresh profile's first walk-in is the superfan
-	fresh("gentle first")
-	local r0 = spawnDefault("gentle first")
-	assert(r0.id == "gentle_first" and walkins().next.id == "gentle_first", "gentle first: the first pick was " .. r0.id)
-	table.insert(out, "gentle first: Spawn() after Reset -> gentle_first")
+	-- the first walk-in: a fresh profile's is a starter (the superfan's gentle_first is retired, Task 5b+)
+	fresh("first walk-in")
+	local r0 = spawnDefault("first walk-in")
+	assert(isStarter(r0.id) and walkins().next.id == r0.id, "first walk-in: the first pick was " .. r0.id .. ", want a starter (a `first` card)")
+	table.insert(out, "first walk-in: Spawn() after Reset -> " .. r0.id .. " (a starter)")
 
 	-- mom cap: the weekly group cap on the cap keys; a stored mom pick is reused under an old week's count and
 	-- re-picked under this week's, and SetToday (the walk-in day counter) leaves the cap alone
@@ -180,7 +183,7 @@ local function run()
 	assert(visitorOf(r8.id) ~= "navx" and walkins().next.id == r8.id, "stored navx: the stored navx pick came after his DM (" .. r8.id .. ")")
 	table.insert(out, "dm cooldown: dm_navx -> last.navx = count, Spawn() -> " .. r7.id .. "; stored navx_placement re-picked -> " .. r8.id)
 
-	-- gentle first, safe: a tier crossed at count 0 can't take the first slot; the Life Reset comes after Career's
+	-- the first slot, safe: a tier crossed at count 0 can't take it; the Life Reset comes after Career's
 	fresh("tier at count 0")
 	assert(career:Invoke("Reset", uid) == true and life:Invoke("Reset", uid) == true, "tier at count 0: a Reset failed")
 	assert(career:Invoke("Set", uid, { followers = 900 }) == true, "tier at count 0: Set followers 900 failed")
@@ -189,13 +192,13 @@ local function run()
 	local qt = queued("tier_buzzing")
 	assert(walkins().count == 0 and qt and qt.at == 2, "tier at count 0: want tier_buzzing at 2 (the low end, one later), count " .. walkins().count .. ", at " .. tostring(qt and qt.at))
 	local r9 = spawnDefault("tier at count 0")
-	assert(r9.id == "gentle_first", "tier at count 0: the first walk-in is " .. r9.id .. ", want gentle_first")
-	assert(waitFor(arrived, 15), "tier at count 0: the superfan did not arrive within 15 s")
+	assert(isStarter(r9.id), "tier at count 0: the first walk-in is " .. r9.id .. ", want a starter (a `first` card)")
+	assert(waitFor(arrived, 15), "tier at count 0: the first visitor did not arrive within 15 s")
 	assert(wi:Invoke("Choose", uid, pending().token, 0).ok == true, "tier at count 0: walk away failed")
 	assert(walkins().count == 1, "tier at count 0: the count after the first walk-in is " .. walkins().count)
 	local r10 = spawnDefault("tier after")
 	assert(r10.id == "tier_buzzing", "tier at count 0: the walk-in after the first is " .. r10.id .. ", want tier_buzzing")
-	table.insert(out, "tier at count 0: tier_buzzing planted at 2, first walk-in gentle_first, then tier_buzzing")
+	table.insert(out, "tier at count 0: tier_buzzing planted at 2, first walk-in " .. r9.id .. " (a starter), then tier_buzzing")
 
 	return "T53 PLAY OK\n" .. table.concat(out, "\n")
 end

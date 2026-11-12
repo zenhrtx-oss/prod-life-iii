@@ -100,11 +100,13 @@ function M.Build(root, Theme, Cfg, onNote)
 	end
 
 	-- layout: the roll takes the drum grid's rectangle; the columns line up with the ruler (same labelW / cellW) ----------
+	-- touch (a touch screen, any layout: launch audit A11) gets the phone's 44 px bar, lane and rows, the rows scrolling
 	local L = { rows = {}, shown = {}, inScale = {}, rowH = 0, cellW = 0, labelW = 0, s0 = 1, s1 = nS, scale = nil, args = nil }
-	function R.Layout(x, y, w, h, compact, s0, s1, labelW, cellW)
-		L.args = { x, y, w, h, compact, s0, s1, labelW, cellW }
+	function R.Layout(x, y, w, h, compact, s0, s1, labelW, cellW, touch)
+		L.args = { x, y, w, h, compact, s0, s1, labelW, cellW, touch }
 		roll.Position = UDim2.fromOffset(x, y); roll.Size = UDim2.fromOffset(w, h)
-		local barH = compact and MIN_TOUCH or 26
+		local big = compact or touch == true
+		local barH = big and MIN_TOUCH or 26
 		bar.Position = UDim2.fromOffset(6, 3); bar.Size = UDim2.fromOffset(w - 12, barH)
 		local bw, lw, cw = 140, compact and 56 or 60, compact and 64 or 68
 		voiceBtn.Size = UDim2.fromOffset(bw, barH); scaleBtn.Size = UDim2.fromOffset(bw, barH)
@@ -112,7 +114,7 @@ function M.Build(root, Theme, Cfg, onNote)
 		local room = w - 12 - 2 * bw - lw - cw - 24
 		info.Visible = room >= 60
 		info.Size = UDim2.fromOffset(math.max(20, room), barH)
-		local laneH = compact and MIN_TOUCH or 30
+		local laneH = big and MIN_TOUCH or 30
 		local top = barH + 8
 		local avail = math.max(MIN_TOUCH, h - top - laneH - 10)
 		rows.Position = UDim2.fromOffset(0, top); rows.Size = UDim2.fromOffset(w, avail)
@@ -135,7 +137,7 @@ function M.Build(root, Theme, Cfg, onNote)
 			for semi = K.Range, -K.Range, -1 do if have[semi] then table.insert(list, semi) end end
 		end
 		L.shown = have
-		local rowH = compact and (MIN_TOUCH + 4) or math.clamp(math.floor(avail / #list), 18, 34) -- phone cells stay 44 px tall
+		local rowH = big and (MIN_TOUCH + 4) or math.clamp(math.floor(avail / #list), 18, 34) -- touch cells stay 44 px tall
 		local canvasH = #list * rowH
 		rows.CanvasSize = UDim2.fromOffset(0, canvasH)
 		local shownAt = {}
@@ -147,7 +149,7 @@ function M.Build(root, Theme, Cfg, onNote)
 				local ry = (i - 1) * rowH
 				k.key.Visible = true
 				k.key.Position = UDim2.fromOffset(4, ry + 1)
-				k.key.Size = UDim2.fromOffset((k.black and not compact) and math.floor((labelW - 8) * 0.68) or (labelW - 8), rowH - 2) -- phones: every key stays a 44 px target
+				k.key.Size = UDim2.fromOffset((k.black and not big) and math.floor((labelW - 8) * 0.68) or (labelW - 8), rowH - 2) -- touch: every key stays a 44 px target
 				k.key.TextSize = rowH >= 24 and 12 or 10
 				for s = 1, nS do
 					local c = k.cells[s]

@@ -30,7 +30,13 @@ local KINDS = { artist = true, rep = true, blogger = true, fan = true, rival = t
 local ORIGINALS = { "navx", "dojabat", "icespike", "charti", "scoot", "llama", "drift", "drizzle", "eyelash",
 	"rep", "blogger", "fan", "rival", "manager" }
 local ROLES = { "rep", "blogger", "fan", "rival", "manager" } -- one of each among the originals
-local CHECK_PATTERN = "^research/wave1_names_2026%-10%-27%.md#.+"
+-- the names web-check files a `check` may point into: Wave 1a's, and the fiction pass's (Task 5b: the starter pool's people)
+local CHECK_PATTERNS = { "^research/wave1_names_2026%-10%-27%.md#.+", "^research/fiction_pass_2026%-11%-06%.md#.+" }
+local function checkNote(s)
+	if type(s) ~= "string" then return false end
+	for _, pat in ipairs(CHECK_PATTERNS) do if string.find(s, pat) then return true end end
+	return false
+end
 local GATE_KEYS = { aura = true, followers = true, placements = true, hits = true, sponsors = true, money = true, visits = true }
 local SOURCES = { walkin = true, phone = true }
 local APPS = { MESSAGES = true, NEWS = true, STUDIO = true }
@@ -135,8 +141,8 @@ for _, v in ipairs(W.Visitors) do
 		and intIn(v.color[1], 0, 255) and intIn(v.color[2], 0, 255) and intIn(v.color[3], 0, 255))
 	if v.kind == "sender" then eq("visitor " .. v.id .. " (sender, no figure) sig", v.sig, "none") end
 	if not isOriginal[v.id] then
-		ok("visitor " .. v.id .. " (new) check is research/wave1_names_2026-10-27.md#<anchor>",
-			type(v.check) == "string" and string.find(v.check, CHECK_PATTERN) ~= nil)
+		ok("visitor " .. v.id .. " (new) check is research/wave1_names_2026-10-27.md#<anchor> or research/fiction_pass_2026-11-06.md#<anchor>",
+			checkNote(v.check))
 	end
 end
 eq("9 artists", kindCount.artist, 9)
@@ -331,8 +337,8 @@ local function checkPhoneChoices(where, choices)
 	end
 end
 
--- mom and the gentle first visitor can't cost you money (design 2, 4.3): no choice has a cost, and no outcome takes
--- money or reads as a loss
+-- mom and the starter pool (`first` cards; Task 5b+) can't cost you money (design 2, 4.3): no choice has a cost, and no
+-- outcome takes money or reads as a loss
 local function checkGentle(where, choices, resolve)
 	local function outcome(ow, o)
 		ok(ow .. " money >= 0", (o.money or 0) >= 0)
@@ -1455,6 +1461,82 @@ do
 		eq("sponsor_warning sides are the same", show(f.resolve.good), show(f.resolve.bad))
 		for i, c in ipairs(f.choices) do ok("sponsor_warning choice " .. i .. " is sure", c.sure == true) end
 	end
+end
+
+-- the starter pool (Task 5b+, the user's call of 2026-11-06): the very first walk-in is one of these `first` cards, drawn
+-- at random (WalkInRules.Pick at visits 0). Each suits a producer with nothing yet and is open to a brand-new career:
+-- a walk-in card gated by exactly under = { visits = 1 } (it never comes back once the first visit is in) and nothing else
+-- (no needs, cap, when, sponsor, aired, weight or minCount), no cost and no loss (checkGentle above), and no plant,
+-- relationship write, placement, hit, sponsor or beat. The superfan stays out of the first slot (gentle_first is retired;
+-- tier_buzzing still brings the fan): no first card is the fan's
+local STARTERS = { "starter_rapper", "starter_cousin", "starter_neighbor", "starter_kid", "starter_host", "starter_landlord" }
+do
+	local got = {}
+	for _, card in ipairs(W.Cards) do if card.first then table.insert(got, card.id) end end
+	eq("the `first` cards are the starter pool, in deck order", table.concat(got, ","), table.concat(STARTERS, ","))
+	ok("gentle_first is retired", W.CardById.gentle_first == nil)
+	local freshCareer = { aura = 0, followers = 0, placements = 0, hits = 0, sponsors = 0, money = 0 }
+	for _, id in ipairs(STARTERS) do
+		local c = W.CardById[id]
+		local where = "starter " .. id
+		ok(where .. " exists", c ~= nil)
+		if c then
+			eq(where .. " first", c.first, true)
+			eq(where .. " under is exactly { visits = 1 }", show(c.under), show({ visits = 1 }))
+			for _, f in ipairs({ "needs", "cap", "when", "sponsor", "aired", "weight", "minCount", "system", "source" }) do
+				eq(where .. " has no " .. f, c[f], nil)
+			end
+			ok(where .. " is not the superfan's", c.visitor ~= "fan")
+			ok(where .. " is open to a new career at visits 0", R.GateOk(c, freshCareer, 0, {}))
+			ok(where .. " is closed at visits 1", not R.GateOk(c, freshCareer, 1, {}))
+			for i, ch in ipairs(c.choices or {}) do
+				ok(where .. " choice " .. i .. " has no beat or beatMin", ch.beat == nil and ch.beatMin == nil)
+				eachOutcome(ch, function(o, k)
+					local ow = where .. " choice " .. i .. "." .. k
+					for _, f in ipairs({ "plant", "rel", "placements", "hits", "sponsors", "sponsor", "cooldown", "disco" }) do
+						eq(ow .. " has no " .. f, o[f], nil)
+					end
+					-- the first-visit Aura cushion (the controller's ruling of 2026-11-11, research/fiction_pass_2026-11-06.md
+					-- section 8): every starter outcome pays at least +5 Aura, as the retired gentle_first's wins did, so a new
+					-- player's day 1 keeps the margin the "never cold in days 1-7" pacing check relies on
+					ok(ow .. " pays at least +5 Aura (the 11-11 cushion)", (o.aura or 0) >= 5)
+				end)
+			end
+		end
+	end
+	-- the draw on the live deck: Seed + Pick on a fresh state at visits 0 always gives a starter and, over 600 seeded
+	-- draws, every one of them; at visits 1, never one (500 draws). The sim's Park-Miller step, inlined as above
+	local function lcg(seed)
+		local s = seed % 2147483647
+		if s <= 0 then s += 2147483646 end
+		return function(lo, hi)
+			s = s * 48271 % 2147483647
+			if hi <= lo then return lo end
+			return lo + s % (hi - lo + 1)
+		end
+	end
+	local isStarter, drawn = {}, {}
+	for _, id in ipairs(STARTERS) do isStarter[id] = true end
+	local function draw(visits, seed)
+		local state = { day = 0, today = 0, count = visits, queue = {}, seen = {}, last = {}, caps = {} }
+		local career = table.clone(freshCareer)
+		career.visits = visits
+		local opts = { cooldown = 3, rng = lcg(seed), sponsored = false, aura = 0, source = "walkin", career = career, day = 3,
+			week = 0, aired = false, rel = {} }
+		R.Seed(state, W.Deck, opts)
+		local p = R.Pick(state, W.Deck, opts)
+		return p and p.kind == "card" and p.card.id or nil
+	end
+	local others, nonStarter = 0, nil
+	for seed = 1, 600 do
+		local id = draw(0, seed)
+		if id and isStarter[id] then drawn[id] = (drawn[id] or 0) + 1 else others += 1; nonStarter = nonStarter or tostring(id) end
+	end
+	eq("visits 0: 600 draws are all starters (first other: " .. tostring(nonStarter) .. ")", others, 0)
+	for _, id in ipairs(STARTERS) do ok(string.format("visits 0: %s drawn (%d of 600)", id, drawn[id] or 0), (drawn[id] or 0) > 0) end
+	local late = 0
+	for seed = 1, 500 do if isStarter[draw(1, seed) or ""] then late += 1 end end
+	eq("visits 1: no starter in 500 draws", late, 0)
 end
 
 if #fails > 0 then error(#fails .. " walkins data case(s) failed: " .. table.concat(fails, "; ")) end

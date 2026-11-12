@@ -15,7 +15,9 @@
 --   wide) and reaches the card's column, the card sits 8 px under the bar instead, as FIRE does, so it never covers
 --   the bar's text; a bar under the pills (phones, y 74) starts at the card's top and shares its rows (documented
 --   in t57b, like FIRE and SAMPLE IT). One card at a time, in arrival order: a pop opens by itself only
---   while the beat maker is closed, no listen-back cutaway runs, the cypher is idle and no walk-in card or result card
+--   while the beat maker is closed, no listen-back cutaway runs, no cypher round holds you (WalkInRules.CypherHolds: one
+--   that listens or votes holds everyone; a lobby, the build and the reveal only that round's entrants) and no walk-in
+--   card or result card
 --   shows (WalkInUI defers to this gui's Open the same way, so the player never sees two cards); otherwise it waits
 --   (Deferred). A card that opened by itself fires Phone_Open(token) (the server counts the pop then), focuses its
 --   header for a gamepad and ignores button presses for ARM_SECONDS, as the walk-in card does; one opened from the
@@ -59,6 +61,7 @@ local TweenService = game:GetService("TweenService")
 local Config = require(RS.OK.Config)
 local Format = require(RS.OK.Modules.Format)
 local CardFeel = require(RS.OK.Modules.CardFeel)
+local Rules = require(RS.OK.Modules.WalkInRules)
 local M = {}
 local MIN = 44                 -- touch target
 local ICON = 44
@@ -439,7 +442,8 @@ function M.Build(Theme)
 	-- deferral, each looked up afresh (WalkInUI's lookups). dawOrCutaway: the beat maker is open or the listen-back
 	-- cutaway runs; its second value says the beat maker is the phone (compact) one that fills the screen; each check
 	-- also records when it last went from true to false (dawUp; the heartbeat checks every 0.2 s). cypherBusy: a
-	-- cypher round isn't idle. walkInBusy: a walk-in card or the walk-in result card (a result or the note) shows
+	-- cypher round holds you (WalkInRules.CypherHolds on its Phase and Round and your CypherIn, the server's rule).
+	-- walkInBusy: a walk-in card or the walk-in result card (a result or the note) shows
 	local reqCard = nil
 	local dawWasUp, dawDownAt = false, -math.huge
 	local function dawOrCutaway()
@@ -460,8 +464,7 @@ function M.Build(Theme)
 	local function dawUp() return (dawOrCutaway()) or os.clock() - dawDownAt <= 1 end
 	local function cypherBusy()
 		local cy = RS.OK:FindFirstChild("Cypher")
-		local phase = cy and cy:GetAttribute("Phase")
-		return phase ~= nil and phase ~= "idle"
+		return Rules.CypherHolds(cy and cy:GetAttribute("Phase"), player:GetAttribute("CypherIn"), cy and cy:GetAttribute("Round"))
 	end
 	local function walkInOpen()
 		local wg = pg:FindFirstChild("OK_WalkIn")

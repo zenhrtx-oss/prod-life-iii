@@ -1,5 +1,5 @@
--- Client, during play (after t47g: cypher idle, beat maker closed): with everything clear the deferred card opens by
--- itself within 5 s; WALK AWAY closes it.
+-- Client, during play (after t47g: cypher idle, beat maker closed): the card, open by itself since t47f's cypher lobby,
+-- is open with everything clear (or opens within 5 s if it was still held); WALK AWAY closes it.
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui", 10)
@@ -16,4 +16,4 @@ assert(waitFor(function() return gui:GetAttribute("Open") == false and gui:GetAt
   "WALK AWAY did not close the card (Open " .. tostring(gui:GetAttribute("Open")) .. ", LastChoose " .. tostring(gui:GetAttribute("LastChoose")) .. ")")
 assert(not card.Visible and not chip.Visible and (gui:GetAttribute("Token") or "") == "", "card, chip or token left behind after walking away")
 gui:SetAttribute("Command", "ok") -- dismiss a result card, if walking away showed one
-return "T47H PLAY OK: opened within 5 s of all clear; WALK AWAY closed it"
+return "T47H PLAY OK: open with all clear; WALK AWAY closed it"

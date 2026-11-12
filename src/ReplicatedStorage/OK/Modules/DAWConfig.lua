@@ -20,6 +20,8 @@ C.BPM = { Default = 142, Min = 60, Max = 200, Step = 5 }
 C.Swing = { Options = { 0, 25, 50 }, Max = 60 }
 C.CloseDistance = 14
 C.SaveCooldown = 3
+C.BroadcastCooldown = 8 -- seconds from a producer's send that went on the monitors (or into the line) to their next one
+C.FlipCheckCooldown = 1 -- seconds between a producer's sends that reach the flip check (it diffs every recent airing)
 C.XPPerSave = 10
 C.Tracks = {
 	{ Name = "Kick",  Kind = "hit",  SoundId = "rbxassetid://9043367885", Volume = 0.9,  Gate = 0.9,  Color = Color3.fromRGB(255, 60, 160), Source = "APM PERCUSSIVE NOISE 14-Electronic Kick (APMOfficial, Roblox licensed)" },

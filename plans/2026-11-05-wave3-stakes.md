@@ -50,7 +50,7 @@
 - **Copy:**
   - Every new line goes on the user's approval list (Task 0's file). Build with the drafts; the user approves after, as in Wave 2.
   - Rules: CAPS headlines; lowercase bubble lines; display names only through `{name:<id>}`; `{beat}` only in the 10 flagged cards and new placement cards.
-  - Banned: OK, CRED/Cred (t40), STUDIO TWO (t50), BLOCK words.
+  - Banned: OK branding (t50: WEGONEBEOK, OK STUDIO, OK BEAT MAKER, PROD. OK; the plain word "ok" is fine, the user 2026-11-11), CRED/Cred (t40), STUDIO TWO (t50), BLOCK words.
 - **Phone first:** new footer lines and the COLD chip fit at 844×390, 771×390 and 667×375 with every control ≥ 44 px.
 - **Test numbers:** Studio `t75`–`t79`. `t75_check` (Edit); play pairs `t76a_play_server` / `t76b_play_client` … `t79a`/`t79b`. Markers `T75 OK`, `T76A PLAY OK`. Each play file starts with its own `fresh()` (unseat, teleport, Phone `Quiet`, WalkIns `Reset`, Career `Reset`, Life `Reset`, and the new `ResetHints`), runs in a pcall with cleanup and a rethrow, and finishes in under 90 s.
 - **Standing limits:** never save or publish the place; no uploads; no Robux; no free-model scripts; no player-typed text; don't change the light cap or another session's imports; never flip `Config.Data.UseStoreInStudio`.
@@ -338,6 +338,16 @@ The user narrowed the goal on 2026-11-05 ~21:00 to "everything 100% needed at la
 
 ### Task 5b: Fiction names for launch
 
+> **Amended 2026-11-11 (the user): the parody names stay for launch, for now.** The user asked why the names switched, then said: "keep real names for now but regarless big names shoudlnt come until later in the game".
+> - What was built: `Roster` stays `"parody"`, and the card text keeps the parody's jokes (the sweep is reverted to 15ff936 text).
+> - The fiction pass is parked as a ready patch in `research/fiction_pass_2026-11-06.md`: the names are built in the fiction column (four alternates after the web check), and the clean lines can be re-applied from d33d69a.
+> - `t80_check` now proves the fallback still swaps every name (names-only, both rosters forced in scope; F6's fit under both).
+> - Kept from this task: F6's two-line `sponsor_warning` text.
+> - The copy rule's "OK" ban means OK branding only; the plain word "ok" is fine (the user, 11-11).
+> - "Big names later" goes to Task 5g's design.
+>
+> The text below is the original task.
+
 **Files:** `Config.lua` (`Config.WalkIns.Roster = "fiction"`), `Data/WalkIns.lua`, `Data/Artists.lua` (if it carries real-artist cues), `Modules/LifeRules.lua` (`Copy`), any other shipped string that names or nods at a real artist or brand; `spec/walkins_data_spec.lua`; new `build/t80_check.lua` (Edit); a copy doc `research/fiction_pass_2026-11-06.md`.
 
 - Flip the roster to fiction (parody stays a switch, untouched).
@@ -353,6 +363,11 @@ The user: "If it was bitlife mechanics wouldn't it be a bunch of randomized opti
 - `gentle_first`'s superfan stays out of the first slot; the real superfan keeps arriving through the BUZZING tier visit.
 - New lines go on the approval list (same copy rules; fiction names only).
 - **Tests:** the data spec (every `first` card is gated under visits 1, no cost, no loss); a play check that the first-ever arrival is a `first` card and that over a forced RNG sweep more than one starter can be drawn.
+- **As built (2026-11-11):**
+  - Six starters, room-neutral copy.
+  - `WalkInRules.Pick` draws among eligible `first` cards by weight at visits 0.
+  - Every starter outcome pays at least +5 Aura. This is the controller's ruling: it keeps `pacing_spec`'s week-1 cold check green. The seven neutral +5 AURA chips are on the approval list.
+  - The per-seed cold check's fragility is on the user's Needs-you list.
 
 ### Task 5e: Day One — choices from the first second (the user, 2026-11-06 03:20)
 
@@ -373,9 +388,21 @@ The user asked whether the beat maker is FL-level for producers (honest answer: 
 ### Task 5g: Your own room (the user, 2026-11-10 ~14:50) — DESIGN FIRST
 
 Reacting to `plans/2026-11-10-tiered-studio-progression-proposal.md` (written by session work-0b), the user moved "your room" INTO the launch list. The 11-04 decisions stand: one room that grows (Your Room → Pro Room → Your Suite) behind your own door in the shared building; friends walk in; your name and neon on the door; furniture you place from day one; your career on the walls; visitors come to you. Two questions the proposal raised are DEFERRED to the room design, not decided: start in a bedroom instead of a tiny studio (would change Day One's story), and THE HALL / WEST SUITE as the top rungs of your own ladder instead of shared legendary rooms. Also open: doors open / friends-only / locked by default; the $1,500 price on the vision page is a proposal, not a decision. Prerequisites already met: saves are session-locked and proven on the real store (11-05). Needs: the room design (the brainstorming skill, a builder check, the user's calls), then a plan; rebuild the phone room test (`build/room_test.lua`) when the room's part budget is known. Net-new system: player-placed decoration (catalog, placement, cost, per-player persistence, replication to visitors).
+- **The user's calls since (2026-11-11, design in progress):**
+  - You start in a bedroom.
+  - Your space grows a room per unlock, and the bedroom stays. This replaces "the next tier replaces the room".
+  - The first unlock is the home studio: "more space, more customization, more room to add things".
+  - A room unlocks with money plus a career milestone. Each room has an item limit. The bedroom stays editable.
+  - Others in your server walk in through your door; friends anywhere use Join.
+  - **Big names come later:** "big names shoudlnt come until later in the game". Today nothing gates the nine stars (any can walk in from visit 2 on day 1). When they start is part of this design, since rooms and visitors climb the same career ladder. The stars bring the biggest early money, so it needs its own pacing run.
 
 ### Order after Task 5's fix round (the user's launch list)
 5b fiction names + 5b+ starter pool → 5e Day One → 5c-1 → 5c-2 → 5d → **5f design → the user's calls → 5f build** → **5g design → the user's calls → 5g build** → Task 6.
+
+**As run (the controller's ruling, 2026-11-11):**
+- Task 5 fix → the keys check → 5b + 5b+ (parody kept) → 5c-1 → 5c-2 → 5c-3 (hub-scoped counts, for the bedroom import; the user's yes, 11-11 23:22) → 5d (the B look for the parody cast) → Task 6.
+- 5e waits for 5g's design, because Day One's first minute happens in the bedroom.
+- 5f (Aku's design, due 11-17) and 5g each get their own plan.
 
 ### Task 5c-1: Launch fixes — phone and tablet UI (audit A1, A3, A10, A11)
 
@@ -384,10 +411,15 @@ Source: `research/launch_audit_2026-11-05.md` (verbatim findings and verifier fi
 - **A10:** MiniSubmit follows the chip's on-screen rect on each refresh (keep OK_Cypher on CoreUISafeInsets).
 - **A11:** on touch devices (`TouchEnabled`) the beat maker uses ≥ 44 px close/transport/header/slot controls and piano-roll rows ≥ 44 px (rows scroll), regardless of compact.
 - **Tests:** a t30-style assert at 640×360, 667×375 and an iPad size (1024×768, touch): no two visible GuiButtons in OK_DAW overlap, none intersects the top-bar inset, every button ≥ 44 px; MiniSubmit sits over the chip.
+- **As built (2026-11-11, 57bd527..2f749e1):**
+  - The phone's 3 save slots moved into the side column over SAVE; CLEAR | SWING share a row (the controller's ruling).
+  - Touch screens under 700 px tall use the phone layout (`DAWLayout.COMPACT_UNDER`), so 1024×600 tablets keep the request card on screen.
+  - The chip hides when it can't be ≥ 44 px.
+  - Full suite 210/211; the one miss was t46's MCP drop, fixed by yielding.
 
 ### Task 5c-2: Launch fixes — server abuse and saves (audit A2/A4, A5/A12, A6, A7, A8, A9, A13)
 
-- **A2/A4 (High):** `Cypher_Join` refuses from idle ("busy"); only the board interaction opens a lobby; after a lobby is cancelled for too few entrants, no new lobby for 60 s server-wide; walk-ins and phone pops hold only in the cypher's listen and vote phases (not lobby).
+- **A2/A4 (High):** `Cypher_Join` refuses from idle ("busy"); only the board interaction opens a lobby; after a lobby is cancelled for too few entrants, no new lobby for 60 s server-wide; walk-ins and phone pops hold only in the cypher's listen and vote phases (not lobby). *(Amended 2026-11-11 by the controller's ruling, from the audit's A4 "For scale" fix: lobby, build and reveal hold the round's entrants only, through `WalkInRules.CypherHolds(phase, cypherIn, round)`.)*
 - **A5/A12:** `DAW_Broadcast` per-player cooldown (≈ 8 s after a successful enqueue, cleared on leave) and the "inline" check before `Flips.Judge`.
 - **A6:** a token bucket in front of `Career_Unlock` (burst 3, one per 0.25 s); refusals return the cached state.
 - **A7:** `DataService.Saving(prof)`; the DAW save reply carries `saving`; the client never says "Saved" when the session can't save.
@@ -399,6 +431,7 @@ Source: `research/launch_audit_2026-11-05.md` (verbatim findings and verifier fi
 ### Task 5d: The visitors' new look (B · Lanky shapes) and the card portrait
 
 Source: `research/visitor_look_2026-11-05/` (`lineup.lua` B recipes for five visitors, `notes.md`), the comparison page https://claude.ai/artifact/AtAQGuTZnVtVvyNiWSvs57 and `captures/visitor_looks_2026-11-05/clear/`.
+- (Amended 2026-11-11: the parody names stay, so "the fiction cast" below means the cast as it stands. Its signature pieces, such as the cowboy hat, stay, and the "no real-artist cues" rule applies only when the roster switches to fiction.)
 - Rebuild `Modules/Visitor.lua`'s figures to B for EVERY visitor id (the fiction cast after 5b, Wave 3's arc visitors, the tier visitors, the rep); new recipes in the same style (tall thin body ~6.6–7 studs, small block head with a wedge nose, long block limbs, big shoes, one bold outline colour, one or two signature pieces, no real-artist cues). The pigeon stays a critter.
 - Keep the surfaces t42/t43/t55/t56 rely on (Handle, part naming, OK_Visitors), ≤ 16 parts, separate limbs for the walk swing; name plate and bubble offsets per notes.md.
 - **A14:** pose the figure at ≈ 15–20 Hz while walking (accumulate dt), not every Heartbeat.

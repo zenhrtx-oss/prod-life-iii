@@ -3,6 +3,12 @@
 -- (per-track alphabets, level unlocks, 3 slots). ON MONITORS queues the beat on the studio speakers for everyone
 -- through ctx.Monitors (Services/MonitorService: one beat airs at a time, the rest wait in line). The studio PC and
 -- the studio laptops (Systems/Stations) all open the same beat maker through M.OpenFor.
+-- A save answers persistent (the server has a store) and saving (DataService.Saving: this profile is written; false
+-- once its load failed, the lock was lost or a newer build wrote it, launch audit A7), so the client never says "Saved"
+-- for a session that can't save. A send to the monitors from a producer already on air or in line is "inline", one
+-- inside Cfg.BroadcastCooldown of their last send that went in is "cooldown", and so is one inside
+-- Cfg.FlipCheckCooldown of their last send that reached the flip check, which diffs the beat against every recent
+-- airing: all three come before it, so it runs at most once a FlipCheckCooldown per producer (launch audit A5/A12).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local Cfg = require(RS.OK.Modules.DAWConfig)
 local Check = require(RS.OK.Modules.BriefCheck)
@@ -13,6 +19,9 @@ M.Saved = savedEv.Event           -- (player, slot)
 M.BroadcastTried = triedEv.Event  -- (player, ok, reason)
 function M._SetConfigForTest(cfg, check) Cfg = cfg; if check then Check = check end end -- edit-mode tests: the require cache can hold older modules
 local lastSave = {}
+local lastSend = {} -- [player] = os.clock() of their last send that went on the monitors or into the line
+local lastFlipCheck = {} -- [player] = os.clock() of their last send that reached the flip check
+function M._ClearFlipCheck(player) lastFlipCheck[player] = nil; return true end -- Studio tests (the monitor hook): no wait for the next check
 
 local ALPHABET = { hit = "^[01]+$", roll = "^[0-3]+$", bass = "^[0a-y]+$" }
 
@@ -176,7 +185,7 @@ function M.Init(ctx)
 		print(string.format("[OK] %s saved slot %d (%d BPM, swing %d, save #%d, +%d XP)", player.Name, slot, b, sw, prof.daw.saves, xp))
 		pcall(function() require(RS.OK.Systems.Life).Event(player, "beat") end) -- logs the first beat only
 		savedEv:Fire(player, slot)
-		return { ok = true, xp = xp, persistent = ctx.Data.Persistent == true, profile = ctx.Data.ClientProfile(prof) }
+		return { ok = true, xp = xp, persistent = ctx.Data.Persistent == true, saving = ctx.Data.Saving(prof), profile = ctx.Data.ClientProfile(prof) }
 	end
 
 	-- ON MONITORS: queue the beat; ok = on air now (position 0) or in line (position n, wait in s)
@@ -191,10 +200,17 @@ function M.Init(ctx)
 		if not M.AtStation(player) then return { ok = false, reason = "away" } end
 		if ctx.Monitors.reserved then return { ok = false, reason = "cypher" } end -- a cypher round holds the monitors
 		if flipToken ~= nil and type(flipToken) ~= "number" then return { ok = false, reason = "invalid" } end
+		local inline = ctx.Monitors:InLine(player.UserId) -- on air or in line already: your place, no flip check
+		if inline then return inline end
+		if lastSend[player] and os.clock() - lastSend[player] < Cfg.BroadcastCooldown then return { ok = false, reason = "cooldown" } end
+		local now = os.clock() -- a send let past here is stamped, whatever the flip check answers: one check a FlipCheckCooldown
+		if lastFlipCheck[player] and now - lastFlipCheck[player] < Cfg.FlipCheckCooldown then return { ok = false, reason = "cooldown" } end
+		lastFlipCheck[player] = now
 		local Flips = require(RS.OK.Systems.Flips)
 		local flipOf, why, changed = Flips.Judge(ctx.Monitors:History(), player.UserId, p, flipToken, M.UnlockFn(player))
 		if why then return { ok = false, reason = why, changed = changed } end
 		local r = ctx.Monitors:Enqueue(player, p, b, sw, flipOf and { uid = flipOf.uid, name = flipOf.name } or nil, kitId, voiceId)
+		if r.ok then lastSend[player] = os.clock() end
 		if r.ok and flipOf then
 			r.flipOf = flipOf.name
 			flipOf.creditedBy = flipOf.creditedBy or {} -- flipOf is the live history entry of that airing
@@ -220,7 +236,7 @@ function M.Init(ctx)
 		M.OpenFor(player, inst, s and s.ControlRoom:FindFirstChild("Chair_Seat"))
 	end)
 
-	Players.PlayerRemoving:Connect(function(p) lastSave[p] = nil end)
+	Players.PlayerRemoving:Connect(function(p) lastSave[p] = nil; lastSend[p] = nil; lastFlipCheck[p] = nil end)
 end
 
 return M

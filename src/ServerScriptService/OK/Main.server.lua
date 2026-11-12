@@ -80,6 +80,19 @@ if game:GetService("RunService"):IsStudio() then
       Data.GetProfile(p).hints = seen; Data.MarkDirty(p); return true
     end
     if cmd == "Hints" then local h = Data.GetProfile(p).hints; return type(h) == "table" and table.clone(h) or {} end
+    -- a session that can't save (launch audit A7), with no store: a = { loadFailed = bool, persistent = bool } flags this
+    -- player's profile _loadFailed and sets DataService.Persistent (a field left out stays as it is; Studio Play has no
+    -- store, so nothing is written either way). Returns { was = both as they were, saving = DataService.Saving after },
+    -- so a test can put them back
+    if cmd == "SaveFlags" then
+      local prof = Data.GetProfile(p)
+      local was = { loadFailed = prof._loadFailed == true, persistent = Data.Persistent == true }
+      if type(a) == "table" then
+        if a.loadFailed ~= nil then prof._loadFailed = a.loadFailed == true or nil end
+        if a.persistent ~= nil then Data.Persistent = a.persistent == true end
+      end
+      return { was = was, saving = Data.Saving(prof) }
+    end
     -- your beat (Wave 3): prof.sessions.recent through Contracts, its one writer. RecordDelivery(pattern, bpm, stars) and
     -- CreditFire(pattern, bpm) as a passed delivery and a FIRE record them; Recent and BestBeat return copies; SetRecent(list)
     -- replaces the list (its whole beats, at most RecentMax) and returns what it kept
@@ -90,7 +103,8 @@ if game:GetService("RunService"):IsStudio() then
     if cmd == "BestBeat" then return require(RS.OK.Systems.Contracts).BestBeat(p) end
     return nil
   end
-  -- cypher hooks: pretend producers join / submit / vote; Skip ends the current phase (or the entry on air)
+  -- cypher hooks: pretend producers join / submit / vote; Skip ends the current phase (or the entry on air); State
+  -- (cooldown = seconds before a lobby may open again); ClearCooldown lets one open at once (launch audit A4)
   local cyHook = script.Parent:FindFirstChild("_StudioCypherHook") or Instance.new("BindableFunction")
   cyHook.Name = "_StudioCypherHook"; cyHook.Parent = script.Parent
   cyHook.OnInvoke = function(cmd, fakeId, a, b)
@@ -101,9 +115,14 @@ if game:GetService("RunService"):IsStudio() then
     if cmd == "Vote" then return BB.Vote(fake, a) end
     if cmd == "Skip" then return BB._Skip() end
     if cmd == "State" then return BB._State() end
+    if cmd == "ClearCooldown" then return BB._ClearCooldown() end
     return nil
   end
-  -- monitor hooks take a fake owner id (negative) instead of a player, so queue tests need no second player
+  -- monitor hooks take a fake owner id (negative) instead of a player, so queue tests need no second player.
+  -- (launch audit A12) SpyJudge wraps Flips.Judge to count its calls by flip token, from zero; Judged(token) in the id's
+  -- place gives that count; UnspyJudge puts the real one back. ClearFlipCheck(userId) lets that player's next send reach
+  -- the flip check at once
+  local judgeReal, judged = nil, {}
   local monHook = script.Parent:FindFirstChild("_StudioMonitorHook") or Instance.new("BindableFunction")
   monHook.Name = "_StudioMonitorHook"; monHook.Parent = script.Parent
   monHook.OnInvoke = function(cmd, fakeId, name, pattern, bpm)
@@ -111,6 +130,28 @@ if game:GetService("RunService"):IsStudio() then
     if cmd == "Cancel" then return ctx.Monitors:Cancel(fakeId) end
     if cmd == "State" then local st = ctx.Monitors:State(); return { current = st.current and st.current.name, upNext = st.upNext, count = st.count } end
     if cmd == "History" then return ctx.Monitors:History() end
+    if cmd == "SpyJudge" then
+      local Flips = require(RS.OK.Systems.Flips)
+      if not judgeReal then
+        judgeReal = Flips.Judge
+        Flips.Judge = function(history, playerId, pattern, flipToken, unlocked)
+          local k = flipToken or "none"
+          judged[k] = (judged[k] or 0) + 1
+          return judgeReal(history, playerId, pattern, flipToken, unlocked)
+        end
+      end
+      judged = {}
+      return true
+    end
+    if cmd == "Judged" then return judged[fakeId] or 0 end
+    if cmd == "UnspyJudge" then
+      if judgeReal then require(RS.OK.Systems.Flips).Judge = judgeReal; judgeReal = nil end
+      return true
+    end
+    if cmd == "ClearFlipCheck" then
+      local pl = game:GetService("Players"):GetPlayerByUserId(fakeId)
+      return pl ~= nil and require(RS.OK.Systems.DAW)._ClearFlipCheck(pl)
+    end
     -- a pretend listener (fakeId) gives FIRE to whoever is on air now: tests the producer's side with one player
     -- a pretend producer (name) flips whoever is on air now: tests the original producer's side with one player
     if cmd == "FlipAs" then return require(RS.OK.Systems.Flips).Credit(RS.OK.NowPlaying:GetAttribute("OwnerId"), name) end

@@ -5,7 +5,8 @@
 -- Names: every display name goes through the roster (Config.WalkIns.Roster = "parody" | "fiction"). Content text never
 -- types a name: it uses {name:<visitorId>} and {sponsor}, filled by WalkInRules.Fill. The nine parody artist names are
 -- user-approved (2026-10-23). The sponsor names (both sets) and the fiction names are proposals, web-checked in
--- research/walkins_names_2026-10-23.md; the user approves them.
+-- research/walkins_names_2026-10-23.md and again on 2026-11-11 in research/fiction_pass_2026-11-06.md (four fiction
+-- names replaced there; the rest of that doc is a parked patch for a later switch to fiction); the user approves them.
 --
 -- Money is at the x10 scale. Each choice's `cost` is paid first; its outcome's `money` comes after (the money path in
 -- the plan). Bubbles (`line`) are the visitor talking: lowercase. Headlines and tags are caps.
@@ -20,9 +21,9 @@ local W = {}
 -- visitors --------------------------------------------------------------------------------------------------------
 -- sig = the 1-3 part signature Modules/Visitor builds; color = body colour (0-255 RGB)
 W.Visitors = {
-	{ id = "navx", kind = "artist", names = { parody = "LIL NAV X", fiction = "STIRRUP PEONY" }, style = "country trap",
+	{ id = "navx", kind = "artist", names = { parody = "LIL NAV X", fiction = "PEONY ROLLER" }, style = "country trap",
 	  color = { 255, 110, 180 }, sig = "cowboy_hat" },
-	{ id = "dojabat", kind = "artist", names = { parody = "DOJA BAT", fiction = "VELVET FANG" }, style = "chaotic pop rap",
+	{ id = "dojabat", kind = "artist", names = { parody = "DOJA BAT", fiction = "HEX VELOUR" }, style = "chaotic pop rap",
 	  color = { 190, 90, 255 }, sig = "bat_ears" },
 	{ id = "icespike", kind = "artist", names = { parody = "ICE SPIKE", fiction = "SLEET VANTA" }, style = "drill pop",
 	  color = { 255, 140, 50 }, sig = "spiky_hair" },
@@ -34,7 +35,7 @@ W.Visitors = {
 	  color = { 205, 165, 110 }, sig = "llama_ears" },
 	{ id = "drift", kind = "artist", names = { parody = "TAYLOR DRIFT", fiction = "SEQUIN MAPLE" }, style = "sparkle pop",
 	  color = { 255, 210, 110 }, sig = "sparkle_cape" },
-	{ id = "drizzle", kind = "artist", names = { parody = "DRIZZLE", fiction = "HOOT CASTELLO" }, style = "late night r&b",
+	{ id = "drizzle", kind = "artist", names = { parody = "DRIZZLE", fiction = "DUSK CASTELLO" }, style = "late night r&b",
 	  color = { 110, 120, 165 }, sig = "owl_hood" },
 	{ id = "eyelash", kind = "artist", names = { parody = "BILLIE EYELASH", fiction = "MOSS LULLABY" }, style = "whisper pop",
 	  color = { 120, 255, 120 }, sig = "green_roots" },
@@ -74,6 +75,19 @@ W.Visitors = {
 	-- two sessions (2026-10-29): the hometown kid, who comes back with his first tape (payback_homekid)
 	{ id = "homekid", kind = "local", names = { parody = "A KID FROM BACK HOME", fiction = "A KID FROM YOUR OLD BLOCK" },
 	  style = "up and coming", color = { 60, 180, 160 }, sig = "headphones", check = "research/wave1_names_2026-10-27.md#homekid" },
+	-- the starter pool (Task 5b+, the user's call of 2026-11-06): people a producer with nothing yet meets first; one of
+	-- their `first` cards is drawn for the very first walk-in (the kid from the block is blockkid). Web-checked in
+	-- research/fiction_pass_2026-11-06.md (`check`)
+	{ id = "rapper", kind = "local", names = { parody = "A RAPPER WITH NO BEAT", fiction = "A RAPPER WITH A NOTEBOOK" },
+	  style = "needs a beat", color = { 230, 90, 70 }, sig = "headphones", check = "research/fiction_pass_2026-11-06.md#rapper" },
+	{ id = "cousin", kind = "local", names = { parody = "YOUR BIG COUSIN", fiction = "YOUR OLDER COUSIN" }, style = "family",
+	  color = { 250, 140, 200 }, sig = "cap", check = "research/fiction_pass_2026-11-06.md#cousin" },
+	{ id = "neighbor", kind = "local", names = { parody = "THE NEIGHBOR NEXT DOOR", fiction = "A SLEEPY NEIGHBOR" }, style = "next door",
+	  color = { 120, 150, 190 }, sig = "none", check = "research/fiction_pass_2026-11-06.md#neighbor" },
+	{ id = "host", kind = "local", names = { parody = "THE OPEN-MIC HOST", fiction = "THE BEAT-NIGHT HOST" }, style = "beat night",
+	  color = { 255, 200, 40 }, sig = "headset", check = "research/fiction_pass_2026-11-06.md#host" },
+	{ id = "landlord", kind = "local", names = { parody = "THE STUDIO OWNER", fiction = "THE LATE-NIGHT LANDLORD" },
+	  style = "late-night rooms", color = { 110, 85, 60 }, sig = "lanyard", check = "research/fiction_pass_2026-11-06.md#landlord" },
 	-- phone-only senders: no figure (sig none); their cards and follow-ups are source = "phone"
 	{ id = "unknown", kind = "sender", names = { parody = "UNKNOWN NUMBER", fiction = "PRIVATE NUMBER" }, style = "text message",
 	  color = { 150, 150, 150 }, sig = "none", check = "research/wave1_names_2026-10-27.md#unknown" },
@@ -94,7 +108,7 @@ W.Visitors = {
 -- rep card text never names a product category.
 W.Sponsors = {
 	{ id = "energy", names = { parody = "RED BULB", fiction = "NITE OWL ENERGY" }, kind = "energy drink", floor = 150 },
-	{ id = "sneakers", names = { parody = "NYKE", fiction = "KICKFLIP FOOTWEAR" }, kind = "sneakers", floor = 300 },
+	{ id = "sneakers", names = { parody = "NYKE", fiction = "SOLEPOP SNEAKERS" }, kind = "sneakers", floor = 300 },
 	{ id = "headphones", names = { parody = "BEETS BY DRAY", fiction = "THUMPCAN HEADPHONES" }, kind = "headphones", floor = 200 },
 	{ id = "streaming", names = { parody = "SPOTIFRY", fiction = "GLOW GUM" }, kind = "streaming app / gum", floor = 250 },
 	{ id = "watches", names = { parody = "ROWLECKS", fiction = "STACKS BANK" }, kind = "watches / bank", floor = 400 },
@@ -989,25 +1003,126 @@ W.Cards = {
 	  } },
 
 	-- Wave 1a walk-ins (design 4.2, 4.3) ---------------------------------------------------------------------------
-	-- the gentle first visitor: the superfan on your very first walk-in (`first`); no cost, nothing lost
-	{ id = "gentle_first", visitor = "fan", first = true, under = { visits = 1 }, tag = "SUPERFAN · FIRST VISIT",
-	  line = "omg it's you!! can i get a photo?? i've been waiting outside all day",
+	-- the starter pool (Task 5b+, the user's call of 2026-11-06; research/fiction_pass_2026-11-06.md, on the approval
+	-- list): your very first walk-in is one of these `first` cards, drawn at random (WalkInRules.Pick at visits 0), and none
+	-- of them ever comes again (under visits 1). Each fits a producer with nothing yet, costs nothing, loses nothing and
+	-- teaches one thing: beats pay (REQUESTS), and one game word each through its hint (followers, aura, placement,
+	-- cypher, fire). The superfan's first visit (gentle_first) is retired: the fan still comes with tier_buzzing.
+	-- Room-neutral copy (no bedroom, no "your studio") until the room (Task 5g) is built
+	{ id = "starter_rapper", visitor = "rapper", first = true, under = { visits = 1 }, tag = "LOCAL RAPPER · NO BEAT YET",
+	  line = "i wrote a whole verse on the bus and got nothing to rap it on. make me a beat?",
 	  choices = {
-		{ text = "Take the photo. Big smile.", sure = true,
-		  good = { key = "photo", headline = "FIRST FAN", tone = "win", aura = 10, followers = 100,
-			text = "Your first visitor left happy. They're telling everyone about you.",
-			line = "best day ever!! i'm posting this right now" } },
-		{ text = "Sign their hat too.", sure = true,
-		  good = { key = "signed", headline = "SIGNED", tone = "win", aura = 5, followers = 200,
-			text = "You signed the hat. They wore it out the door like a trophy.",
-			line = "i'm never washing this hat. ever" } },
-		{ text = "Play them the beat you're working on.", odds = 60,
-		  good = { key = "preview", headline = "SNEAK PEEK", tone = "win", followers = 300, aura = 5,
-			text = "They filmed ten seconds of it. People want the full beat.",
-			line = "you have to drop this. i'm serious" },
-		  bad = { key = "unfinished", headline = "NOT DONE YET", tone = "neutral",
-			text = "They nodded along politely. It's not finished, and it showed.",
-			line = "it's gonna be crazy when it's done!!" } },
+		{ text = "Make him one right now. $40.", sure = true,
+		  good = { key = "paid", headline = "FIRST PAYING JOB", tone = "win", money = 40, aura = 5,
+			text = "You built it in an hour and he paid on the spot. Beats pay.",
+			line = "this is it. i'm rapping on this tonight",
+			note = "Artists pay for beats. Check REQUESTS for more work." } },
+		{ text = "Make it free if he shouts you out.", sure = true,
+		  good = { key = "shoutout", headline = "SHOUT-OUT", tone = "win", followers = 100, aura = 5,
+			text = "He shouted you out before his verse. A few people looked you up.",
+			line = "i'm saying your name every time i rap it" } },
+		{ text = "Make two and let him pick.", odds = 60,
+		  good = { key = "both", headline = "HE TOOK BOTH", tone = "win", money = 80, aura = 5,
+			text = "He liked both and paid for both.",
+			line = "can't pick. i'll take both. here" },
+		  bad = { key = "one", headline = "HE TOOK ONE", tone = "win", money = 40, aura = 5,
+			text = "He took one and paid for it. The other one's yours to keep.",
+			line = "this one. the other one's hard too tho" } },
+	  } },
+	{ id = "starter_cousin", visitor = "cousin", first = true, under = { visits = 1 }, tag = "FAMILY · YOUR FIRST FAN",
+	  line = "i followed you. that's one. how do we get you more followers?",
+	  choices = {
+		{ text = "Make a beat for her page.", sure = true,
+		  good = { key = "page", headline = "ON HER PAGE", tone = "win", followers = 150, aura = 5,
+			text = "She posted it with your name on it. Her friends followed you.",
+			line = "my friends keep asking who made it. you did" } },
+		{ text = "Ask her to share your page.", sure = true,
+		  good = { key = "shared", headline = "SHARED", tone = "win", followers = 100, aura = 5,
+			text = "She sent your page to everyone she knows. The family group chat followed you.",
+			line = "done. even grandma followed you" } },
+		{ text = "Play her something unfinished.", odds = 60,
+		  good = { key = "hooked", headline = "SHE'S HOOKED", tone = "win", followers = 200, aura = 5,
+			text = "She filmed ten seconds of it. People want the full beat.",
+			line = "finish this one. i'm serious" },
+		  bad = { key = "notyet", headline = "NOT YET", tone = "neutral", aura = 5,
+			text = "She nodded along politely. It's not done, and it showed.",
+			line = "it's gonna be good when it's done" } },
+	  } },
+	{ id = "starter_neighbor", visitor = "neighbor", first = true, under = { visits = 1 }, tag = "NEXT DOOR · THE NOISE",
+	  line = "your bass is coming through my wall and it's late. that's minus aura",
+	  choices = {
+		{ text = "Turn it down and say sorry.", sure = true,
+		  good = { key = "sorry", headline = "GOOD NEIGHBOR", tone = "win", aura = 15,
+			text = "You turned it down and said sorry. Word gets around that you're decent.",
+			line = "thank you. was that so hard?" } },
+		{ text = "Invite him in to hear the beat.", odds = 50,
+		  good = { key = "fan", headline = "A FAN NEXT DOOR", tone = "win", followers = 100, aura = 10,
+			text = "He came in annoyed and left nodding. He followed you on the way out.",
+			line = "ok. that's actually hard. keep it down tho" },
+		  bad = { key = "earplugs", headline = "EARPLUGS", tone = "neutral", aura = 5,
+			text = "He listened, shrugged and went back to bed with earplugs in.",
+			line = "it's fine. it's just loud" } },
+		{ text = "Put your headphones on and keep going.", sure = true,
+		  good = { key = "headphones", headline = "HEADPHONES ON", tone = "neutral", aura = 5,
+			text = "You kept working, quietly. He never knocked again.",
+			line = "much better. good night" } },
+	  } },
+	{ id = "starter_kid", visitor = "blockkid", first = true, under = { visits = 1 }, tag = "THE BLOCK · TEACH ME",
+	  line = "you make beats? for real? how do you get a placement on a real song?",
+	  choices = {
+		{ text = "Be honest. You're still working on yours.", sure = true,
+		  good = { key = "honest", headline = "KEEPING IT REAL", tone = "win", aura = 15,
+			text = "He liked that you didn't front. He says you'll get one before him. Barely.",
+			line = "ok. you first. but barely" } },
+		{ text = "Show him your best beat.", odds = 60,
+		  good = { key = "impressed", headline = "HE'S IMPRESSED", tone = "win", followers = 100, aura = 5,
+			text = "He played it for the whole block on his phone speaker.",
+			line = "this is hard. i'm telling everybody" },
+		  bad = { key = "unsure", headline = "HE'S NOT SURE", tone = "neutral", aura = 5,
+			text = "He said it was ok. Kids are honest.",
+			line = "it's ok. mine's gonna be better" } },
+		{ text = "Let him press a few pads.", sure = true,
+		  good = { key = "pads", headline = "HIS FIRST BEAT", tone = "win", aura = 10,
+			text = "He pressed every pad twice and called it his first beat.",
+			line = "i'm a producer now. don't tell my mom" } },
+	  } },
+	{ id = "starter_host", visitor = "host", first = true, under = { visits = 1 }, tag = "BEAT NIGHT · ONE SLOT LEFT",
+	  line = "friday's beat night has one slot left. it's a cypher. you in?",
+	  choices = {
+		{ text = "Take the slot.", odds = 55,
+		  good = { key = "final", headline = "MADE THE FINAL", tone = "win", followers = 150, aura = 10,
+			text = "You made it to the last round. People followed you on the way out.",
+			line = "the final round? on your first night?" },
+		  bad = { key = "roundone", headline = "OUT IN ROUND ONE", tone = "neutral", aura = 5,
+			text = "You went out in round one and learned a lot from the winner.",
+			line = "round one is where everybody starts. come back" } },
+		{ text = "Go and just watch this time.", sure = true,
+		  good = { key = "watched", headline = "TOOK NOTES", tone = "win", aura = 10,
+			text = "You watched every round and took notes on every winner.",
+			line = "smart. watch first. next friday you play" } },
+		{ text = "Ask to play beats between rounds.", sure = true,
+		  good = { key = "between", headline = "BETWEEN ROUNDS", tone = "win", followers = 50, aura = 5,
+			text = "You played beats between rounds. A few people asked whose they were.",
+			line = "people kept asking whose beats those were" } },
+	  } },
+	{ id = "starter_landlord", visitor = "landlord", first = true, under = { visits = 1 }, tag = "AFTER MIDNIGHT · BIG SPEAKERS",
+	  line = "my room's empty after midnight. play your beat loud. if people feel it, that's fire",
+	  choices = {
+		{ text = "Play your beat on his speakers.", odds = 60,
+		  good = { key = "loud", headline = "PEOPLE STOPPED", tone = "win", followers = 150, aura = 5,
+			text = "People walking by stopped to listen. Two of them followed you.",
+			line = "see? loud and honest. that's how it starts" },
+		  bad = { key = "quiet", headline = "QUIET NIGHT", tone = "neutral", aura = 5,
+			text = "Nobody walked by tonight. He still said it sounded big.",
+			line = "slow night. the beat's good tho" } },
+		{ text = "Ask him how he started.", sure = true,
+		  good = { key = "story", headline = "HIS STORY", tone = "win", aura = 10,
+			text = "He started with one speaker and a borrowed laptop. Same as you.",
+			line = "one speaker. one laptop. look at me now" } },
+		{ text = "Say thanks. Maybe next week.", sure = true,
+		  good = { key = "later", headline = "MAYBE NEXT WEEK", tone = "neutral", aura = 5,
+			text = "He left you his number and the door code.",
+			line = "after midnight. any night" } },
 	  } },
 
 	-- mom: never a cost, never a loss (design 2, 4.8); the group comes at most twice a week. Wave 3 (design 4.3): she
@@ -2418,11 +2533,11 @@ W.Followups = {
 	  line = "your aura dipped under our bar. we like you, so this is a warning. fix it",
 	  resolve = { odds = 50,
 		good = { key = "warned", headline = "WARNING", tone = "neutral",
-			text = "{sponsor} warned you instead of dropping you. Get your aura back over their bar before they check again.",
+			text = "{sponsor} warned you. Get your aura back over their bar before they check again.",
 			line = "fix it before we check again. we're rooting for you",
 			note = "They check again in a few visits." },
 		bad = { key = "warned", headline = "WARNING", tone = "neutral",
-			text = "{sponsor} warned you instead of dropping you. Get your aura back over their bar before they check again.",
+			text = "{sponsor} warned you. Get your aura back over their bar before they check again.",
 			line = "fix it before we check again. we're rooting for you",
 			note = "They check again in a few visits." } },
 	  choices = {

@@ -294,6 +294,7 @@ Life.Event(pe, "sponsor", { s = "t41_brand" })
 Life.Event(pe, "delivery", { v = "juno", key = "j1" })
 Life.Event(pe, "delivery", { v = "t70_nobody", key = "j2" })
 Life.Event(pe, "hit", { v = "rep" })
+local ROSTER0 = Cfg.WalkIns.Roster -- the configured roster, put back after the two reads
 local function lifeState(roster)
   Cfg.WalkIns.Roster = roster
   return Career.State(pe).life
@@ -305,7 +306,7 @@ assert(parody.names.visitors.t70_nobody == nil and parody.names.sponsors.t41_bra
 assert(parody.names.visitors.rep == nil, "the rep's name still holds {sponsor}: it must not be sent")
 local fiction = lifeState("fiction")
 assert(fiction.names.visitors.navx == W.Names("fiction").navx and fiction.names.visitors.navx ~= parody.names.visitors.navx, "the names should follow the roster")
-Cfg.WalkIns.Roster = "parody"
+Cfg.WalkIns.Roster = "parody" -- coldCareer below reads this copy of Config: the parody names, as asserted
 local coldCareer = freshRequire(RS.OK.Systems.Career) -- no ctx.Life: the live module, before its Init, as in t41
 coldCareer._SetConfigForTest(Cfg); coldCareer._SetCtxForTest({ Data = DS, Gear = Gear }); coldCareer._quiet = true
 assert(coldCareer.State(pe).life.names.visitors.navx == parody.names.visitors.navx, "Career.State should build its life without Life running")
@@ -357,6 +358,6 @@ local kept = stored(data, "u_7050")
 assert(kept.v == 6 and kept.cred == 10 and kept.life.day == 99, "the stored v6 profile changed")
 table.insert(out, "(g) a v6 profile loads flagged; Save, autosave and the leave save refuse it; its clock never steps")
 
-Cfg.WalkIns.Roster = "parody"
+Cfg.WalkIns.Roster = ROSTER0
 DS._SetStoreForTest(nil)
 return "T70 OK: " .. table.concat(out, "; ")

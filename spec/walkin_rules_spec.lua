@@ -1,5 +1,6 @@
 -- CLI spec for Modules/WalkInRules (odds, resolve, money path, tags, scheduling, queue, pick, gates, source, the first
--- card, caps, seeding, exclude, Revalidate, CapKeys, MarkSent, the rush-hour gap and its room, rooms and routes).
+-- card, caps, seeding, exclude, Revalidate, CapKeys, MarkSent, the rush-hour gap and its room, rooms and routes, the
+-- cypher's hold).
 -- Run: sh tools/spec.sh walkin_rules
 local R = require("../src/ReplicatedStorage/OK/Modules/WalkInRules")
 local Format = require("../src/ReplicatedStorage/OK/Modules/Format")
@@ -548,18 +549,45 @@ case("source: a due phone follow-up is skipped by a walk-in Pick and taken by a 
 	eq("walk-in Pick takes the due walk-in follow-up", got and got.kind == "followup" and got.followup, FU)
 end)
 
-case("first: count 0 returns the first card with no rng draw; count 1 never returns it", function()
-	local gentle = card("gentle", "vf", { first = true, under = { visits = 1 } })
-	local d = { cards = { card("a", "v1"), gentle, card("b", "v2") }, followups = {}, sponsors = {} }
-	eq("first at count 0, no rng draw", idOf(pick("first count 0", state({ count = 0 }), d, opts({ career = have({}, 0) }))), "gentle")
+-- the starter pool (Task 5b+): at visits 0 one eligible `first` card, drawn by weight in deck order with one
+-- rng(1, total) draw, the same draw as the least-seen pool's; never once their gate (under visits 1) closes
+case("first: visits 0 draws one eligible first card by weight with one rng draw; visits 1 never returns one", function()
+	local s1 = card("s1", "vf1", { first = true, under = { visits = 1 } })
+	local s2 = card("s2", "vf2", { first = true, under = { visits = 1 } })
+	local s3 = card("s3", "vf3", { first = true, under = { visits = 1 }, weight = 2 })
+	local d = { cards = { card("a", "v1"), s1, card("b", "v2"), s2, s3 }, followups = {}, sponsors = {} }
+	-- weights 1 + 1 + 2 = 4: a draw of 1 is s1, 2 is s2, 3 and 4 are s3
+	for v, want in pairs({ [1] = "s1", [2] = "s2", [3] = "s3", [4] = "s3" }) do
+		local rng, calls = seq({ v })
+		eq("first draw " .. v, idOf(pick("first draw " .. v, state({ count = 0 }), d, opts({ rng = rng, career = have({}, 0) }))), want)
+		eq("first draw " .. v .. " is one draw over 1..4", #calls == 1 and calls[1][1] == 1 and calls[1][2] == 4, true)
+	end
 	for _, r in ipairs({ LOW, HIGH, MID }) do
 		local got = idOf(pick("first count 1", state({ count = 1 }), d, opts({ rng = r, career = have({}, 1) })))
-		eq("first never at count 1", got ~= nil and got ~= "gentle", true)
+		eq("no first card at visits 1", got == "a" or got == "b", true)
 	end
 	-- it wins over the least-seen draw, and only when opts.career says visits 0
 	local d2 = { cards = { card("a", "v1"), card("solo", "vf", { first = true }) }, followups = {}, sponsors = {} }
-	eq("first beats the least-seen draw", idOf(pick("first beats least-seen", state({ count = 0, seen = { solo = 4 } }), d2, opts({ career = have({}, 0) }))), "solo")
+	local rng2, calls2 = seq({ 1 })
+	eq("first beats the least-seen draw", idOf(pick("first beats least-seen", state({ count = 0, seen = { solo = 4 } }), d2, opts({ rng = rng2, career = have({}, 0) }))), "solo")
+	eq("a lone first card is one draw over 1..1", #calls2 == 1 and calls2[1][1] == 1 and calls2[1][2] == 1, true)
 	eq("first without opts.career is a normal draw", idOf(pick("first no career", state({ count = 0, seen = { solo = 4 } }), d2, opts({ rng = (seq({ 1 })) }))), "a")
+	-- an ineligible first card (its gate) is never drawn; a phone Pick at visits 0 never sees one (walk-in cards)
+	local gated = card("g", "vg", { first = true, needs = { followers = 1000 } })
+	local d3 = { cards = { card("a", "v1"), gated, s1 }, followups = {}, sponsors = {} }
+	for _, r in ipairs({ LOW, HIGH }) do
+		eq("a gated first card is not drawn", idOf(pick("first gated", state({ count = 0 }), d3, opts({ rng = r, career = have({}, 0) }))), "s1")
+	end
+	local d4 = { cards = { s1, dm("dm", "v5") }, followups = {}, sponsors = {} }
+	eq("a phone Pick at visits 0 draws its phone card", idOf(pick("first phone", state({ count = 0 }), d4, opts({ rng = (seq({ 1 })), source = "phone", career = have({}, 0) }))), "dm")
+	-- the pool is taken only when its total weight is above 0 (review Minor 6): starters all at weight 0 fall through to
+	-- the least-seen pool, where a weight-0 card is never drawn either, instead of leaving no pick at all
+	local z1 = card("z1", "vz1", { first = true, under = { visits = 1 }, weight = 0 })
+	local z2 = card("z2", "vz2", { first = true, under = { visits = 1 }, weight = 0 })
+	local d5 = { cards = { z1, card("a", "v1"), z2 }, followups = {}, sponsors = {} }
+	local rng5, calls5 = seq({ 1 })
+	eq("weight-0 starters fall through to the least-seen pool", idOf(pick("first weight 0", state({ count = 0 }), d5, opts({ rng = rng5, career = have({}, 0) }))), "a")
+	eq("the least-seen draw is one over 1..1 (the weight-0 starters add nothing)", #calls5 == 1 and calls5[1][1] == 1 and calls5[1][2] == 1, true)
 	-- `solo` has no gate, so only the visits == 0 condition keeps it from being forced at visits 1
 	for _, r in ipairs({ LOW, HIGH, MID }) do
 		eq("first card without a gate at visits 1 is a normal draw", idOf(pick("first visits 1", state({ count = 1, seen = { solo = 4 } }), d2, opts({ rng = r, career = have({}, 1) }))), "a")
@@ -665,6 +693,110 @@ case("seed: no eligible seen yet → 0", function()
 	eq("Seed phone pool", R.Seed(s2, d, opts({ source = "phone", career = have({}, 0) })), 1)
 	eq("Seed phone pool dm = 0", s2.seen.dm, 0)
 	eq("Seed phone pool leaves walk-in cards", s2.seen.a, nil)
+end)
+
+-- Pick's least-seen pool under `o`: the eligible cards (Revalidate, Pick's own eligibility) at the lowest seen, as their
+-- sorted ids joined by ","
+local function leastPool(s, d, o)
+	local fewest, pool = math.huge, {}
+	for _, c in ipairs(d.cards) do
+		if R.Revalidate(s, d, o, c) then
+			local n = s.seen[c.id] or 0
+			if n < fewest then fewest, pool = n, {} end
+			if n == fewest then table.insert(pool, c.id) end
+		end
+	end
+	table.sort(pool)
+	return table.concat(pool, ",")
+end
+
+case("seed: a card back from a closed gate joins the rotation's least-seen level, never alone below it", function()
+	-- the uncapped rotation sits at 5-6; x (gated on its visitor's score) last came at seen 1, then its gate closed while
+	-- the rest moved on. Left at 1 when it reopens, it is the only least-seen card and comes on every visit the cooldown
+	-- allows until it catches up (Task 5 review F4)
+	local d = { cards = { card("a", "v1"), card("b", "v2"), card("c", "v3"), card("d", "v4"), card("e", "v5"),
+		card("x", "vx", { needs = { rel = 1 } }) }, followups = {}, sponsors = {} }
+	local base = { a = 5, b = 6, c = 5, d = 6, e = 6, x = 1 }
+	local closed = opts({ rel = { vx = { score = 0, flags = {} } } })
+	local open = opts({ rel = { vx = { score = 1, flags = {} } } })
+	local s = state({ count = 60, seen = copy(base) })
+	eq("reopen: Seed while x is closed", R.Seed(s, d, closed), 0)
+	eq("reopen: x keeps its seen while closed", s.seen.x, 1)
+	eq("reopen: control: as it stands, x alone is the least seen", leastPool(s, d, open), "x")
+	eq("reopen: Seed when x reopens changes one card", R.Seed(s, d, open), 1)
+	eq("reopen: x joins at the rotation's least-seen level", s.seen.x, 5)
+	eq("reopen: x is least seen with a and c, not alone", leastPool(s, d, open), "a,c,x")
+	for k, v in pairs(base) do
+		if k ~= "x" then eq("reopen: Seed leaves " .. k, s.seen[k], v) end
+	end
+	eq("reopen: Seed again changes nothing", R.Seed(s, d, open), 0)
+	-- the three draws that clear the least-seen level take x once, whatever the rng; not levelled, x takes all three
+	local function draws(levelled, r)
+		local st = state({ count = 60, seen = copy(base) })
+		if levelled then R.Seed(st, d, open) end
+		local got, xs = {}, 0
+		for i = 1, 3 do
+			local id = idOf(pick("reopen draw " .. i, st, d, opts({ rng = r, rel = open.rel })))
+			table.insert(got, tostring(id))
+			if id then st.seen[id] = (st.seen[id] or 0) + 1 end
+			if id == "x" then xs += 1 end
+		end
+		return xs, table.concat(got, ",")
+	end
+	for _, r in ipairs({ LOW, HIGH, MID }) do
+		local xs = draws(true, r)
+		eq("reopen: levelled, x drawn once in the 3 draws that clear its level", xs, 1)
+		local _, all = draws(false, r)
+		eq("reopen: control: not levelled, x wins all three", all, "x,x,x")
+	end
+end)
+
+case("seed: a card first opening late joins the uncapped rotation's level, not the 0-1 of capped cards", function()
+	-- the uncapped rotation sits at 5-6. big1 and big2 share a weekly cap (max 1) that keeps them behind on purpose; this
+	-- week's slot is open, so both are eligible, at 0 and 1. y opens late (followers 5000). At the lowest eligible seen
+	-- (big1's 0) it would be the only least-seen card once a big card came and the cap shut (Task 5 review F4)
+	local BIG = { group = "big", per = "week", max = 1 }
+	local d = { cards = { card("a", "v1"), card("b", "v2"), card("c", "v3"), card("d", "v4"),
+		card("big1", "vb1", { cap = BIG }), card("big2", "vb2", { cap = BIG }),
+		card("y", "vy", { needs = { followers = 5000 } }) }, followups = {}, sponsors = {} }
+	local base = { a = 5, b = 6, c = 5, d = 6, big1 = 0, big2 = 1 }
+	local function at(followers) return opts({ career = have({ followers = followers }, 60), day = 70, week = 10 }) end
+	local s = state({ count = 60, seen = copy(base), caps = {} })
+	eq("late: Seed before y opens", R.Seed(s, d, at(4999)), 0)
+	eq("late: Seed when y opens changes one card", R.Seed(s, d, at(5000)), 1)
+	eq("late: y joins at the uncapped rotation's least-seen level", s.seen.y, 5)
+	eq("late: a capped card keeps its seen (big1)", s.seen.big1, 0)
+	eq("late: a capped card keeps its seen (big2)", s.seen.big2, 1)
+	-- this week's big card comes (big1, the least seen while the cap is open), and the cap shuts
+	eq("late: big1 is the least seen while the big cap is open", leastPool(s, d, at(5000)), "big1")
+	s.seen.big1 += 1
+	R.CountCap(s, d.cards[5], 70, 10)
+	eq("late: with the big cap shut, y is least seen with a and c, not alone", leastPool(s, d, at(5000)), "a,c,y")
+	-- control: at the capped cards' 0, y would be alone at the least-seen level once the cap shut
+	local low = state({ count = 60, seen = copy(base), caps = { big = { key = 10, n = 1 } } })
+	low.seen.y = 0
+	eq("late: control: at big1's 0, y is alone", leastPool(low, d, at(5000)), "y")
+end)
+
+case("seed: a rotation one apart, a card ahead of it and a capped card behind it stay; 2 under the median joins", function()
+	-- uncapped seen 4, 4, 5, 5 and 7 (median 5): 4 is 1 under it, so the rotation's least-seen level is 4; the card at 7 is
+	-- ahead and lifts nobody; the capped m sits at 1, rationed by its cap, and keeps it
+	local MOM = { group = "mom", per = "week", max = 2 }
+	local d = { cards = { card("a", "v1"), card("b", "v2"), card("c", "v3"), card("d", "v4"), card("e", "v5"),
+		card("m", "vm", { cap = MOM }) }, followups = {}, sponsors = {} }
+	local o = opts({ day = 70, week = 10 })
+	local base = { a = 4, b = 5, c = 5, d = 7, e = 4, m = 1 }
+	local s = state({ count = 60, seen = copy(base), caps = {} })
+	eq("level: Seed changes nothing", R.Seed(s, d, o), 0)
+	for k, v in pairs(base) do eq("level: Seed leaves " .. k, s.seen[k], v) end
+	-- e at 3, 2 under the median: it joins the least-seen level, 4
+	local behind = copy(base)
+	behind.e = 3
+	local s2 = state({ count = 60, seen = behind, caps = {} })
+	eq("level: 2 under the median: Seed changes one card", R.Seed(s2, d, o), 1)
+	eq("level: 2 under the median: e joins at 4", s2.seen.e, 4)
+	eq("level: 2 under the median: a stays at 4", s2.seen.a, 4)
+	eq("level: 2 under the median: m stays at 1", s2.seen.m, 1)
 end)
 
 case("aired: needs opts.aired", function()
@@ -971,6 +1103,29 @@ eq("InHub corridor just south", R.InHub(11.9, 3, -0.5), false)
 eq("InHub lounge south", R.InHub(30, 3, -10), true)
 eq("InHub lounge corner", R.InHub(12, 3, -12), true)
 eq("InHub corridor high", R.InHub(6, 25, 5), false)
+
+-- CypherHolds (launch audit A2/A4 "for scale"): walk-ins and phone pops wait for everyone while the room listens to the
+-- entries or votes; in a lobby, the build and the reveal only for that round's entrants (CypherIn equal to the cypher's
+-- Round; one left from an earlier round is stale and holds nothing); idle, no phase (no RS.OK.Cypher yet) and junk hold
+-- no one. Every phase against an entrant, an outsider (no CypherIn) and a stale entrant
+local ROUND = 12
+local WHO = { { "entrant", ROUND }, { "outsider", nil }, { "stale", ROUND - 1 } }
+local HOLDS = { -- phase -> entrant, outsider, stale
+	{ "listen", true, true, true }, { "vote", true, true, true },
+	{ "lobby", true, false, false }, { "build", true, false, false }, { "reveal", true, false, false },
+	{ "idle", false, false, false }, { nil, false, false, false }, { 7, false, false, false }, { "party", false, false, false },
+}
+for _, row in ipairs(HOLDS) do
+	for i, who in ipairs(WHO) do
+		eq("CypherHolds " .. tostring(row[1]) .. " " .. who[1], R.CypherHolds(row[1], who[2], ROUND), row[i + 1])
+	end
+end
+-- no Round, or an entrant value that isn't a round number, holds no one outside listen and vote
+eq("CypherHolds lobby no round", R.CypherHolds("lobby", ROUND, nil), false)
+eq("CypherHolds lobby nothing", R.CypherHolds("lobby", nil, nil), false)
+eq("CypherHolds lobby string in", R.CypherHolds("lobby", "12", ROUND), false)
+eq("CypherHolds build true in", R.CypherHolds("build", true, true), false)
+eq("CypherHolds vote no round", R.CypherHolds("vote", nil, nil), true)
 
 -- Route: the room's chain plus an arrival point short of the target
 local W = { Corridor = { { 1.5, 5 }, { 9, 5 } }, Lounge = { { 1.5, 5 }, { 9, 5 }, { 16, 5 } },

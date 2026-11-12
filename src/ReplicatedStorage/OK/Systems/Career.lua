@@ -31,7 +31,10 @@
 --   Config.WalkIns.Cold.dailyMax and no burst starts; Phone.canSend is false. The player attribute Cold (bool) drives the
 --   HUD's COLD chip. A hook Set of Aura runs no check (a silent seam, like its tier crossing).
 -- * Remotes (build/17_career_remotes.lua): Career_Get -> Fetch (State, at most once per FetchCooldown a player unless the
---   career changed), Career_Unlock(id) -> Unlock. Studio-only hook
+--   career changed), Career_Unlock(id) -> Unlock behind a token bucket per player (a burst of 3, then one every 0.25 s,
+--   as Gear_Equip; launch audit A6): an empty bucket answers "busy" at once, with no state built or sent (the panel fetches
+--   its own). Unlock publishes and builds a new state only when a room was bought or the toggle flipped; a refusal changed
+--   nothing and answers with Fetch's. Studio-only hook
 --   ServerScriptService.OK._StudioCareerHook while running in Studio (Wave 3: Cold, SetCold, SetLastDay, ColdCheck).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local Config = require(RS.OK.Config)
@@ -48,6 +51,8 @@ local ctx
 local isStat = {}
 for _, stat in ipairs(Rules.STATS) do isStat[stat] = true end
 local built = {} -- Fetch: [userId] = { at = clock, state = the last built state }
+local UNLOCK_EVERY, UNLOCK_BURST = 0.25, 3 -- Career_Unlock from a client: a burst of 3, then at most 4 a second (Gear_Equip's)
+local unlockTokens = {} -- [player] = { n = calls left, at = os.clock() when n was counted }
 
 -- edit-mode tests: a fake ctx ({ Data = DataService copy, Gear = Gear copy?, Life = Life copy? }) and a fresh Config; no Init needed
 function M._SetCtxForTest(c) ctx = c end
@@ -298,7 +303,8 @@ function M.Fetch(player)
 	return state
 end
 
--- returns { ok, reason = "invalid" | "owned" | "needs" | "money", state }
+-- returns { ok, reason = "invalid" | "owned" | "needs" | "money", state }: a new state after a buy or a flip, Fetch's (the
+-- last built one under FetchCooldown) after a refusal, which changed nothing; "invalid" carries none
 function M.Unlock(player, gateId)
 	local g = type(gateId) == "string" and gateById(gateId) or nil
 	if not g or (g.kind ~= "room" and g.kind ~= "toggle") then return { ok = false, reason = "invalid" } end
@@ -321,9 +327,21 @@ function M.Unlock(player, gateId)
 		prof.career.showSponsor = not have.showSponsor
 		res = { ok = true, gate = g.id, on = prof.career.showSponsor }
 	end
+	if not res.ok then res.state = M.Fetch(player); return res end
 	changed(player)
 	res.state = M.State(player)
 	return res
+end
+
+-- may this player's client unlock now? A token bucket: UNLOCK_BURST calls, then one more every UNLOCK_EVERY s
+local function unlockAllowed(player)
+	local now = os.clock()
+	local b = unlockTokens[player]
+	if not b then b = { n = UNLOCK_BURST, at = now }; unlockTokens[player] = b end
+	b.n, b.at = math.min(UNLOCK_BURST, b.n + (now - b.at) / UNLOCK_EVERY), now
+	if b.n < 1 then return false end
+	b.n -= 1
+	return true
 end
 
 -- Contracts.Delivered: a first 2- or 3-star delivery feeds Followers and Aura; returns what it added
@@ -403,6 +421,7 @@ function M.Init(c)
 	local R = RS.OK.Remotes
 	R.Career_Get.OnServerInvoke = function(player) return M.Fetch(player) end
 	R.Career_Unlock.OnServerInvoke = function(player, id)
+		if not unlockAllowed(player) then return { ok = false, reason = "busy" } end -- no state: a spam call costs nothing more
 		if type(id) ~= "string" or #id > 24 then return { ok = false, reason = "invalid" } end
 		return M.Unlock(player, id)
 	end
@@ -412,7 +431,7 @@ function M.Init(c)
 	end)
 	local function onJoin(p) task.spawn(function() ctx.Data.GetProfile(p); M.Publish(p) end) end
 	Players.PlayerAdded:Connect(onJoin)
-	Players.PlayerRemoving:Connect(function(p) built[p.UserId] = nil end)
+	Players.PlayerRemoving:Connect(function(p) built[p.UserId] = nil; unlockTokens[p] = nil end)
 	gearSys().Bought:Connect(function(p) built[p.UserId] = nil end) -- a buy runs no Career.Publish, and the next fetch must show it
 	for _, p in ipairs(Players:GetPlayers()) do onJoin(p) end
 	local Run = game:GetService("RunService")

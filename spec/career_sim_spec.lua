@@ -533,7 +533,8 @@ local auraRun = Sim.Run(input({ deck = auraDeck, walkinsPerDay = 0, phonePerDay 
 eq("phoneAura run: two pops", auraRun.phonePops, 2)
 eq("phoneAura is the net Aura phone pops applied (+20 - 10)", auraRun.phoneAura, 10)
 
--- the first card arrives on visit 1 of day 1, on every seed (no draw), and never again (under visits 1)
+-- the first card arrives on visit 1 of day 1, on every seed (the only `first` card: its draw has one way to land), and
+-- never again (under visits 1)
 local firstDeck = deckOf({ plain("fx_a", "fxa"), plain("fx_b", "fxb"), plain("fx_first", "fxf", { first = true, under = { visits = 1 } }) })
 for _, seed in ipairs({ 1, 7, 42, 99, 123 }) do
 	local s, l = spy()
@@ -549,6 +550,27 @@ for _, seed in ipairs({ 1, 7, 42, 99, 123 }) do
 		firstPick ~= nil and firstPick.count == 0 and firstPick.id == "fx_first")
 	eq("seed " .. seed .. ": the first card comes once", again, 0)
 end
+-- the starter pool (Task 5b+): with two `first` cards the first visit draws one of them on the sim's rng, each comes
+-- first on some of 40 seeds, and neither comes again in the run (under visits 1)
+local poolDeck = deckOf({ plain("fx_a", "fxa"), plain("fx_b", "fxb"), plain("fx_s1", "fxs1", { first = true, under = { visits = 1 } }),
+	plain("fx_s2", "fxs2", { first = true, under = { visits = 1 } }) })
+local firstDrawn = {}
+for seed = 1, 40 do
+	local s, l = spy()
+	Sim.Run(input({ rules = s, deck = poolDeck, rng = Sim.Lcg(seed), days = 2 }))
+	local firstPick, again = nil, 0
+	for _, e in ipairs(l.events) do
+		if e.ev == "pick" then
+			if not firstPick then firstPick = e
+			elseif e.id == "fx_s1" or e.id == "fx_s2" then again += 1 end
+		end
+	end
+	ok("pool seed " .. seed .. ": the first visit is a starter (got " .. tostring(firstPick and firstPick.id) .. ")",
+		firstPick ~= nil and firstPick.count == 0 and (firstPick.id == "fx_s1" or firstPick.id == "fx_s2"))
+	eq("pool seed " .. seed .. ": no starter after the first visit", again, 0)
+	if firstPick then firstDrawn[firstPick.id] = true end
+end
+ok("pool: each starter comes first on some seed", firstDrawn.fx_s1 == true and firstDrawn.fx_s2 == true)
 
 -- mom's cap holds over 14 days: at most 2 a sim week (day // 7, from the visit count), and she does come. Control:
 -- uncapped, she comes more than twice in some week
@@ -1254,12 +1276,13 @@ end
 -- Wave 3: they remember you (design 4.3) -----------------------------------------------------------------------------
 -- The sim keeps sim.rel as Systems/WalkIns keeps prof.walkins.rel, through the same pure rules: an outcome's `rel` is
 -- WalkInRules.RelWrite (for rel.who or the item's visitor, on the sim day), walk-in or phone; Pick and Seed get
--- opts.rel, so GateOk reads the flags and scores; a rolled walk-in choice tilts by RelTilt of its card's visitor's score
--- on input.odds (a phone pop's never does), added to the beat tilt; any signing resets rel.rep; under the sponsor's floor
--- with rel.rep's score 1+ the system plants sponsor_warning (at dropAt) instead of sponsor_drop, never while either is
--- queued, and the warning's arrival plants the drop at {2,3}. Run returns rel, firstSeen ({ [id] = the day it first
--- came, walk-in or pop }), relRolls (rolls with a rel tilt) and relTilt (their sum). relPer is a literal here (5, not the
--- beat's 4), so a retune of Config can't move these cases; the economies above have no relPer and no rel content
+-- opts.rel, so GateOk reads the flags and scores; a rolled choice, a walk-in's or (fix round 1) a phone pop's, tilts by
+-- RelTilt of its card's visitor's score on input.odds, added to the beat tilt; any signing resets rel.rep; under the
+-- sponsor's floor with rel.rep's score 1+ the system plants sponsor_warning (at dropAt) instead of sponsor_drop, never
+-- while either is queued, and the warning's arrival plants the drop at {2,3}. Run returns rel, firstSeen ({ [id] = the
+-- day it first came, walk-in or pop }), relRolls (rolls with a rel tilt) and relTilt (their sum). relPer is a literal
+-- here (5, not the beat's 4), so a retune of Config can't move these cases; the economies above have no relPer and no
+-- rel content
 local REL_ODDS = merge(table.clone(ODDS), { relPer = 5 })
 local function relOut(o) return outcome(merge({ tone = "neutral" }, o)) end
 local function relShow(e)
@@ -1345,17 +1368,41 @@ do
 	_, _, res = tilts(sure, 3)
 	eq("rel tilt: a sure choice never counts as a rel roll", res.relRolls, 0)
 end
--- a phone pop writes rel but never rolls with it (the rel tilt is a walk-in card's)
+-- a phone pop's rolled choice tilts by its card's visitor's score too, as a walk-in's does (fix round 1, D; the
+-- controller's 11-06 ruling: a DM from fxo is fxo's card): 0, 5, 10, 15 as each pop's +1 lands. The tilt reads the card's
+-- own visitor: once fxo's walk-ins have put it at 3, fxo's DM rolls at +15 and fxq's (no relationship) untilted
 do
+	local function rolls(l, choice)
+		local t, c = {}, {}
+		for _, rv in ipairs(l.resolves) do
+			if choice == nil or rv.choice == choice then
+				table.insert(t, tostring(rv.tilt))
+				table.insert(c, tostring(rv.chance))
+			end
+		end
+		return table.concat(t, ","), table.concat(c, ",")
+	end
 	local s, l = relSpy()
 	local deck = deckOf({ phoneCard("fx_dm", "fxo", {
 		{ text = "roll", odds = 50, good = relOut({ rel = { score = 1 } }), bad = relOut({ rel = { score = 1 } }) },
 		{ text = "roll2", odds = 50, good = relOut({ rel = { score = 1 } }), bad = relOut({ rel = { score = 1 } }) } }) })
 	local res = relRun({ rules = s, walkinsPerDay = 0, phonePerDay = 4, deck = deck })
-	local all0 = #l.resolves > 0
-	for _, rv in ipairs(l.resolves) do if (rv.tilt or 0) ~= 0 then all0 = false end end
-	ok(string.format("rel: phone pops roll untilted (%d rolls)", #l.resolves), all0)
+	local t, c = rolls(l)
+	eq("rel: a phone pop's rolled choice tilts as the score climbs", t, "0,5,10,15")
+	eq("rel: its chance", c, "50,55,60,65")
+	eq("rel: relRolls counts the phone rolls with a rel tilt", res.relRolls, 3)
+	eq("rel: relTilt sums them", res.relTilt, 30)
 	eq("rel: phone pops still write", relShow(res.rel and res.rel.fxo), "score 3, flags ")
+	-- whose score: four walk-ins put fxo at 3, then one DM each from fxo and fxq
+	local fromO = { text = "o", odds = 50, good = relOut({}), bad = relOut({}) }
+	local fromQ = { text = "q", odds = 50, good = relOut({}), bad = relOut({}) }
+	s, l = relSpy()
+	res = relRun({ rules = s, walkinsPerDay = 4, phonePerDay = 2, deck = deckOf({
+		card("fx_walk", "fxo", { { text = "up", sure = true, good = relOut({ rel = { score = 1 } }) } }),
+		phoneCard("fx_dmo", "fxo", { fromO }), phoneCard("fx_dmq", "fxq", { fromQ }) }) })
+	eq("rel: fxo at 3 before the pops", relShow(res.rel and res.rel.fxo), "score 3, flags ")
+	eq("rel: fxo's DM rolls at fxo's +15", (rolls(l, fromO)), "15")
+	eq("rel: fxq's DM (no relationship) rolls untilted", (rolls(l, fromQ)), "0")
 end
 -- any signing resets rel.rep (score and flags): the rep's +2 and flag on the first visit, a signing on the second
 do
@@ -1370,23 +1417,25 @@ do
 	eq("rel: a signing resets rel.rep", relShow((repRun(true).rel or {}).rep), "nil")
 	eq("rel: control: no signing keeps it", relShow((repRun(false).rel or {}).rep), "score 2, flags renewed@1")
 end
--- the rep's warning: you hold s1 (floor 100) at Aura 200. Visit 1 (fx_duty) is rep +`score`; visit 2 (fx_crash) takes Aura
--- to 0; from visit 3 every arrival is under the floor. With score 1: sponsor_warning is planted at visit 3 (dropAt {1,1}),
--- comes at visit 4 and plants sponsor_drop at {2,3}; nothing else is planted while either waits, and the drop drops you.
--- With score 0: the drop is planted at visit 3, no warning
+-- the rep's warning: you hold s1 (floor 100) at Aura 200. Visit 1 (fx_duty, the ad filmed) is rep +1; visit 2 (fx_crash)
+-- takes Aura to 0, and with `sayNo` it is also rep -1 (the ad, then a "no": rel.rep is { score 0 }, there but under 1);
+-- from visit 3 (fx_after) every arrival is under the floor. At rep 1: sponsor_warning is planted at visit 3 (dropAt
+-- {1,1}), comes at visit 4 and plants sponsor_drop at {2,3}; nothing else is planted while either waits, and the drop
+-- drops you. At rep 0 (fix round 1, F2: the threshold at exactly 0, not rel.rep missing): the drop at visit 3, no warning
 do
 	local startAt = setmetatable({ Defaults = function()
 		local d = CR.Defaults()
 		d.aura, d.sponsor, d.sponsors = 200, "s1", 1
 		return d
 	end }, { __index = CR })
-	local function warnRun(score)
+	local function warnRun(sayNo)
 		local s, l = relSpy()
-		local dutyOut = score > 0 and relOut({ rel = { score = score } }) or relOut({})
+		local crashOut = relOut(merge({ tone = "loss", aura = -200 }, sayNo and { rel = { who = "rep", score = -1 } } or nil))
 		local deck = {
 			cards = {
-				card("fx_duty", "rep", { { text = "a", sure = true, good = dutyOut } }, { under = { visits = 1 } }),
-				card("fx_crash", "fxa", { { text = "a", sure = true, good = relOut({ tone = "loss", aura = -200 }) } }, { needs = { visits = 1 } }),
+				card("fx_duty", "rep", { { text = "a", sure = true, good = relOut({ rel = { score = 1 } }) } }, { under = { visits = 1 } }),
+				card("fx_crash", "fxa", { { text = "a", sure = true, good = crashOut } }, { needs = { visits = 1 }, under = { visits = 2 } }),
+				card("fx_after", "fxb", { { text = "a", sure = true, good = relOut({}) } }, { needs = { visits = 2 } }),
 			},
 			followups = {
 				sponsor_warning = { id = "sponsor_warning", visitor = "rep", tag = "T", line = "fix it", resolve = { odds = 50, good = relOut({}), bad = relOut({}) } },
@@ -1400,11 +1449,13 @@ do
 		for _, e in ipairs(l.plants) do table.insert(parts, string.format("%s@%d+%d(%s)", e.id, e.count, e.at - e.count, tostring(e.sponsor))) end
 		return table.concat(parts, " "), res
 	end
-	local plants, res = warnRun(1)
+	local plants, res = warnRun(false)
+	eq("warning: rel.rep at 1", relShow((res.rel or {}).rep), "score 1, flags ")
 	ok("warning: score 1 plants sponsor_warning at visit 3 for s1, then its arrival the drop 2 or 3 on (" .. plants .. ")",
 		plants == "sponsor_warning@3+1(s1) sponsor_drop@4+2(s1)" or plants == "sponsor_warning@3+1(s1) sponsor_drop@4+3(s1)")
 	eq("warning: and the drop dropped you", res.firstSeen and type(res.firstSeen.sponsor_drop), "number")
-	plants = warnRun(0)
+	plants, res = warnRun(true)
+	eq("warning: control: rel.rep is there at score 0 (not missing)", relShow((res.rel or {}).rep), "score 0, flags ")
 	eq("warning: control: score 0 plants the drop, no warning", plants, "sponsor_drop@3+1(s1)")
 end
 

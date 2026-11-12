@@ -232,10 +232,14 @@ local fails = {}
 local function ok(name, cond) if not cond then table.insert(fails, name) end end
 local DAYS = 60
 local function run(seed, policy, spendDown)
-  return Sim.Run({ days = DAYS, economy = economy, deck = W.Deck, rules = R, careerRules = CR, odds = input.odds,
+  local res = Sim.Run({ days = DAYS, economy = economy, deck = W.Deck, rules = R, careerRules = CR, odds = input.odds,
     followupAt = input.followupAt, dropAt = input.dropAt, cooldown = input.cooldown, walkinsPerDay = input.walkinsPerDay,
     phonePerDay = input.phonePerDay, phoneSeed = seed, auraHeal = input.auraHeal, rng = Sim.Lcg(seed), policy = policy,
     spendDown = spendDown, gates = input.gates, tiers = input.tiers, tierVisits = input.tierVisits })
+  -- yield after each of the 80 runs: a call that never yields freezes Studio's main thread, and past about a
+  -- minute the MCP connection drops ("Target is not reachable", 11-11 after the place reopened)
+  task.wait()
+  return res
 end
 -- the phone checks apply once the deck has a phone card
 local hasPhone = false

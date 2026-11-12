@@ -25,12 +25,15 @@ assert(daw:GetAttribute("Pattern") == Cfg.Upgrade(beat) and daw:GetAttribute("Fl
 table.insert(out, "SAMPLE IT (" .. btn.AbsoluteSize.Y .. " px) loads Maya Test's beat into the beat maker")
 daw:SetAttribute("LastBroadcast", ""); daw:SetAttribute("Command", "monitors")
 assert(waitFor(function() return daw:GetAttribute("LastBroadcast") == "flipcopy" end, 4), "unchanged flip not refused: " .. tostring(daw:GetAttribute("LastBroadcast")))
+local CHECK_GAP = (Cfg.FlipCheckCooldown or 1) + 0.1 -- one flip check a FlipCheckCooldown per producer (launch audit A12)
+task.wait(CHECK_GAP)
 local copy = RS.OK.Remotes.DAW_Broadcast:InvokeServer(beat, 100, 0)
 assert(not copy.ok and copy.reason == "copy", "unsampled copy not refused: " .. tostring(copy.reason))
 table.insert(out, "unchanged flip refused ('" .. daw:GetAttribute("Status") .. "'); unsampled copy refused")
 local p = beat
 for i = 1, 8 do local idx = 64 + i; p = p:sub(1, idx - 1) .. (p:sub(idx, idx) == "0" and "m" or "0") .. p:sub(idx + 1) end
 daw:SetAttribute("Pattern", p)
+task.wait(CHECK_GAP)
 daw:SetAttribute("LastBroadcast", ""); daw:SetAttribute("Command", "monitors")
 assert(waitFor(function() return daw:GetAttribute("LastBroadcast") == "ok" end, 4), "8-pad flip refused: " .. tostring(daw:GetAttribute("LastBroadcast")))
 assert(daw:GetAttribute("QueuePos") == 1, "flip should wait behind Maya")

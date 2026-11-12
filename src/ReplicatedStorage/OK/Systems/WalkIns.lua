@@ -5,9 +5,11 @@
 --   instead while prof.walkins.count is 0: the very first visit, Wave 3 design 4.4) and from Gap after each visit ends
 --   (or a visitor leaves without arriving; FirstEver again, with no burst, while count is still 0). A 1 s loop counts
 --   it down only while the player is in the hub rooms (WalkInRules.InHub). At 0 a visit starts once the tour is done
---   or skipped (not needed while count is 0, so a new player's first card comes without the tour), the cypher is
---   idle, no visit is in flight for the player and today's count (UTC day) is under DailyMax. Server-wide at most
---   MaxWalking visitors are out at once (from spawn until gone); the rest wait, first come, first walk.
+--   or skipped (not needed while count is 0, so a new player's first card comes without the tour), no cypher round
+--   holds the player (WalkInRules.CypherHolds: one that listens or votes holds everyone; a lobby, the build and the
+--   reveal hold only that round's entrants), no visit is in flight for the player and today's count (UTC day) is under
+--   DailyMax. Server-wide at most MaxWalking visitors are out at once (from spawn until gone); the rest wait, first
+--   come, first walk.
 -- * Rush hour (Wave 1b): every re-arm after FirstDelay draws through nextGap (WalkInRules.RushGap on Config.WalkIns.Rush),
 --   so now and then a burst of 2-3 visits comes Short seconds apart and the quiet gap after it adds back what they saved.
 --   A burst starts only while today leaves room for its smallest size before DailyMax (WalkInRules.RushRoom), so
@@ -59,18 +61,19 @@
 --   scores held to -3..3). This system is its one writer: M.WriteRel (WalkInRules.RelWrite on the career day,
 --   prof.life.day) applies an outcome's `rel` here and for Systems/Phone (a DM's choice and every NEWS), for rel.who or
 --   the item's own visitor; any signing resets rel.rep (a new deal is a new relationship). The pick passes it as opts.rel
---   (the needs/under `flags` and `rel` gates); a rolled choice on a walk-in card or follow-up tilts by
---   WalkInRules.RelTilt of its visitor's score (Config.WalkIns.Odds.relPer), added to the beat tilt (Phone's choices
---   never tilt by it). Under the sponsor's floor with rel.rep's score 1 or more, arrival plants sponsor_warning (at
---   DropAt) instead of sponsor_drop, and neither while one of them waits; the warning's arrival plants sponsor_drop
---   WARNING_DROP_AT walk-ins on, which drops you only if Aura is still under the floor then (dropStale covers both).
---   WalkIns' Reset clears it.
+--   (the needs/under `flags` and `rel` gates); a rolled choice tilts by WalkInRules.RelTilt of its card's visitor's score
+--   (Config.WalkIns.Odds.relPer; M.RelTiltFor, the one rule): on a walk-in card or follow-up added to the beat tilt, and
+--   (fix round 1) on Systems/Phone's cards the same way. Under the sponsor's floor with rel.rep's score 1 or more,
+--   arrival plants sponsor_warning (at DropAt) instead of sponsor_drop, and neither while one of them waits; the
+--   warning's arrival plants sponsor_drop WARNING_DROP_AT walk-ins on, which drops you only if Aura is still under the
+--   floor then (dropStale covers both). WalkIns' Reset clears it.
 -- * Telemetry (Systems/Funnel, source "walkin"): CardChoice (detail "<index>:<outcome key>"), CardWalkAway, and
 --   CardNews (detail = the outcome key) when a follow-up's news is applied on arrival.
 -- * Wave 1a: the pick passes the life gates (opts.career with visits = the walk-in count), the group caps (keys from
 --   WalkInRules.CapKeys, counted at arrival) and whether a beat aired this session; Seed runs before every Pick so a
---   newly eligible card joins the rotation evenly; a stored pick is re-checked (Revalidate) and re-picked when its gate
---   closed or its artist DMed since. The first HIT plants mom_plaque. prof.walkins also holds the phone's counters
+--   newly eligible card, or one back from a closed gate, joins the rotation evenly (Wave 3 fix round 1: at the
+--   rotation's least-seen level, never alone below it); a stored pick is re-checked (Revalidate) and re-picked when its
+--   gate closed or its artist DMed since. The first HIT plants mom_plaque. prof.walkins also holds the phone's counters
 --   (`phone`) and the cap counts (`caps`), defaulted in state(); Systems/Phone reads them through the exports below
 --   (State, Filler, Chips, Names, Busy, DueWithin, Aired, OnReset) and WalkIns never requires Phone. The scheduler
 --   holds while the player attribute PhoneBusy is set (an opened DM awaits its choice).
@@ -153,11 +156,11 @@ local function inHub(p)
 	local pos = root.Position
 	return Rules.InHub(pos.X, pos.Y, pos.Z)
 end
--- RS.OK.Cypher is made by BeatBattles' Init; no folder (or no phase) reads as idle
-local function cypherIdle()
+-- does a cypher round hold p's walk-ins (WalkInRules.CypherHolds on its Phase and Round and p's CypherIn)? RS.OK.Cypher is
+-- made by BeatBattles' Init, and no folder (or no phase) holds nothing
+local function cypherHolds(p)
 	local cy = RS.OK:FindFirstChild("Cypher")
-	local phase = cy and cy:GetAttribute("Phase")
-	return phase == nil or phase == "idle"
+	return Rules.CypherHolds(cy and cy:GetAttribute("Phase"), p:GetAttribute("CypherIn"), cy and cy:GetAttribute("Round"))
 end
 local function send(p, kind, payload)
 	if p.Parent ~= Players then return end
@@ -288,17 +291,22 @@ local function beatPayload(rec)
 	if not beatDecides(rec.item) then return nil end
 	return rec.beat and { stars = rec.beat.stars, fires = rec.beat.fires, bpm = rec.beat.bpm } or false
 end
+-- the relationship tilt a choice of `item` (a card or follow-up, walk-in or phone) rolls with (Wave 3, design 4.3: the
+-- card's visitor's score tilts every rolled choice on that card): WalkInRules.RelTilt of the item's own visitor's score,
+-- read now; 0 for a sure or beatMin choice (neither rolls) and for a visitor with no relationship (score 0). A walk-in's
+-- choice (tiltOf) and Systems/Phone's (a DM's choice, and its hook's ReadyChance) all read this one rule
+function M.RelTiltFor(p, item, choice)
+	if choice.sure or choice.beatMin then return 0 end
+	local score = relScore(p, item.visitor)
+	if score == 0 then return 0 end
+	return Rules.RelTilt(score, W.Odds)
+end
 -- the visit's snapshot quality (WalkInRules.BeatQuality; 0 with no beat) and a choice's chance tilt: BeatTilt for a
--- `beat` choice, plus (Wave 3, design 4.3) RelTilt of the card's visitor's score for a rolled choice (a sure or beatMin
--- choice never rolls), read when it is chosen
+-- `beat` choice, plus the relationship's (M.RelTiltFor), read when it is chosen
 local function beatQOf(rec) return Rules.BeatQuality(rec.beat or nil) end
 local function tiltOf(rec, choice)
 	local tilt = choice.beat and Rules.BeatTilt(beatQOf(rec), W.Odds) or 0
-	if not choice.sure and not choice.beatMin then
-		local score = relScore(rec.player, rec.item.visitor)
-		if score ~= 0 then tilt += Rules.RelTilt(score, W.Odds) end
-	end
-	return tilt
+	return tilt + M.RelTiltFor(rec.player, rec.item, choice)
 end
 
 -- explainers ---------------------------------------------------------------------------------------------------------
@@ -820,7 +828,7 @@ local function tourOk(p, st) return st.count == 0 or Tour.State(p).done end
 -- Refused while a phone DM is open (PhoneBusy, set by Systems/Phone): one card at a time
 local function schedule(p)
 	local uid = p.UserId
-	if pending[uid] or p:GetAttribute("PhoneBusy") == true or not inHub(p) or not cypherIdle() then return false end
+	if pending[uid] or p:GetAttribute("PhoneBusy") == true or not inHub(p) or cypherHolds(p) then return false end
 	local st = state(p)
 	if not tourOk(p, st) then return false end
 	local day = st.day
@@ -908,14 +916,14 @@ end
 function M.Busy(p) return pending[p.UserId] ~= nil end
 
 -- is a walk-in due within s seconds? The presence timer is set and at or under s, and every scheduler check would pass
--- now: in the hub, the tour gate (tourOk: done, or count 0), the cypher idle, today under DailyMaxFor (a new UTC day rolls
+-- now: in the hub, the tour gate (tourOk: done, or count 0), no cypher holding p, today under DailyMaxFor (a new UTC day rolls
 -- over first). The timer alone is never read as "due": a capped player's sits at 0 for the day. The pause blocks it
 -- unless ignorePause (the Phone hook's Tick runs under the suite's pause)
 function M.DueWithin(p, s, ignorePause)
 	if not ignorePause and paused() then return false end
 	local left = remaining[p.UserId]
 	if left == nil or left > s then return false end
-	if not inHub(p) or not cypherIdle() then return false end
+	if not inHub(p) or cypherHolds(p) then return false end
 	local st = state(p)
 	if not tourOk(p, st) then return false end
 	local day = st.day

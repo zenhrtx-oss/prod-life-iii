@@ -1,7 +1,8 @@
 -- OK Studio DataService (v3): profiles you can trust.
 -- * Session lock: every stored profile carries lock = { id = server id, at = time }. Load claims it through UpdateAsync.
 --   A fresh lock held by another server (for example the server a player just left, still saving) is waited out
---   (Config.Data.LockWaits, about 12 s), then taken over; a lock older than Config.Data.LockStaleSeconds is taken at once.
+--   (Config.Data.LockWaits, about 30 s: longer than a slow leave save, launch audit A8), then taken over; a lock older
+--   than Config.Data.LockStaleSeconds is taken at once.
 --   A server whose lock was taken stops writing that profile (_lockLost), so an old server can never roll progress back.
 --   Leaving releases the lock. Autosave refreshes the lock every Config.Data.LockHeartbeatSeconds even without changes.
 --   Each load also writes a writer token (a GUID per load) that every save keeps, the leave save included. A save is
@@ -26,6 +27,12 @@
 -- * Wave 3 (still v5) adds prof.hints = { [term] = career day }: the explainers already shown (Systems/WalkIns marks one
 --   when a card or result carries it). migrate's repair line makes it a table; ClientProfile leaves it out.
 -- * M.LeveledUp fires (player, level, before, source) on the server when XP raises a player's level.
+-- * M.Saving(prof): this session writes the profile (a store, and none of _loadFailed, _lockLost, _newerSchema). The beat
+--   maker's save answers it, so the player is never told "Saved" when nothing will be (launch audit A7).
+-- * Shutdown (BindToClose -> M._Shutdown): closing stops the autosave and every save that is not a release, releases
+--   every cached profile at once (the store runs one key's requests in call order, so a release issued behind a save in
+--   flight lands after it) and waits once, for everything in flight, under one deadline (launch audit A9). A player
+--   leaving meanwhile gets no second release.
 -- * With no DataStore (Studio, unpublished place) M.Persistent = false and nothing is written. The real-save trial
 --   (tools/real_save_on.lua: the Edit attribute ReplicatedStorage.OK.RealSaveTrial names a trial store) makes a Studio
 --   session save to that store; a live server ignores the attribute, and tools/guard.lua refuses tests while it is set.
@@ -200,7 +207,7 @@ local function loadUncached(p)
 	local prof = table.clone(DEFAULT)
 	prof.xpLog = {}
 	if store then
-		local waits = M._lockWaits or dataCfg().LockWaits or { 1, 2, 3, 6 }
+		local waits = M._lockWaits or dataCfg().LockWaits or { 1, 2, 3, 6, 8, 10 }
 		local errors, lockTries = 0, 0
 		local loaded, data, tookOver = false, nil, false
 		local writer = Http:GenerateGUID(false)
@@ -305,6 +312,12 @@ end
 
 function M.MarkDirty(p) touch(p) end
 
+-- does this session write prof? A store, and not a profile whose load failed, whose lock another server took, or that a
+-- newer build wrote (Save refuses all three)
+function M.Saving(prof)
+	return M.Persistent == true and type(prof) == "table" and not (prof._loadFailed or prof._lockLost or prof._newerSchema)
+end
+
 -- release = true on leave / shutdown: the stored lock is cleared so the next server loads at once.
 -- Once a release has started, ordinary saves (autosave, heartbeat) leave the profile alone.
 function M.Save(p, release)
@@ -314,7 +327,9 @@ function M.Save(p, release)
 	if prof._newerSchema then return false, "newerSchema" end
 	if prof._lockLost then return false, "lockLost" end
 	if not store then return false, "nostore" end
-	if release then prof._releasing = true elseif prof._releasing then return false, "releasing" end
+	if release then prof._releasing = true
+	elseif prof._releasing then return false, "releasing"
+	elseif closing then return false, "closing" end -- shutting down: only the releases write now
 	inflight += 1
 	local uid = p.UserId
 	local g0 = gen[uid]
@@ -358,13 +373,13 @@ function M.Save(p, release)
 	return ok, err
 end
 
--- shutdown: wait for loads and saves in flight, then release every profile still cached (capped by deadline)
+-- shutdown: no more autosaves or ordinary saves; every cached profile not already releasing is released at once (a
+-- release behind a save in flight on the same key lands after it), then one wait, capped by deadline, for everything in
+-- flight: those releases, the ones leaving players started, and loads (one that finishes now releases itself)
 function M._Shutdown(deadline)
 	closing = true
 	deadline = deadline or 25
 	local t0 = os.clock()
-	local function waitIdle() while inflight > 0 and os.clock() - t0 < deadline do task.wait(0.05) end end
-	waitIdle()
 	local list = {}
 	for uid, prof in pairs(cache) do
 		if not prof._releasing then table.insert(list, uid) end
@@ -373,12 +388,25 @@ function M._Shutdown(deadline)
 		local p = owners[uid] or dirty[uid]
 		if p then task.spawn(function() releaseSave(p); forget(uid) end) end
 	end
-	waitIdle()
+	while inflight > 0 and os.clock() - t0 < deadline do task.wait(0.05) end
 	return inflight == 0
 end
 
--- writes changed profiles, and refreshes the lock of unchanged ones once it is LockHeartbeatSeconds old
+-- a player leaving: their profile is released and forgotten, unless the shutdown is releasing it already (a second
+-- release would only queue another write to the same key behind it)
+local function onLeave(p)
+	local prof = cache[p.UserId]
+	if not prof then return end -- still loading: the load releases itself when it sees the player has gone
+	if closing and prof._releasing then return end
+	releaseSave(p)
+	if cache[p.UserId] == prof then forget(p.UserId) end
+end
+M._OnLeave = onLeave -- tests: a leave with no Players event
+
+-- writes changed profiles, and refreshes the lock of unchanged ones once it is LockHeartbeatSeconds old; none once the
+-- server is closing (the shutdown's releases write everything)
 function M._Autosave()
+	if closing then return 0 end
 	local now = M._now()
 	local hb = dataCfg().LockHeartbeatSeconds or 180
 	local list = {}
@@ -516,12 +544,7 @@ function M.Init()
 	if studio and not store and not trial then print("[OK] Studio session: profiles are not saved (Config.Data.UseStoreInStudio = false)") end
 	M.Persistent = store ~= nil
 	Players.PlayerAdded:Connect(function(p) task.spawn(M.Load, p) end)
-	Players.PlayerRemoving:Connect(function(p)
-		local prof = cache[p.UserId]
-		if not prof then return end -- still loading: the load releases itself when it sees the player has gone
-		releaseSave(p)
-		if cache[p.UserId] == prof then forget(p.UserId) end
-	end)
+	Players.PlayerRemoving:Connect(onLeave)
 
 	for _, p in ipairs(Players:GetPlayers()) do task.spawn(M.Load, p) end
 	task.spawn(function()

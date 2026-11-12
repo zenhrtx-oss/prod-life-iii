@@ -4,7 +4,10 @@
 -- WalkInDueSeconds each stop a 200 s Tick (longer than the longest FirstDelay). Then MaxWaiting holds at 2; the day
 -- caps at DailyMax with a waiting pop holding its slot and an expired one giving it back; a pop sent before UTC
 -- midnight opens on the new day (the rollover at open); an opened DM blocks both the phone and the walk-in scheduler
--- until it is dismissed; the first pop comes inside FirstDelay; a cypher lobby blocks and idle lets it through.
+-- until it is dismissed; the first pop comes inside FirstDelay; a cypher lobby holds the pop only for its own entrants
+-- (the player's CypherIn at the lobby's Round; none, or one from an earlier round, lets it through), and listening and
+-- voting hold it for everyone until the cypher is idle (launch audit A2/A4: two pretend producers, so the lobby's end is
+-- no cancel for too few and starts no lobby cooldown; CypherIn and the listen and vote Phase are set here and put back).
 -- Every step starts clean (fresh): WalkIns Reset (it ends any walk-in, parks its timer and resets the phone through
 -- OnReset), the tour done, the phone at today 0.
 local RS, Players, SSS = game:GetService("ReplicatedStorage"), game:GetService("Players"), game:GetService("ServerScriptService")
@@ -155,22 +158,44 @@ local function run()
 	assert(npops() == 1, "step 9: no pop by " .. hi .. " s")
 	table.insert(out, string.format("9 first pop: Tick(%d) -> none, Tick(%d) -> one pop", lo - 1, hi - lo + 1))
 
-	-- 10 a cypher lobby blocks; idle again lets the pop through (control)
+	-- 10 a cypher lobby holds the pop only for its entrants; listening and voting hold it for everyone, and idle again lets
+	-- it through (control)
 	fresh("step 10")
 	assert(phase() == "idle", "step 10: the cypher is not idle before the case")
-	local j = cy:Invoke("Join", -4302, "Phone Test")
-	assert(j and j.ok and phase() ~= "idle", "step 10: the fake producer did not open a lobby")
+	local j1, j2 = cy:Invoke("Join", -4302, "Phone Test"), cy:Invoke("Join", -4305, "Phone Test B")
+	assert(j1 and j1.ok and j2 and j2.ok and phase() == "lobby", "step 10: the fake producers did not open a lobby (" .. tostring(j1 and j1.reason) .. ")")
+	local round = RS.OK.Cypher:GetAttribute("Round")
+	p:SetAttribute("CypherIn", round)
 	tick(200)
-	assert(npops() == 0, "step 10: a pop was sent during a cypher lobby")
+	local entrantPops = npops()
+	p:SetAttribute("CypherIn", nil)
+	assert(entrantPops == 0, "step 10: a pop was sent to an entrant of the cypher's lobby (CypherIn " .. tostring(round) .. ")")
+	tick(200)
+	assert(npops() == 1, "step 10: no pop during a cypher lobby for a player who isn't in it (" .. npops() .. "): a lobby holds only its entrants")
+	fresh("step 10, an earlier round")
+	p:SetAttribute("CypherIn", round - 1)
+	tick(200)
+	local stalePops = npops()
+	p:SetAttribute("CypherIn", nil)
+	assert(stalePops == 1, "step 10: no pop during a cypher lobby for a CypherIn from an earlier round (" .. stalePops .. ")")
 	for _ = 1, 25 do
 		if phase() == "idle" then break end
 		cy:Invoke("Skip")
 		task.wait(0.4)
 	end
 	assert(phase() == "idle", "step 10: the cypher did not get back to idle")
-	tick(200)
-	assert(npops() == 1, "step 10 control: no pop once the cypher was idle")
-	table.insert(out, "10 cypher: lobby -> Tick(200) none; idle -> one pop")
+	for _, ph in ipairs({ "listen", "vote" }) do
+		fresh("step 10 " .. ph)
+		RS.OK.Cypher:SetAttribute("Phase", ph)
+		tick(200)
+		local held = npops()
+		RS.OK.Cypher:SetAttribute("Phase", "idle")
+		assert(held == 0, "step 10: a pop was sent while the cypher was at " .. ph)
+		tick(200)
+		assert(npops() == 1, "step 10 control (" .. ph .. "): no pop once the cypher was idle")
+	end
+	table.insert(out, "10 cypher: a lobby (two producers): its entrant (CypherIn " .. round .. ") Tick(200) none, then no CypherIn one pop, CypherIn "
+		.. (round - 1) .. " one pop; Phase listen, then vote -> none, idle -> one pop each")
 
 	return "T51 PLAY OK\n" .. table.concat(out, "\n")
 end
@@ -179,6 +204,7 @@ local ok, msg = pcall(run)
 pcall(function()
 	wi:Invoke("Reset", uid); ph:Invoke("Reset", uid); ph:Invoke("Quiet", uid, false)
 	wi:Invoke("Pause", uid, true)
+	if cy:Invoke("State").phase == "idle" then RS.OK.Cypher:SetAttribute("Phase", "idle"); p:SetAttribute("CypherIn", nil) end -- what this file set
 	for _ = 1, 25 do if phase() == "idle" then break end; cy:Invoke("Skip"); task.wait(0.4) end
 end)
 pcall(teleport, LOUNGE)

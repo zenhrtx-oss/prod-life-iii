@@ -4,7 +4,8 @@
 -- load, save and reload unchanged, and a broken career/walkins is replaced; (c) DataService.TakeCred clamps at the
 -- balance; (d) Career.Add passes the career gate (caps, separate log, unknown sources pay 0), Career.Take clamps,
 -- SetSponsor leaves the count alone; (e) Unlock studio_two: needs, money, ok, owned; the sponsor TV toggle never
--- spends; a bought room reports "hall" to Life once, and only THE HALL's gate does; (f) Gear: needs refuse a buy after the level check, fits equip by slot,
+-- spends; a refusal publishes nothing and answers with Fetch's last built state (launch audit A6); a bought room reports
+-- "hall" to Life once, and only THE HALL's gate does; (f) Gear: needs refuse a buy after the level check, fits equip by slot,
 -- plate_legend stays last, buying it reports "legend" through ctx.Life, and a failing Life never fails either;
 -- Career.State's life is nil, the Career tab whole, when Life or its view fails; (g) producer cards carry the five stats
 -- and the life's year, tier, title and ribbons, and never Money.
@@ -129,8 +130,16 @@ table.insert(out, "(d) Add: Delivery followers capped at 120, 16th award 0, own 
 local pe = { UserId = 4106, Name = "T41e" }
 local ep = DS.Load(pe)
 ep.career.aura = 300; ep.cred = 5000
+local clock0, held = Career._clock, os.clock()
+Career._clock = function() return held end -- Fetch's 0.25 s window, held still
+local cached = Career.Fetch(pe)
 local r1 = Career.Unlock(pe, "studio_two")
 assert(not r1.ok and r1.reason == "needs" and ep.cred == 5000, "studio_two at 0 placements should be 'needs', got " .. tostring(r1.reason))
+-- a refusal changed nothing: no Publish (it would drop Fetch's state) and the answer is the state Fetch last built
+local refetched = Career.Fetch(pe)
+Career._clock = clock0
+assert(r1.state == cached and refetched == cached, "a refused unlock should answer with Fetch's last built state and publish nothing (its state "
+  .. (r1.state == cached and "is" or "is not") .. " Fetch's, and Fetch " .. (refetched == cached and "kept" or "lost") .. " it)")
 ep.career.placements = 1; ep.cred = 4999
 local r2 = Career.Unlock(pe, "studio_two")
 assert(not r2.ok and r2.reason == "money" and ep.cred == 4999, "studio_two at $4,999 should be 'money', got " .. tostring(r2.reason))
@@ -179,7 +188,7 @@ Cfg.Life = realCfgLife
 assert(noView.life == nil and #noView.gates == 2, "a view that fails should give a nil life and a whole State")
 assert(type(Career.State(pe).life) == "table", "the life should come back when Life does")
 table.insert(out, "(e) a failing Life or view: Career.State has no life, the tab whole")
-table.insert(out, "(e) studio_two: needs (0 placements), money ($4,999), ok at $5,000 leaving $0, then owned; sponsor_tv needs a sponsor, toggles, never spends; State: 2 gates, 5 gear rows")
+table.insert(out, "(e) studio_two: needs (0 placements; answered with Fetch's state, nothing published), money ($4,999), ok at $5,000 leaving $0, then owned; sponsor_tv needs a sponsor, toggles, never spends; State: 2 gates, 5 gear rows")
 
 -- f) Gear: needs refuse after the level check; fits equip by slot
 local pf = { UserId = 4107, Name = "T41f" }

@@ -1,7 +1,8 @@
 -- OK Studio nameplate: a BillboardGui over a character's head ("NAME" / "YEAR 2 · LV 4 · ENGINEER · 🔥 37"), coloured by
 -- the player's nameplate gear (PlateColor). Built by the server (Systems/Reactions) so every player sees the same one;
--- it reads the player's Year attribute (Systems/Life) itself and follows it. 220 wide: the longest line, YEAR 15 · LV 10 ·
--- STUDIO LEGEND · 🔥 1234, measures 203 px at 11 px (t22b checks it). The 48 px height is what WalkIns' tag stacks on.
+-- it reads the player's Year attribute (Systems/Life) itself, and follows the player's attributes until its character
+-- is removed or the plate is destroyed. 220 wide: the longest line, YEAR 15 · LV 10 · STUDIO LEGEND · 🔥 1234, measures
+-- 203 px at 11 px (t22b checks it). The 48 px height is what WalkIns' tag stacks on.
 local M = {}
 M.MaxDistance = 40
 M.Width = 220
@@ -43,8 +44,12 @@ function M.Attach(character, player, rankFor)
 		stats.Text = M.Text(lv, rankFor(lv), player:GetAttribute("FireTotal") or 0, player:GetAttribute("Year"))
 	end
 	local conns = {}
+	local function drop() for _, c in ipairs(conns) do c:Disconnect() end; table.clear(conns) end
 	for _, a in ipairs({ "Level", "FireTotal", "PlateColor", "Year" }) do table.insert(conns, player:GetAttributeChangedSignal(a):Connect(refresh)) end
-	bb.Destroying:Connect(function() for _, c in ipairs(conns) do c:Disconnect() end end)
+	-- the plate lets go of the player when its character is removed: a respawn or a leave under legacy removal only parents
+	-- the old character to nil, so the plate is never destroyed and would keep refreshing (launch audit A13)
+	table.insert(conns, character.AncestryChanged:Connect(function() if character.Parent == nil then drop() end end))
+	bb.Destroying:Connect(drop)
 	refresh()
 	return bb
 end

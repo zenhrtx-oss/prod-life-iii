@@ -3,7 +3,8 @@
 -- * "arrive": the choice card (portrait, name, style tag, "1 OF 8 TODAY", his line, a news strip on a follow-up, the
 --   choices with their cost, WALK AWAY). A choice you can't afford is greyed "· can't afford" and re-checked whenever
 --   your money changes. The card waits behind a 44 px "<NAME> IS WAITING · OPEN" chip while the beat maker is open or
---   the listen-back cutaway runs (both also hide an open card), or while a cypher round isn't idle or a phone card
+--   the listen-back cutaway runs (both also hide an open card), or while a cypher round holds you (WalkInRules.CypherHolds:
+--   one that listens or votes holds everyone; a lobby, the build and the reveal only that round's entrants) or a phone card
 --   (OK_Phone's Open) shows (those only keep a card from opening, never hide one you're reading; a chip tap while the
 --   phone card shows does nothing, so you never see two cards, and the card then opens by itself once the phone card
 --   closes, deferred by the beat maker and armed like any other), and opens by itself once all of that clears; tapping
@@ -49,6 +50,7 @@ local Players, RS, RunService = game:GetService("Players"), game:GetService("Rep
 local TextService, GuiService, UIS = game:GetService("TextService"), game:GetService("GuiService"), game:GetService("UserInputService")
 local Format = require(RS.OK.Modules.Format)
 local CardFeel = require(RS.OK.Modules.CardFeel)
+local Rules = require(RS.OK.Modules.WalkInRules)
 local M = {}
 local MIN = 44                 -- touch target
 local PAD = 14                 -- card side padding; top padding and gaps tighten on short screens (layout)
@@ -435,7 +437,8 @@ function M.Build(Theme)
 	-- deferral, each looked up afresh. dawOrCutaway: the beat maker is open or the listen-back cutaway runs (these hide
 	-- even an open card); its second value says the beat maker is the phone (compact) one that fills the screen, the
 	-- same test as FireButton's dawCoversScreen; each check also records when it last went from true to false (dawUp).
-	-- cypherBusy: a cypher round isn't idle (this only keeps a card from opening)
+	-- cypherBusy: a cypher round holds you (WalkInRules.CypherHolds on its Phase and Round and your CypherIn, the server's
+	-- rule; this only keeps a card from opening)
 	local reqCard = nil
 	local dawWasUp, dawDownAt = false, -math.huge
 	local function dawOrCutaway()
@@ -456,8 +459,7 @@ function M.Build(Theme)
 	local function dawUp() return (dawOrCutaway()) or os.clock() - dawDownAt <= 1 end
 	local function cypherBusy()
 		local cy = RS.OK:FindFirstChild("Cypher")
-		local phase = cy and cy:GetAttribute("Phase")
-		return phase ~= nil and phase ~= "idle"
+		return Rules.CypherHolds(cy and cy:GetAttribute("Phase"), player:GetAttribute("CypherIn"), cy and cy:GetAttribute("Round"))
 	end
 	local function phoneOpen() -- a phone card (PhoneUI) is on screen: one card at a time
 		local ph = pg:FindFirstChild("OK_Phone")

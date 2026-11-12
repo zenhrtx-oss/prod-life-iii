@@ -5,6 +5,11 @@
 -- -> reveal -> idle. Two entries: head-to-head, most stars wins (equal stars = draw). Never a vote with only two.
 -- State for clients lives in attributes on ReplicatedStorage.OK.Cypher; entrants get CypherIn / CypherSubmitted player
 -- attributes; an entrant's OWN letter goes on their PlayerGui (only they can see it) so entries stay anonymous. Rewards (Config.Cypher.Reward) go through the capped reward gate.
+-- Launch audit A2/A4: Cypher_Join (the bar's JOIN) never opens a lobby from idle ("busy"), so only the board does. A
+-- lobby that ends with too few entrants starts Config.Cypher.CancelCooldown seconds, server-wide, in which nobody opens
+-- another ("busy"), so one producer can't keep the round's toasts coming. Walk-ins and phone pops wait for everyone while
+-- a round listens or votes, and in a lobby, the build and the reveal only for that round's entrants (CypherIn = Round;
+-- WalkInRules.CypherHolds).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local Config = require(RS.OK.Config)
 local Cfg = require(RS.OK.Modules.DAWConfig)
@@ -12,11 +17,12 @@ local Check = require(RS.OK.Modules.BriefCheck)
 local DR = require(RS.OK.Modules.DailyRequests)
 local M = { Enabled = true, Version = 1 }
 local ctx, folder
-local S = { phase = "idle", round = 0, entrants = {}, byLetter = {}, lettersList = {}, voted = {}, fakeIds = {} }
+-- noLobbyUntil: server time before which no lobby opens (set when a lobby ends with too few entrants)
+local S = { phase = "idle", round = 0, entrants = {}, byLetter = {}, lettersList = {}, voted = {}, fakeIds = {}, noLobbyUntil = 0 }
 
 local function cc()
 	return Config.Cypher or { LobbySeconds = 20, BuildSeconds = 120, VoteSeconds = 20, RevealSeconds = 10, MinEntrants = 2,
-		MaxEntrants = 6, VoteRange = 45, Reward = { EnterXP = 10, WinXP = 30, WinCred = 500, VoteXP = 3 } }
+		MaxEntrants = 6, VoteRange = 45, CancelCooldown = 60, Reward = { EnterXP = 10, WinXP = 30, WinCred = 500, VoteXP = 3 } }
 end
 local function now() return workspace:GetServerTimeNow() end
 local function isPlayer(o) return typeof(o) == "Instance" and o:IsA("Player") end
@@ -83,9 +89,11 @@ local function cancel(msg)
 	publish()
 end
 
+-- joins the round, opening a lobby from idle (the board; the Cypher_Join remote refuses idle before this)
 function M.Join(owner)
 	local uid = owner.UserId
 	if S.phase == "idle" then
+		if now() < S.noLobbyUntil then return { ok = false, reason = "busy" } end -- a lobby just ended with too few
 		S.round += 1
 		S.phase = "lobby"; S.endsAt = now() + cc().LobbySeconds
 		S.entrants, S.byLetter, S.lettersList, S.voted, S.fakeIds = {}, {}, {}, {}, {}
@@ -244,11 +252,14 @@ function M._Skip()
 	S.endsAt = 0
 	return "ended " .. S.phase
 end
+-- cooldown: seconds left before a lobby may open again (0 = it may)
 function M._State()
 	local names = {}
 	for l, e in pairs(S.byLetter) do names[l] = e.name end
-	return { phase = S.phase, round = S.round, letters = S.lettersList, names = names, mode = S.mode, result = S.result, winner = S.winner }
+	return { phase = S.phase, round = S.round, letters = S.lettersList, names = names, mode = S.mode, result = S.result, winner = S.winner,
+		cooldown = math.max(0, S.noLobbyUntil - now()) }
 end
+function M._ClearCooldown() S.noLobbyUntil = 0; return true end
 
 function M.Init(c)
 	ctx = c
@@ -256,7 +267,11 @@ function M.Init(c)
 	folder.Name = "Cypher"; folder.Parent = RS.OK
 	publish()
 	local R = RS.OK.Remotes
-	R.Cypher_Join.OnServerInvoke = function(player) return M.Join(player) end
+	-- the bar's JOIN, shown only in a lobby: it joins a round under way and never opens one (only the board below does)
+	R.Cypher_Join.OnServerInvoke = function(player)
+		if S.phase == "idle" then return { ok = false, reason = "busy" } end
+		return M.Join(player)
+	end
 	R.Cypher_Submit.OnServerInvoke = function(player, pattern, bpm, swing, voice) return M.Submit(player, pattern, bpm, swing, voice) end
 	R.Cypher_Vote.OnServerInvoke = function(player, letter) return M.Vote(player, letter) end
 	c.Interaction.Register("Cypher", function(player)
@@ -305,6 +320,7 @@ function M.Init(c)
 						S.phase = "build"; S.endsAt = now() + cc().BuildSeconds; publish()
 						for _, e in pairs(S.entrants) do if isPlayer(e.owner) then R.InteractionEvent:FireClient(e.owner, "Toast", { text = "🎤 Cypher on · build to the brief, then SUBMIT" }) end end
 					else
+						S.noLobbyUntil = now() + (cc().CancelCooldown or 60)
 						cancel("Cypher needs " .. cc().MinEntrants .. " producers · not enough joined")
 					end
 				elseif S.phase == "build" then toListen()

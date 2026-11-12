@@ -1,12 +1,16 @@
 -- Studio Sessions panel inside the beat maker window (OK_DAW).
 -- Desktop: a card docked above the window's top-right edge, always up while the beat maker is open.
--- Phone (Compact): a 44 px chip in the window header opens the same card over the grid.
+-- Phone (Compact): a 44 px chip in the window header opens the same card over the grid. The chip sits at
+-- max(W − 190, header right + 6), clear of the close button (Modules/DAWLayout.Chip, from the window's HeaderRight and
+-- CloseLeft attributes, which DAWUI publishes), its text scaled down when the band leaves it under 124 px; under 44 px
+-- (an expanded unibar) it hides.
 -- Overlays: Picker (up to 3 offers + FREE PLAY), Presets (start from a preset, blank, or keep your beat), Result.
 -- State and test hooks live in attributes on the card ("Request"):
 --   Cutaway (camera in the booth during the listen-back), Active (brief id or ""), Offers ("j1,t1,j2"), Ticks ("101"), BonusOk, Changed (pads changed), Stars (0/2/3 preview),
 --   Overlay ("none" | "picker" | "presets" | "result"), CardOpen (phone), LastDeliver, ResultStars, Message
 --   Command: requests | take:<id> | preset:<NAME|BLANK|KEEP> | deliver | next | close | card
 local Format = require(game:GetService("ReplicatedStorage").OK.Modules.Format)
+local DAWLayout = require(game:GetService("ReplicatedStorage").OK.Modules.DAWLayout)
 local M = {}
 local MIN_TOUCH = 44
 
@@ -60,6 +64,7 @@ function M.Build(gui, Theme, Cfg, dawRoot, Artists, Check)
 	local chip = new("TextButton", { Name = "RequestChip", Text = "REQUESTS", BackgroundColor3 = Color3.fromRGB(60, 40, 90), TextColor3 = Theme.text,
 		Font = Theme.fontBlack, TextSize = 13, Visible = false, AutoButtonColor = true, ZIndex = 4 }, dawRoot)
 	corner(chip, 8)
+	new("UITextSizeConstraint", { MaxTextSize = 13 }, chip)
 
 	-- overlays (picker, presets, result) ---------------------------------------------------
 	local function overlay(name)
@@ -104,9 +109,13 @@ function M.Build(gui, Theme, Cfg, dawRoot, Artists, Check)
 		local rows = active and (#active.asks + (active.bonus and 1 or 0) + 1) or 0
 		local h = 16 + 18 + 4 + 16 + 4 + rows * 22 + 34 + MIN_TOUCH + 8
 		if cmp then
-			chip.Visible = true
-			chip.Size = UDim2.fromOffset(124, MIN_TOUCH)
-			chip.Position = UDim2.new(1, -(MIN_TOUCH + 14 + 8 + 124), 0, 4)
+			-- until the window publishes its band: the chip at home (W − 190), the close button at W − 50; a band too short
+			-- for a 44 px chip (an expanded unibar) hides it, and MiniSubmit with it (CypherUI)
+			local x, w = DAWLayout.Chip(dawRoot:GetAttribute("HeaderRight") or 0, dawRoot:GetAttribute("CloseLeft") or (W - 50))
+			chip.Visible = w >= DAWLayout.MIN
+			chip.Size = UDim2.fromOffset(w, MIN_TOUCH)
+			chip.Position = UDim2.fromOffset(x, 4)
+			chip.TextScaled = w < DAWLayout.CHIP
 			card.AnchorPoint = Vector2.new(0.5, 0.5); card.Position = UDim2.fromScale(0.5, 0.5)
 			card.Size = UDim2.fromOffset(math.min(W - 24, 420), h)
 			card.Visible = card:GetAttribute("CardOpen") == true
@@ -260,7 +269,7 @@ function M.Build(gui, Theme, Cfg, dawRoot, Artists, Check)
 		end
 	end)
 	dawRoot:GetPropertyChangedSignal("AbsoluteSize"):Connect(C.Layout)
-	dawRoot:GetAttributeChangedSignal("Compact"):Connect(C.Layout)
+	for _, a in ipairs({ "Compact", "HeaderRight", "CloseLeft" }) do dawRoot:GetAttributeChangedSignal(a):Connect(C.Layout) end
 	C.Card, C.Chip = card, chip
 	return C
 end

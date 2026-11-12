@@ -19,6 +19,8 @@
 --     gate allows; mom_food's stored pick is re-picked. mom_return arrives: its news clears quiet; "call her back" is +2
 --     (-2 -> 0); mom_food's stored pick then stands.
 -- (5) rel.rep at 2 with `renewed`, then signing rep_energy ("Sign it"): rel.rep is gone and the deal is energy.
+-- (6a) Fix round 1 (review F2): holding energy at Aura 0 with rel.rep there at score 0 (under 1, not missing): an arrival
+--     plants sponsor_drop for energy and no sponsor_warning.
 -- (6) Holding energy (floor 150) at Aura 0 with rel.rep 1: an arrival plants sponsor_warning for energy, not
 --     sponsor_drop. The warning's arrival (news WARNING, planted) plants sponsor_drop for energy 2 or 3 visits on, and no
 --     second warning; the deal stands.
@@ -271,10 +273,23 @@ local function run()
 	assert(career:Invoke("Get", uid).sponsor == "energy", "signing: the deal is " .. tostring(career:Invoke("Get", uid).sponsor))
 	table.insert(out, "5 rep 2 [renewed] then rep_energy signed: Rel " .. show(rel5) .. ", sponsor energy")
 
+	-- 6a. rel.rep at exactly 0 (there, under 1): the drop, not the warning (fix round 1, review F2)
+	local floor = Content.SponsorById.energy.floor
+	fresh("no warning")
+	set({ sponsor = "energy", aura = 0 }, "no warning")
+	assert(career:Invoke("Get", uid).aura < floor, "no warning: Aura is not under energy's floor " .. floor)
+	local kept6a = setRel({ rep = { score = 0 } }, "no warning")
+	assert(show(kept6a) == "{rep 0 []}", "no warning: SetRel kept " .. show(kept6a) .. ", want {rep 0 []} (rel.rep there at score 0)")
+	local r6a = spawnArrived("fan_meet", "no warning")
+	local d6a = queued("sponsor_drop")
+	assert(d6a and type(d6a.ctx) == "table" and d6a.ctx.sponsor == "energy", "no warning: no sponsor_drop queued for energy after an arrival under the floor at rel.rep 0")
+	assert(queued("sponsor_warning") == nil, "no warning: sponsor_warning was queued with rel.rep at 0 (the warning needs 1 or more)")
+	choose(r6a, 0, "no warning")
+	table.insert(out, "6a energy at Aura 0, rep 0 (there, under 1): an arrival queued sponsor_drop (energy), no warning")
+
 	-- 6. the rep's warning instead of the drop, and the drop after it
 	fresh("warning")
 	set({ sponsor = "energy", aura = 0 }, "warning")
-	local floor = Content.SponsorById.energy.floor
 	assert(career:Invoke("Get", uid).aura < floor, "warning: Aura is not under energy's floor " .. floor)
 	setRel({ rep = { score = 1 } }, "warning")
 	local r6 = spawnArrived("fan_meet", "warning")

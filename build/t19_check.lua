@@ -39,6 +39,10 @@ local function check()
   assert(np:GetAttribute("UpNext") == "Bo · Cy" and np:GetAttribute("QueueIds") == "-2,-3" and np:GetAttribute("QueueCount") == 3, "UpNext/QueueIds wrong: " .. tostring(np:GetAttribute("UpNext")))
   local dup = m:Enqueue(A, pat, 150, 0); local dup2 = m:Enqueue(Bo, pat, 150, 0)
   assert(not dup.ok and dup.reason == "inline" and dup.position == 0 and not dup2.ok and dup2.reason == "inline" and dup2.position == 1, "duplicates not refused")
+  -- InLine (launch audit A12, asked by Systems/DAW before its flip check): Enqueue's own "inline" answer, nil off the line
+  local inA, inC = m:InLine(-1), m:InLine(-3)
+  assert(inA and inA.reason == "inline" and inA.position == 0 and inA.wait == 0 and inC and inC.position == 2 and inC.wait == r3.wait
+    and m:InLine(-4) == nil, "InLine should answer Enqueue's 'inline' (Ana on air, Cy #2 with Cy's wait) and nil for a producer not in line")
   assert(m:Enqueue(Dd, pat, 150, 0).ok and not m:Enqueue(E, pat, 150, 0).ok and m:Enqueue(E, pat, 150, 0).reason == "full", "5th producer should find the line full")
   assert(m:Cancel(-4) == "removed" and np:GetAttribute("QueueIds") == "-2,-3", "cancel from the line failed")
   -- Ana's airing ends, 3 s of silence, then Bo
@@ -75,5 +79,5 @@ end
 local ok, err = pcall(check)
 np:Destroy()
 if not ok then error(err) end
-table.insert(out, "queue: airs at once when idle; positions and waits; one place each; full at 4; cancel; order Ana, Bo, Cy with 3 s gaps; stop early; off switch")
+table.insert(out, "queue: airs at once when idle; positions and waits; one place each (InLine gives the same answer); full at 4; cancel; order Ana, Bo, Cy with 3 s gaps; stop early; off switch")
 return "T19 OK: " .. table.concat(out, "; ")

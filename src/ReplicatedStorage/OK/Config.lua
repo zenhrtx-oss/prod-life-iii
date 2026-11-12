@@ -10,8 +10,10 @@ Config.LightPresets = {
 Config.Interaction = { MaxDistance = 8, HoldSeconds = 0, RecSeconds = 8, PanelCloseDistance = 12 }
 Config.DataStoreName = "OKStudio_v1"
 -- session lock (DataService v3): wait LockWaits seconds for another server to release a profile, then take it over;
--- a lock older than LockStaleSeconds is taken at once; autosave refreshes the lock every LockHeartbeatSeconds
-Config.Data = { LockStaleSeconds = 600, LockHeartbeatSeconds = 180, LockWaits = { 1, 2, 3, 6 },
+-- a lock older than LockStaleSeconds is taken at once; autosave refreshes the lock every LockHeartbeatSeconds.
+-- LockWaits sums to 30 s, longer than a slow leave save (launch audit A8); with the load's error retries (1 + 2 + 4 s)
+-- it stays well under the 60 s other callers wait on that load
+Config.Data = { LockStaleSeconds = 600, LockHeartbeatSeconds = 180, LockWaits = { 1, 2, 3, 6, 8, 10 },
   -- Studio play tests run as the creator's own account: keep them away from the live store unless turned on here
   UseStoreInStudio = false }
 -- Roblox's licensed partner library accounts (MarketplaceService:GetProductInfo(id).Creator.CreatorTargetId).
@@ -85,9 +87,10 @@ Config.Unlocks = {
 Config.Daily = { Count = 3, XP = 15, Cred = 200, StreakBonus = { [3] = 300, [7] = 600 } }
 -- the Weekly Single: one harder request a UTC week; pays once (x1.5 for 3 stars); 3 stars adds a plaque to your card
 Config.Weekly = { XP = 50, Cred = 800 }
--- cypher rounds (Systems/BeatBattles): seconds per phase, entrants, voting range, rewards
+-- cypher rounds (Systems/BeatBattles): seconds per phase, entrants, voting range, rewards. CancelCooldown: seconds,
+-- server-wide, with no new lobby after one ends with too few entrants (launch audit A4)
 Config.Cypher = { LobbySeconds = 20, BuildSeconds = 120, VoteSeconds = 20, RevealSeconds = 10, MinEntrants = 2, MaxEntrants = 6, VoteRange = 45,
-  Reward = { EnterXP = 10, WinXP = 30, WinCred = 500, VoteXP = 3 } }
+  CancelCooldown = 60, Reward = { EnterXP = 10, WinXP = 30, WinCred = 500, VoteXP = 3 } }
 -- FIRE reactions (Systems/Reactions): listeners within Range studs of a speaker; PairDaily FIRE per listener->producer a day
 Config.Fire = { Range = 45, PairDaily = 3 }
 -- ranks sit over the levels (index = level)

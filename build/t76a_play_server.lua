@@ -4,9 +4,10 @@
 -- hooks, with the career day set to 4 (Life SetDay), so a hint's day can't be the fallback 1:
 -- (0) ResetTour; WalkIns Reset leaves count 0. (1) A count-0 visit that ends before he arrives (a burst forced with the
 -- hook's Rush(2), then Spawn and Expire): the re-arm is a FirstEver draw, BusyDay stays false and no burst is left;
--- count stays 0. (2) The pick at count 0 (Spawn with no id) is gentle_first, and its arrive payload carries no hint: none
--- of the eight Config.Hints terms is in its tag, line or choices (checked against WalkInRules.HintFor on the payload's
--- own texts), so Hints stays empty. (3) At count 1, SetRemaining(nil) and the hold set to false: the loop arms the timer
+-- count stays 0. (2) The pick at count 0 (Spawn with no id) is the stored starter (a `first` card: Task 5b+'s pool, drawn
+-- at random), and its arrive payload's hint is WalkInRules.HintFor's on the payload's own tag, line and choices (a starter
+-- teaches one term, or none): Hints then holds that term at the career day, or stays empty, and ResetHints clears it for
+-- the steps after. (3) At count 1, SetRemaining(nil) and the hold set to false: the loop arms the timer
 -- from FirstDelay, not FirstEver. (4) The tour still not done: with a burst forced again, walking away re-arms a plain Gap,
 -- BusyDay false, no burst (none starts or runs before the tour). (5) navx_placement (forced): its hint is the first
 -- unseen term in its tag, line and choices (placement), and Hints holds placement = 4, nothing else. (6) Its choice 3
@@ -24,8 +25,8 @@
 -- <= 35 s, server time) with the hint followers (its line: "five thousand followers"). A second later Quiet goes off and
 -- two_sessions pops with hit still unseen (its hint hit): the hinted DM players get at visit 10, which the client holds
 -- behind the walk-in card.
--- Why a planted follow-up: gentle_first, the real first pick, has no term at all, so the hint line can't be checked on
--- it; a due follow-up beats the first card in WalkInRules.Pick, so it rides the same first-ever timer and tour bypass.
+-- Why a planted follow-up: the real first pick is a random starter, so its hint depends on the draw; a due follow-up
+-- beats the starter pool in WalkInRules.Pick, so it rides the same first-ever timer and tour bypass with a known hint.
 -- The player attributes _T76Reset and _T76Arrived (server time) carry the clock to t76b. On success the staged card,
 -- the pop and the unfinished tour are left for t76b (it walks away, dismisses and skips the tour); on any error
 -- everything is reset (hold true, the tour done, Quiet off) and the error rethrown.
@@ -41,9 +42,10 @@ local test = SOK:WaitForChild("_StudioTestHook", 5); assert(test, "no _StudioTes
 local Config = require(RS.OK.Config)
 local Rules = require(RS.OK.Modules.WalkInRules)
 local Tour = require(RS.OK.Systems.Tour)
+local Content = require(RS.OK.Data.WalkIns)
 local HINTS, W = Config.Hints, Config.WalkIns
 local LOUNGE = Vector3.new(24, 3, 0)
-local FIRST, CARD, NEWS, DM, STAGE = "gentle_first", "navx_placement", "navx_single", "two_sessions", "tier_known"
+local CARD, NEWS, DM, STAGE = "navx_placement", "navx_single", "two_sessions", "tier_known"
 local DAY = 4 -- the career day the body runs on (Life SetDay): never the fallback 1
 local out = {}
 local T0 = os.clock()
@@ -79,6 +81,8 @@ end
 local function keys(t) local k = {}; for x in pairs(t) do table.insert(k, tostring(x)) end; table.sort(k); return table.concat(k, ",") end
 local function hintText(term) for _, h in ipairs(HINTS) do if h.term == term then return h.text end end; return nil end
 local function termOf(h) return type(h) == "table" and h.term or nil end
+-- a starter: a card of the starter pool (`first`, Task 5b+), the only cards the first walk-in draws from
+local function isStarter(id) local c = Content.CardById[id]; return c ~= nil and c.first == true end
 local function show(h) return type(h) == "table" and (tostring(h.term) .. " '" .. tostring(h.text) .. "'") or "none" end
 local function add(list, s) if type(s) == "string" and s ~= "" then table.insert(list, s) end end
 -- what a card shows that a hint may explain, as sent: the tag, the line and every choice's text
@@ -161,7 +165,7 @@ local function run()
 	assert(wi:Invoke("Rush", uid, 2) == true, "abort: the hook's Rush(2) failed")
 	assert(wi:Invoke("Spawn", uid, nil) == true, "abort: Spawn() refused")
 	local r0 = pending()
-	assert(r0 and r0.id == FIRST and r0.arrived ~= true, "abort: want " .. FIRST .. " pending and not yet arrived, got " .. tostring(r0 and r0.id))
+	assert(r0 and isStarter(r0.id) and r0.arrived ~= true, "abort: want a starter (a `first` card) pending and not yet arrived, got " .. tostring(r0 and r0.id))
 	assert(wi:Invoke("Expire", uid) == true, "abort: Expire found no visit")
 	local a0 = left()
 	assert(within(a0, W.FirstEver), "abort: the re-arm after a count-0 visit ended early is " .. tostring(a0) .. ", want FirstEver "
@@ -170,14 +174,20 @@ local function run()
 	assert(walkins().count == 0, "abort: a visit that never arrived counted")
 	table.insert(out, "1 count-0 visit ended before arrival (burst forced): re-armed " .. a0 .. " s (FirstEver), BusyDay false, no burst, count 0")
 
-	-- 2. the first pick at count 0: gentle_first, no term, no hint
+	-- 2. the first pick at count 0: the stored starter, with HintFor's hint on its own texts (marked at the career day)
 	local r1, a1 = spawnArrived("first pick", nil)
-	assert(r1.id == FIRST and a1.card.id == FIRST, "first pick: the pick at count 0 is " .. tostring(r1.id) .. ", want " .. FIRST)
-	expectArrive("first pick", a1, {})
-	assert(a1.card.hint == nil, "first pick: " .. FIRST .. " carries the hint " .. show(a1.card.hint))
-	assert(next(hints()) == nil, "first pick: a card with no term marked " .. keys(hints()) .. " seen")
+	assert(r1.id == r0.id and a1.card.id == r0.id, "first pick: the pick at count 0 is " .. tostring(r1.id) .. ", want the stored starter " .. r0.id)
+	local want1 = expectArrive("first pick", a1, {})
+	local h1 = hints()
+	if want1 then
+		assert(keys(h1) == want1.term and h1[want1.term] == DAY, "first pick: Hints holds " .. keys(h1) .. ", want " .. want1.term .. " at day " .. DAY)
+	else
+		assert(next(h1) == nil, "first pick: a card with no term marked " .. keys(h1) .. " seen")
+	end
 	assert(walkins().count == 1, "first pick: count is " .. tostring(walkins().count) .. " after the arrival")
-	table.insert(out, "2 first pick at count 0 (tour not done): " .. FIRST .. "; no hint (none of the 8 terms in its tag, line or choices)")
+	assert(test:Invoke("ResetHints", uid) == true and next(hints()) == nil, "first pick: ResetHints left " .. keys(hints()))
+	table.insert(out, "2 first pick at count 0 (tour not done): " .. r1.id .. " (a starter); hint " .. show(a1.card.hint)
+		.. " (HintFor on its tag, line and choices); Hints cleared for the steps after")
 
 	-- 3. past the first visit the first arm is FirstDelay's
 	assert(wi:Invoke("SetRemaining", uid, nil) == true, "FirstDelay: SetRemaining(nil) failed")

@@ -8,6 +8,7 @@ end
 local RS = game:GetService("ReplicatedStorage")
 local L = require(RS.OK.BuildLib)
 local Config = freshRequire(RS.OK.Config); local Defs = freshRequire(RS.OK.Modules.Interactions)
+local RoomScope = freshRequire(RS.OK.Modules.RoomScope) -- required first, so a missing module stops the script before it rebuilds anything
 local B = "14_stations"
 L.clear(B)
 local S = workspace.OKStudio
@@ -45,7 +46,8 @@ L.boxMM(desk, "LegR", 55.1, 0.0, -11.3, 55.4, 2.8, -9.2, { Color = dark, Materia
 L.markAll(desk, B)
 laptop(S.ControlRoom, "Station_Side", 53.0, 3.0, -9.8, "SIDE DESK")
 
-local n = 0
-for _, t in ipairs(game:GetService("CollectionService"):GetTagged("OK_Interactable")) do if t:GetAttribute("Kind") == "Station" and t:IsDescendantOf(workspace) then n += 1 end end
+local stations = {}
+for _, t in ipairs(game:GetService("CollectionService"):GetTagged("OK_Interactable")) do if t:GetAttribute("Kind") == "Station" and t:IsDescendantOf(workspace) then table.insert(stations, t) end end
+local n = #RoomScope.Split(stations) -- the hub's own laptops: a room's laptop is not counted
 assert(n == 2, "expected 2 studio laptops, found " .. n)
 return "14 stations ok: 2 laptops (lounge bar, control-room side desk), parts=" .. L.count(S)

@@ -14,6 +14,7 @@ local Cfg = require(RS.OK.Modules.DAWConfig)
 local Theme = require(RS.OK.Modules.UITheme)
 local Engine = require(RS.OK.Modules.DAWEngine)
 local UI = require(RS.OK.Modules.DAWUI)
+local DAWLayout = require(RS.OK.Modules.DAWLayout)
 local Bus = require(RS.OK.Modules.BeatBus)
 local Artists = require(RS.OK.Data.Artists)
 local Check = require(RS.OK.Modules.BriefCheck)
@@ -38,6 +39,22 @@ gui.ScreenInsets = Enum.ScreenInsets.DeviceSafeInsets
 gui.Parent = player:WaitForChild("PlayerGui")
 local ui = UI.Build(gui, Theme, Cfg)
 local root = ui.Root
+-- the Roblox top bar (launch audit A1): GuiService.TopbarInset is the bar's free area in screen space, the space of a
+-- ScreenGui with no insets (OK_DAW_Screen, empty, only measured); the window gets it in OK_DAW's own space as
+-- TopbarFree, and the phone layout keeps every button off the bar's own buttons (DAWUI, Modules/DAWLayout)
+local screen = Instance.new("ScreenGui")
+screen.Name = "OK_DAW_Screen"; screen.ResetOnSpawn = false; screen.IgnoreGuiInset = true; screen.ScreenInsets = Enum.ScreenInsets.None
+screen.Parent = player.PlayerGui
+local function syncTopbar()
+	local bar = GuiService.TopbarInset
+	if bar.Max.Y <= 0 then root:SetAttribute("TopbarFree", nil); return end
+	local shift = screen.AbsolutePosition - gui.AbsolutePosition
+	root:SetAttribute("TopbarFree", Rect.new(bar.Min + shift, bar.Max + shift))
+end
+GuiService:GetPropertyChangedSignal("TopbarInset"):Connect(syncTopbar)
+gui:GetPropertyChangedSignal("AbsolutePosition"):Connect(syncTopbar)
+screen:GetPropertyChangedSignal("AbsolutePosition"):Connect(syncTopbar)
+syncTopbar()
 local preview = Engine.new(Cfg, samples)
 -- kits you own (from your gear) and the kit the preview plays
 local function syncKits()
@@ -278,15 +295,24 @@ player:GetAttributeChangedSignal("Unlocked"):Connect(syncUnlocked)
 syncUnlocked()
 
 -- phone layout ----------------------------------------------------------------
+-- a touch screen gets 44 px targets in any layout, tablets too (launch audit A11); TouchForced (tests) stands in for
+-- UserInputService.TouchEnabled, as CompactForced does for the phone layout
+local function touchWanted()
+	local forced = root:GetAttribute("TouchForced")
+	if forced ~= nil then return forced end
+	return UIS.TouchEnabled
+end
+-- the phone layout: a touch screen under DAWLayout.COMPACT_UNDER (700) px tall, 1024x600 tablets included; the height
+-- is the window's forced viewport (ViewportOverride, tests) when there is one, else the screen's
 local function compactWanted()
 	local forced = root:GetAttribute("CompactForced")
 	if forced ~= nil then return forced end
-	local vp = workspace.CurrentCamera.ViewportSize
-	return UIS.TouchEnabled and vp.Y < 600
+	local vp = root:GetAttribute("ViewportOverride") or workspace.CurrentCamera.ViewportSize
+	return DAWLayout.WantsCompact(touchWanted(), vp.Y)
 end
-local function refreshCompact() root:SetAttribute("Compact", compactWanted()) end
+local function refreshCompact() root:SetAttribute("Touch", touchWanted()); root:SetAttribute("Compact", compactWanted()) end
 workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(refreshCompact)
-root:GetAttributeChangedSignal("CompactForced"):Connect(refreshCompact)
+for _, a in ipairs({ "CompactForced", "TouchForced", "ViewportOverride" }) do root:GetAttributeChangedSignal(a):Connect(refreshCompact) end
 refreshCompact()
 
 local function hintText()
@@ -473,7 +499,10 @@ ui.OnSave = function()
 		if res.profile and res.profile.daw then daw = res.profile.daw end
 		dirty = false; draft = nil
 		local xp = (tonumber(res.xp) or 0) > 0 and (" · +" .. res.xp .. " XP") or ""
-		root:SetAttribute("Status", res.persistent and ("Saved" .. xp) or ("Saved for this session (place not published yet)" .. xp))
+		-- a server with a store that can't write this profile (its load failed, another server took it, a newer build
+		-- wrote it: saving false) only keeps the beat for this session, so it never says "Saved" (launch audit A7)
+		root:SetAttribute("Status", (res.persistent and res.saving == false) and ("Kept for this session only · progress isn't saving right now" .. xp)
+			or res.persistent and ("Saved" .. xp) or ("Saved for this session (place not published yet)" .. xp))
 		root:SetAttribute("LastSave", "ok")
 	else
 		local reason = (ok and type(res) == "table" and res.reason) or "error"
