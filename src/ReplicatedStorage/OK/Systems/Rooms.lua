@@ -66,9 +66,14 @@
 --   which finishes the tour's "monitors" step (Systems/Tour). StopLocal(p) ends your plot's play (DAW_Stop runs it); a
 --   released slot's play ends with its plot. StarterPlayerScripts/OK/RoomClient plays it for everyone in the plot.
 --   Hook (Studio): Play(pattern, bpm) and Stop run DAW_Broadcast's and DAW_Stop's own handlers for the player (DAW._Broadcast,
---   DAW._Stop: the remote's path, the room branch included); Counts ({ played, tried }: Played and DAW.BroadcastTried
---   fires for the player since the last read); SpeakerTier; Fire(token) (Systems/Reactions.Send for the player: the
---   live FIRE rule, which reads only NowPlaying).
+--   DAW._Stop: the remote's path, the room branch included); Counts ({ played, tried, rebuilt }: Played, DAW.BroadcastTried
+--   and Rebuilt fires for the player since the last read); SpeakerTier; Fire(token) (Systems/Reactions.Send for the player:
+--   the live FIRE rule, which reads only NowPlaying).
+-- * The career gates (Task 4): home_studio and real_studio (Config.Career.Gates, each with a `room` field) are bought in the
+--   Career tab through Career.Unlock, whose publish moves CareerGates: the listener above rebuilds your plot once with the
+--   new room. The landing needs nothing more: RoomBuild.Landing is built from the owned kinds, so a door you now own is a
+--   working one (its RoomPrompt, its name sign and its Out marker) and the rest keep the locked sign; hookPlot hooks every
+--   RoomPrompt the new plot has, so the swap is the rebuild's (one writer: this module's single CareerGates listener).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Config = require(RS.OK.Config)
@@ -879,7 +884,7 @@ dispatch = function(cmd, userId, a, b)
 	if cmd == "Counts" then
 		local c = counts[p.UserId] or {}
 		counts[p.UserId] = nil
-		return { played = c.played or 0, tried = c.tried or 0 }
+		return { played = c.played or 0, tried = c.tried or 0, rebuilt = c.rebuilt or 0 }
 	end
 	if cmd == "SpeakerTier" then return speakerTier(p) end
 	if cmd == "Fire" then return require(RS.OK.Systems.Reactions).Send(p, a) end
@@ -898,6 +903,7 @@ local function makeHook()
 	hook.Name = "_StudioRoomsHook"; hook.Parent = SOK
 	hook.OnInvoke = dispatch
 	M.Played:Connect(function(p) bump(p, "played") end)
+	M.Rebuilt:Connect(function(p) bump(p, "rebuilt") end)
 	local okDAW, DAW = pcall(require, RS.OK.Systems.DAW)
 	if okDAW and type(DAW) == "table" and DAW.BroadcastTried then DAW.BroadcastTried:Connect(function(p) bump(p, "tried") end) end
 end

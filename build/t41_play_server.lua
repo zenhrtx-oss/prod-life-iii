@@ -29,8 +29,8 @@ assert(hook:Invoke("Take", uid, "aura", 30) == 30 and p:GetAttribute("Aura") == 
 table.insert(out, "Set aura 100, Take 30 -> Aura attribute 70")
 -- State
 local st = hook:Invoke("State", uid)
-assert(st and #st.gates == 2 and #st.gear == 7 and st.stats.aura == 70, "State should hold 2 gates and 7 gear rows")
-table.insert(out, "State: 2 gates, 7 gear rows")
+assert(st and #st.gates == 4 and #st.gear == 7 and st.stats.aura == 70, "State should hold 4 gates and 7 gear rows")
+table.insert(out, "State: 4 gates, 7 gear rows")
 -- Publish restores Sponsor and CareerGates
 assert(hook:Invoke("Set", uid, { sponsors = 1, sponsor = "t41_brand" }) == true, "Set sponsor failed")
 local sp0, cg0 = p:GetAttribute("Sponsor"), p:GetAttribute("CareerGates")

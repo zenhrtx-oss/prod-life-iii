@@ -127,7 +127,10 @@ Config.Gear = {
 -- "<source>.<stat>" in Sources (amount = fixed award, max = cap on a variable award, dailyMax = awards a UTC day);
 -- an unknown source pays 0 and reports [OK][ERR]. DeliveryFeed[stars] is what a first 2- or 3-star delivery pays.
 -- Gates: kind "room" is unlocked once with Money (cost) when needs are met; kind "toggle" is the sponsor-on-the-TV
--- switch (free; flips showSponsor once its needs are met).
+-- switch (free; flips showSponsor once its needs are met). A room gate with a `room` field is a rung of your own ladder
+-- (Config.Rooms.Kinds.<room>.gate is its id): owning it adds that room to your plot (Systems/Rooms rebuilds it on the
+-- CareerGates change). The ladder gates come first, so the Career tab lists them before THE HALL, which has none. Names and
+-- descs: research/rooms/copy_2026-11-12.md section 2 (draft lines, on the approval list). The prices are first guesses.
 Config.Career = {
   DeliveryFeed = { [2] = { followers = 40, aura = 5 }, [3] = { followers = 120, aura = 10 } },
   Sources = {
@@ -147,6 +150,8 @@ Config.Career = {
     AuraHeal = { aura = { max = 5, dailyMax = 1 } },
   },
   Gates = {
+    { id = "home_studio", kind = "room", room = "home", name = "HOME STUDIO", desc = "More space, a closet, posters and a booth", needs = { placements = 1, followers = 1000 }, cost = 1500 },
+    { id = "real_studio", kind = "room", room = "real", name = "REAL STUDIO", desc = "The biggest room, with space for it all", needs = { placements = 3, followers = 20000 }, cost = 8000 },
     { id = "studio_two", kind = "room", name = "THE HALL", desc = "The door in the passage opens for you", needs = { placements = 1, aura = 300 }, cost = 5000 },
     { id = "sponsor_tv", kind = "toggle", name = "SPONSOR ON THE TV", desc = "Your sponsor's name on the lounge TV while you're in the room", needs = { sponsors = 1 }, cost = 0 },
   },

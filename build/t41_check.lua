@@ -166,7 +166,7 @@ assert(Career.Unlock(pe, "t41_room").ok == true, "the test room did not unlock")
 table.remove(Cfg.Career.Gates)
 assert(table.concat(lifeEvents, ",") == "hall", "another room reported hall: " .. table.concat(lifeEvents, ","))
 local st = Career.State(pe)
-assert(#st.gates == 2 and st.stats.money == 100 and st.stats.placements == 1 and st.stats.gates.studio_two == true, "Career.State stats/gates wrong")
+assert(#st.gates == 4 and st.stats.money == 100 and st.stats.placements == 1 and st.stats.gates.studio_two == true, "Career.State stats/gates wrong")
 assert(type(st.life) == "table" and st.life.day == 1 and st.stats.life == nil, "Career.State should carry life beside the stats")
 local ids = {}
 for _, g in ipairs(st.gear) do
@@ -200,16 +200,16 @@ end
 local realRoster = Life.Roster
 Life.Roster = function() error("t41: Life is down") end
 local broke = Career.State(pe)
-assert(broke.life == nil and #broke.gates == 2 and #broke.gear == 7 and broke.stats.money == 100, "a failing Life should give a nil life and a whole State")
+assert(broke.life == nil and #broke.gates == 4 and #broke.gear == 7 and broke.stats.money == 100, "a failing Life should give a nil life and a whole State")
 Life.Roster = realRoster
 local realCfgLife = Cfg.Life
 Cfg.Life = nil
 local noView = Career.State(pe)
 Cfg.Life = realCfgLife
-assert(noView.life == nil and #noView.gates == 2, "a view that fails should give a nil life and a whole State")
+assert(noView.life == nil and #noView.gates == 4, "a view that fails should give a nil life and a whole State")
 assert(type(Career.State(pe).life) == "table", "the life should come back when Life does")
 table.insert(out, "(e) a failing Life or view: Career.State has no life, the tab whole")
-table.insert(out, "(e) studio_two: needs (0 placements; answered with Fetch's state, nothing published), money ($4,999), ok at $5,000 leaving $0, then owned; sponsor_tv needs a sponsor, toggles, never spends; State: 2 gates, 7 gear rows (the speaker rows pinned to the spec)")
+table.insert(out, "(e) studio_two: needs (0 placements; answered with Fetch's state, nothing published), money ($4,999), ok at $5,000 leaving $0, then owned; sponsor_tv needs a sponsor, toggles, never spends; State: 4 gates (home studio, real studio, THE HALL, sponsor_tv), 7 gear rows (the speaker rows pinned to the spec)")
 
 -- f) Gear: needs refuse after the level check; fits equip by slot
 local pf = { UserId = 4107, Name = "T41f" }

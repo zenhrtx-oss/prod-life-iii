@@ -3,7 +3,7 @@
 -- held shown with its Studio-only ForceShow attribute, so FIRE moves under it as in a real round). With OK_UI forced to
 -- 667x375, or to 750x332 (a notched 844x390 phone's safe area: too narrow for the pair to clear FIRE's column side by
 -- side), the pills stack and end left of FIRE (x < vp.X - 152). The OS panel opens first and its career comes after
--- (the "os" seam acks once it has landed); the Career tab then lists 2 gates (Studio Two LOCKED) and the 5 stat-gated
+-- (the "os" seam acks once it has landed); the Career tab then lists 4 gates (Studio Two LOCKED) and the 5 stat-gated
 -- gear rows; your own producer card carries the career line.
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -70,7 +70,7 @@ command("os")
 assert(panel.Visible, "PanelCommand os did not open the panel")
 command("tab:Career")
 assert(waitFor(function() return panel.Content:FindFirstChild("Gate_studio_two") ~= nil end, 5), "Career tab did not render (no Gate_studio_two row)")
-assert(count("Gate_") == 2, "Career tab should list 2 gates, lists " .. count("Gate_"))
+assert(count("Gate_") == 4, "Career tab should list 4 gates, lists " .. count("Gate_"))
 assert(count("CareerGear_") == 7, "Career tab should list 7 gear rows, lists " .. count("CareerGear_"))
 local act = panel.Content.Gate_studio_two:FindFirstChild("Action")
 assert(act and act.Text == "LOCKED", "Studio Two should read LOCKED with no placements, reads '" .. tostring(act and act.Text) .. "'")
@@ -78,7 +78,7 @@ assert(act.AbsoluteSize.Y >= 44, "gate button under 44 px")
 local tile = panel.Content:FindFirstChild("Stats") and panel.Content.Stats:FindFirstChild("Stat_aura")
 local tileValue = tile and tile:FindFirstChild("Value")
 assert(tileValue and tileValue.Text == "+380", "Aura tile reads '" .. tostring(tileValue and tileValue.Text) .. "'")
-table.insert(out, "Career tab: 2 gates (Studio Two LOCKED), 7 gear rows, Aura tile +380")
+table.insert(out, "Career tab: 4 gates (Studio Two LOCKED), 7 gear rows, Aura tile +380")
 
 -- 5. your own producer card
 command("card:self")
