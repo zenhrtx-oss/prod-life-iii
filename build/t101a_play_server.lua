@@ -26,6 +26,10 @@
 -- (8) a full building: in the lounge, Release, Fill(12) fills all 12, then Claim answers nil and sends nothing; the
 --     game's wake-up with no slot (the hook's WakeUp, past the hold) returns false and sends "the building is full. stay
 --     in the studio." (copy 1.18), the player stays in the hub, PlotSlot 0; Unfill frees 12, Claim -> 1.
+-- (9) the saved home (Task 3), through the hooks: after the rooms Reset, Home answers the defaults { v = 1, door = DoorDefault,
+--     items = {} }; SetHome({ door "open", bedroom: a rug and an unknown id, home: a rug }) keeps the door, the bedroom's rug and
+--     the home room's rug (a room you don't own yet: kept, unbuilt) and drops the unknown id; Home answers the same; the plot
+--     still has only the bedroom; Reset wipes it back to the defaults.
 -- On any error: unseated in the lounge, Unfill, rooms Reset, and everything else reset (hold on, Quiet off); the error is
 -- rethrown after. Tail for t101b, after the cleanup and only on success: WakeUp (the player in their bedroom, the plot
 -- streamed in), then OnOpen("Exit", "bedroom"): the next time this player's beat maker opens at a laptop in a plot, the
@@ -291,6 +295,30 @@ local function run()
 	assert(freed == Cfg.Slots, "Unfill freed " .. tostring(freed) .. ", want " .. Cfg.Slots)
 	assert(call("Claim") == 1, "Claim after Unfill: want slot 1")
 	table.insert(out, "8 full: Fill(12), Claim -> nil (no toast of its own); the wake-up with no slot -> false, '" .. Copy.Full .. "', still in the hub; Unfill, Claim -> 1")
+
+	-- 9. the saved home through the hooks
+	local Http = game:GetService("HttpService")
+	local function show(v) local okJ, js = pcall(function() return Http:JSONEncode(v) end); return okJ and js or tostring(v) end
+	local function ids(l) local t = {}; for _, e in ipairs(l or {}) do table.insert(t, tostring(e.id)) end; return table.concat(t, ",") end
+	local h0 = call("Home")
+	assert(type(h0) == "table" and h0.v == 1 and h0.door == Cfg.DoorDefault and type(h0.items) == "table" and next(h0.items) == nil,
+		"9: Home after the rooms hook's Reset: want { v = 1, door = " .. Cfg.DoorDefault .. ", items = {} }, got " .. show(h0)
+		.. " (before the Task 3 sync of Systems/Rooms: the expected red)")
+	local kept = call("SetHome", { v = 1, door = "open", items = {
+		bedroom = { { id = "rug", x = -6, z = -7, r = 0 }, { id = "grand_piano", x = 0, z = 0, r = 0 } },
+		home = { { id = "rug", x = -4, z = -3, r = 0 } } } })
+	assert(type(kept) == "table" and kept.door == "open" and type(kept.items) == "table" and ids(kept.items.bedroom) == "rug" and ids(kept.items.home) == "rug",
+		"9: SetHome should keep the door, the bedroom's rug and the unowned home room's rug (unbuilt) and drop the unknown id; got " .. show(kept))
+	local h1 = call("Home")
+	assert(type(h1) == "table" and h1.door == "open" and type(h1.items) == "table" and ids(h1.items.bedroom) == "rug" and ids(h1.items.home) == "rug",
+		"9: Home after SetHome: want the door open, a rug in the bedroom and one in the home room, got " .. show(h1))
+	info = call("Plot")
+	assert(info and #info.rooms == 1 and info.rooms[1] == "bedroom", "9: SetHome changed the plot's rooms to " .. (info and table.concat(info.rooms, ",") or "nil"))
+	assert(call("Reset") == true, "9: the rooms hook's Reset returned false")
+	local h2 = call("Home")
+	assert(type(h2) == "table" and h2.door == Cfg.DoorDefault and type(h2.items) == "table" and next(h2.items) == nil,
+		"9: Home after Reset: want the defaults, got " .. show(h2))
+	table.insert(out, "9 saved home: Home = defaults after Reset; SetHome keeps the door, the bedroom's rug and the unbuilt home-room rug and drops the unknown id; Home answers it; Reset wipes it")
 
 	return "T101A PLAY OK\n" .. table.concat(out, "\n") .. string.format("\nelapsed %.1f s", os.clock() - T0)
 end

@@ -20,6 +20,16 @@
 --   RoomPrompt -> that room's Spawn; a room's ExitPrompt -> the landing outside its door; the landing's LeavePrompt -> the
 --   hall in front of door k; the hall's HubDoor -> the corridor. Every move: RequestStreamAroundAsync(target, 10) in a
 --   pcall, unseat (Sit false, the seat weld cut, 0.3 s), PivotTo(target + 3 up), checked once.
+-- * The saved home (Task 3): prof.career.home = { v = 1, door, items = { [kind] = { entry } } } (schema stays v5; DataService
+--   doesn't know it). Rooms is its one writer, through state(p): a missing or junk home is defaulted, the rest is repaired by
+--   RoomRules.Repair against the kinds you own (Owned(prof.career.gates)) and what you have unlocked (gear through the Gear
+--   system, firsts and the highest fame tier from prof.life), and written back (MarkDirty only when it changed), so what was
+--   dropped doesn't come back on the next load. An entry in a room you don't own, or a locked one, stays in the save but
+--   unbuilt (ruling R8): a read that comes up short never deletes a placed item. build(k) reads it on every (re)build.
+--   Room ownership is prof.career.gates, never a second list. When the owner's CareerGates attribute changes, the owned set is
+--   recomputed from the gates and the plot is rebuilt once if the set moved (a sponsor toggle moves the attribute, not the
+--   rooms). A Career Reset replaces prof.career (home included): state() defaults it again on its next read, and the hook's
+--   Reset does it at once.
 -- * Presence: every 1 s (and after every move) the player attributes InPlot (the slot whose plot you stand in, else 0)
 --   and PlotSlot (your own, else 0). Rooms carry OwnerId, OwnerName, RoomKind and Plot (RoomBuild.Plot sets them).
 -- * The hall's plates and door prompts follow the slots: "STUDIO 07" (copy 1.8) when free; "{player}\nSTUDIO 07 · {MODE}"
@@ -29,10 +39,11 @@
 --   { slot, kind } with kind a room kind or "landing", or nil), Anchor(p, kind, name) -> CFrame?, Station(p, kind?) ->
 --   BasePart?, the event Rebuilt (player, k).
 -- * Studio-only hook ServerScriptService.OK._StudioRoomsHook (Studio and running): hook:Invoke(cmd, userId, a, b). Plot,
---   Reset (claim if needed and rebuild), WakeUp, Enter(slot, asFriend), Exit(kind), GoIn(kind), Leave, HubDoor, RoomsDoor
+--   Reset (the home back to its defaults, claim if needed and rebuild), WakeUp, Enter(slot, asFriend), Exit(kind), GoIn(kind), Leave, HubDoor, RoomsDoor
 --   (each the real handler of its prompt), Respawn (LoadCharacter, then the respawn rule past the hold), Release, Claim
 --   (nil when no slot is free; the full toast is the wake-up's), Fill(n) / Unfill (stand-in plots for fake owners), Anchor(kind, name),
---   InPlot, PlaceOf, Guest(slot) (a stand-in Model in that plot, moved like a guest on Release), Station(kind?),
+--   InPlot, PlaceOf, Home (a copy of the saved home, repaired), SetHome(home) (a copy, through Repair, saved; returns what it
+--   kept; no rebuild), Guest(slot) (a stand-in Model in that plot, moved like a guest on Release), Station(kind?),
 --   RunStation(kind?) (InteractionService._RunHandler("Station") on it: { acted, toast }), Sent (the toasts sent this
 --   player since the last read), OnOpen(cmd, a) (the next time this player's beat maker opens at a laptop in a plot,
 --   run hook command cmd(a) 2 s later: a client test's server-side move; disarmed after 30 s).
@@ -42,13 +53,16 @@ local Config = require(RS.OK.Config)
 local Rules = require(RS.OK.Modules.RoomRules)
 local Build = require(RS.OK.Modules.RoomBuild)
 local WalkInRules = require(RS.OK.Modules.WalkInRules)
+local LifeRules = require(RS.OK.Modules.LifeRules)
+local Catalog = require(RS.OK.Data.RoomCatalog)
 local Copy = Build.Copy
 
 local M = { Enabled = true, Version = 1 }
 local rebuiltEv = Instance.new("BindableEvent")
 M.Rebuilt = rebuiltEv.Event -- (player, k) after a player's plot is (re)built
 
-local ctx, Cfg
+local ctx
+local Cfg = Config.Rooms
 local slots = {}      -- [k] = the owner's user id (RoomRules.Claim's input)
 local owners = {}     -- [k] = { id, name, player = Player? (nil for a fake owner), fake = bool }
 local plots = {}      -- [k] = the plot Model in Workspace.OK_Plots
@@ -58,6 +72,7 @@ local slotOf = {}     -- [player] = k
 local woken = {}      -- [player] = true once the first character came
 local respawnHome = {} -- [player] = was the player inside their own plot when their last character went
 local busy = {}       -- [player] = a door move under way (a mashed prompt moves once)
+local gateConns = {}  -- [player] = the connection on their CareerGates attribute
 local testGuests = {} -- [k] = { Model } (the hook's Guest)
 local sent = {}       -- Studio: [userId] = { toast text }
 local armed = {}      -- Studio: [player] = the hook's OnOpen entry
@@ -200,7 +215,7 @@ local function enterPlot(p, k, asFriend)
 	k = tonumber(k)
 	local o = k and owners[k]
 	if not (o and plots[k]) then return false end
-	local mode = Cfg.DoorDefault -- Task 3 saves home.door and Task 14 cycles it; the default until then
+	local mode = Cfg.DoorDefault -- Task 14 reads the saved home.door (Task 3 keeps it) and cycles it; the default until then
 	if not Rules.CanEnter(mode, o.id == p.UserId, asFriend == true) then
 		toast(p, fill(mode == "locked" and Copy.Locked or Copy.FriendsOnly, { player = short(o.name) }))
 		return false
@@ -277,15 +292,98 @@ local function plate(k)
 	if door then door:SetAttribute("OwnerId", o and o.id or nil) end
 end
 
+-- the saved home (prof.career.home; Rooms is its one writer) -------------------------------------------------------------
+local function defaultHome() return { v = 1, door = Cfg.DoorDefault, items = {} } end
+local function deepCopy(v)
+	if type(v) ~= "table" then return v end
+	local out = {}
+	for k, x in pairs(v) do out[k] = deepCopy(x) end
+	return out
+end
+-- key for key, both ways
+local function sameTree(a, b)
+	if type(a) ~= type(b) then return false end
+	if type(a) ~= "table" then return a == b end
+	for k, v in pairs(a) do if not sameTree(v, b[k]) then return false end end
+	for k in pairs(b) do if a[k] == nil then return false end end
+	return true
+end
+local function sameList(a, b)
+	if #a ~= #b then return false end
+	for i, v in ipairs(a) do if b[i] ~= v then return false end end
+	return true
+end
+-- the facts RoomRules.Unlocked reads. Gear goes through the Gear system (ctx.Gear, else the live module); a read that
+-- fails (Gear not started yet on an early join) leaves it unowned, so its items stay unbuilt and are never deleted (R8).
+-- Firsts and the highest fame tier come straight from prof.life (read only), the rooms from the kinds owned.
+local function haveFor(p, prof, owned)
+	local gear = {}
+	local okGear, Gear = pcall(function() return (ctx and ctx.Gear) or require(RS.OK.Systems.Gear) end)
+	if okGear and type(Gear) == "table" then
+		for _, it in ipairs(Config.Gear or {}) do
+			local okOwn, owns = pcall(Gear.Owns, p, it.id)
+			if okOwn and owns == true then gear[it.id] = true end
+		end
+	end
+	local life = type(prof.life) == "table" and prof.life or {}
+	return { gear = gear, firsts = type(life.firsts) == "table" and life.firsts or {},
+		tier = LifeRules.TierIndex(life.tier, Config.Life.Tiers), rooms = owned }
+end
+-- a profile whose career can hold a home: not a throwaway (a player who left, a load that failed), career a table
+local function usable(prof) return type(prof) == "table" and not prof._detached and type(prof.career) == "table" end
+-- `raw` (a saved home, or nil) repaired for p: home, dropped, unbuilt (RoomRules.Repair's) and the kinds owned
+local function repairedFor(p, prof, raw)
+	local owned = Rules.Owned(prof.career.gates, Cfg.Kinds)
+	local unlocked = Rules.Unlocked(Catalog, haveFor(p, prof, owned), Config.Life.Tiers)
+	local home, dropped, unbuilt = Rules.Repair(raw, owned, Cfg, Catalog, unlocked)
+	return home, dropped, unbuilt, owned
+end
+-- p's saved home, defaulted and repaired, and written back when that changed it (the profile's own table stays when
+-- nothing did, so a held reference stays good). Returns { home = the saved table, owned = the kinds owned in ladder order,
+-- dropped, unbuilt = Repair's lists }. A throwaway profile gets the defaults and nothing is written. Yields while the
+-- profile loads. Anything dropped is dropped quietly: nothing here is reported.
+local function state(p)
+	local prof = ctx.Data.GetProfile(p)
+	if not usable(prof) then
+		return { home = defaultHome(), owned = Rules.Owned(nil, Cfg.Kinds), dropped = {}, unbuilt = {} }
+	end
+	local career = prof.career
+	local home, dropped, unbuilt, owned = repairedFor(p, prof, career.home)
+	if sameTree(career.home, home) then
+		home = career.home
+	else
+		career.home = home
+		ctx.Data.MarkDirty(p)
+	end
+	return { home = home, owned = owned, dropped = dropped, unbuilt = unbuilt }
+end
+-- the hook's SetHome: `raw` through Repair, saved; returns a copy of what was kept (nil without a usable profile)
+local function setHome(p, raw)
+	local prof = ctx.Data.GetProfile(p)
+	if not usable(prof) then return nil end
+	local home = repairedFor(p, prof, raw)
+	prof.career.home = home
+	ctx.Data.MarkDirty(p)
+	return deepCopy(home)
+end
+-- the hook's Reset: the home back to its defaults
+local function resetHome(p)
+	local prof = ctx.Data.GetProfile(p)
+	if not usable(prof) then return false end
+	prof.career.home = defaultHome()
+	ctx.Data.MarkDirty(p)
+	return true
+end
+
 -- plots ------------------------------------------------------------------------------------------------------------------
--- the kinds an owner has, ladder order (a fake owner from the hook's Fill: the bedroom)
+-- the kinds an owner has, ladder order (a fake owner from the hook's Fill: the bedroom). Reading it repairs the saved home too
+-- (state), which may wait for the profile: build() calls this before its generation check
 local function ownedFor(o)
-	if not o.player then return Rules.Owned(nil, Cfg.Kinds) end
-	local ok, gates = pcall(function()
-		local prof = ctx.Data.GetProfile(o.player)
-		return type(prof) == "table" and type(prof.career) == "table" and prof.career.gates or nil
-	end)
-	return Rules.Owned(ok and gates or nil, Cfg.Kinds)
+	local bedroom = Rules.Owned(nil, Cfg.Kinds)
+	if not o.player then return bedroom end
+	local ok, st = pcall(state, o.player)
+	if not ok then report("home: " .. tostring(st)); return bedroom end
+	return st.owned
 end
 -- (re)builds plot k for its owner; an old plot goes only once the new one stands (same place, so nobody falls)
 local function build(k)
@@ -305,6 +403,19 @@ local function build(k)
 	if old then old:Destroy() end
 	if o.player then rebuiltEv:Fire(o.player, k) end
 	return plot
+end
+-- the owner's owned rooms may have moved (their CareerGates attribute changed): rebuild their plot once if the set differs from
+-- what stands. The set is read from prof.career.gates (state), never from the attribute: a sponsor toggle changes the
+-- attribute and not the rooms. No plot yet means the first build is still to read the gates itself; and build() drops a
+-- build that another one overtook, so two changes close together can't build twice or leave an old plot standing.
+local function syncRooms(p)
+	local k = slotOf[p]
+	local o = k and owners[k]
+	if not (o and o.player == p and plots[k]) then return false end
+	local st = state(p)
+	if slotOf[p] ~= k or owners[k] ~= o or not plots[k] then return false end -- released while the profile was read
+	if sameList(st.owned, kindsOf[k] or {}) then return false end
+	return build(k) ~= nil
 end
 local function claim(p)
 	local k = slotOf[p]
@@ -414,6 +525,10 @@ local function onJoin(p)
 	local k = claim(p) -- at once: two joins in one tick get two slots
 	p.CharacterRemoving:Connect(function(old) respawnHome[p] = homeNow(p, old) end)
 	p.CharacterAdded:Connect(function(char) onCharacter(p, char) end)
+	gateConns[p] = p:GetAttributeChangedSignal("CareerGates"):Connect(function()
+		local ok, err = pcall(syncRooms, p)
+		if not ok then report("rooms after a gate change: " .. tostring(err)) end
+	end)
 	if p.Character then onCharacter(p, p.Character) end
 	if k then
 		task.spawn(function()
@@ -430,6 +545,8 @@ local function onLeave(p)
 	end
 	woken[p], respawnHome[p], busy[p], slotOf[p] = nil, nil, nil, nil
 	sent[p.UserId] = nil
+	local gc = gateConns[p]
+	if gc then gc:Disconnect(); gateConns[p] = nil end
 	local a = armed[p]
 	if a then a.conn:Disconnect(); armed[p] = nil end
 end
@@ -476,6 +593,11 @@ function M.Station(p, kind)
 	local room = k and roomOf(k, kind or "bedroom")
 	return room and Build.StationOf(room) or nil
 end
+-- edit-mode tests (build/t102_check.lua): a fake ctx ({ Data = DataService copy, Gear = Gear copy }) and a fresh Config; no
+-- Init needed. _State(p) is state(p) as the plot's build reads it: home (the saved table), dropped, unbuilt, owned.
+function M._SetCtxForTest(c) ctx = c end
+function M._SetConfigForTest(cfg) Config = cfg; Cfg = cfg.Rooms end
+function M._State(p) local st = state(p); return st.home, st.dropped, st.unbuilt, st.owned end
 
 -- the Studio hook --------------------------------------------------------------------------------------------------------
 local function fillSlots(n)
@@ -553,9 +675,12 @@ dispatch = function(cmd, userId, a, b)
 		return { slot = k, origin = { o.X, o.Y, o.Z }, rooms = table.clone(kindsOf[k] or {}) }
 	end
 	if cmd == "Reset" then
+		resetHome(p) -- every test's fresh(): one test's saved items never reach the next
 		local k = claim(p)
 		return k ~= nil and build(k) ~= nil
 	end
+	if cmd == "Home" then local st = state(p); return deepCopy(st.home) end
+	if cmd == "SetHome" then return setHome(p, a) end
 	if cmd == "WakeUp" then return wakeUp(p, true) end
 	if cmd == "Enter" then return enterPlot(p, a, b == true) end
 	if cmd == "Exit" then local k = here(p); return k ~= nil and exitRoom(p, k, a or "bedroom") end
