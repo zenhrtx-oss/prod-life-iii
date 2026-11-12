@@ -89,6 +89,11 @@
 --   (`phone`) and the cap counts (`caps`), defaulted in state(); Systems/Phone reads them through the exports below
 --   (State, Filler, Chips, Names, Busy, DueWithin, Aired, OnReset) and WalkIns never requires Phone. The scheduler
 --   holds while the player attribute PhoneBusy is set (an opened DM awaits its choice).
+-- * Day One (the Day One plan, Task 2): while the player attribute DayOneBusy is true (Systems/DayOne: a Day One card is
+--   open or due, or its chain started under Config.DayOne.HoldMax seconds ago) the presence timer neither counts down
+--   nor re-arms and the scheduler refuses, as for PhoneBusy; the chain's end calls M.ArmFirst(p, seconds), which sets the
+--   first-ever visit's timer (count 0, nothing in flight). WalkIns never requires DayOne: it reads the attribute, and
+--   DayOne registers its reset through M.OnReset, so the hook's Reset clears a chain too (ruling F6).
 -- * Visits that behave like people (design 4.4): a card that stands open for the whole expiry closes with a note on its
 --   "leave" payload ({ name, waited, line }: who, how long he waited, a W.NoteLines parting line; the visit counted at
 --   arrival; telemetry CardExpire and CardNote). No other way a visit ends leaves one. While the client reports the card
@@ -944,11 +949,11 @@ end
 local function tourOk(p, st) return st.count == 0 or Tour.State(p).done end
 
 -- one scheduler check for p with the presence timer run out; true when it started a visit (queued for a walking slot)
--- where p is (the hub or one of their rooms). Refused while a phone DM is open (PhoneBusy, set by Systems/Phone): one
--- card at a time
+-- where p is (the hub or one of their rooms). Refused while a phone DM is open (PhoneBusy, set by Systems/Phone) or a Day
+-- One card is open or due (DayOneBusy, set by Systems/DayOne; the Day One plan, Task 2): one card at a time
 local function schedule(p)
 	local uid = p.UserId
-	if pending[uid] or p:GetAttribute("PhoneBusy") == true then return false end
+	if pending[uid] or p:GetAttribute("PhoneBusy") == true or p:GetAttribute("DayOneBusy") == true then return false end
 	local place = present(p)
 	if not place or cypherHolds(p) then return false end
 	local st = state(p)
@@ -1001,7 +1006,9 @@ end
 -- the 1 s loop's step for one player: the heal clock; the first arm on first being present (FirstEver while no walk-in
 -- has come yet, count 0; else FirstDelay); presence counts only in the hub or one of your own rooms (present), only
 -- between visits, and not behind an open phone DM (PhoneBusy), so a walk-in never fires the moment a DM closes: a timer
--- that already ran out behind it is re-armed (nextGap), and during a burst one under the short minimum is raised to it
+-- that already ran out behind it is re-armed (nextGap), and during a burst one under the short minimum is raised to it.
+-- While Day One holds the player (DayOneBusy: a Day One card open or due, or the chain's first HoldMax seconds; the Day
+-- One plan, Task 2) the timer doesn't count down and isn't re-armed: the chain's end arms the first visit (M.ArmFirst)
 local function tick(p)
 	local uid = p.UserId
 	if not ready[uid] then return end
@@ -1011,6 +1018,7 @@ local function tick(p)
 		return
 	end
 	if not here or pending[uid] then return end
+	if p:GetAttribute("DayOneBusy") == true then return end
 	if p:GetAttribute("PhoneBusy") == true then
 		-- a run-out timer (behind a cypher or the cap) is re-armed so a DM close can't fire it; during a burst the timer is
 		-- floored at the short minimum, so a DM opened between burst cards still leaves a short gap after its choice
@@ -1043,6 +1051,18 @@ end
 
 -- a visit is in flight for p (waiting for a walking slot, walking, or his card open). Safe before Init
 function M.Busy(p) return pending[p.UserId] ~= nil end
+
+-- the first-ever visit armed `seconds` from now (Systems/DayOne, when Day One's chain ends: Config.DayOne.VisitAfter).
+-- True when it set the timer: the profile is ready, no walk-in has come yet (count 0) and no visit is in flight; else
+-- false and the timer is untouched. Safe before Init
+function M.ArmFirst(p, seconds)
+	local uid = p.UserId
+	local s = tonumber(seconds)
+	if not ctx or not ready[uid] or pending[uid] or s == nil or s ~= s or s < 0 or s == math.huge then return false end
+	if state(p).count ~= 0 then return false end
+	remaining[uid] = s
+	return true
+end
 
 -- is a walk-in due within s seconds? The presence timer is set and at or under s, and every scheduler check would pass
 -- now: present (the hub or one of your rooms), the tour gate (tourOk: done, or count 0), no cypher holding p, today under

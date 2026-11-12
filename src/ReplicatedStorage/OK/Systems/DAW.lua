@@ -145,7 +145,9 @@ end
 -- what a hit is for saves and the empty check: drum hits and notes, never ties
 local function hits(p) return Cfg.Hits and Cfg.Hits(p) or select(2, p:gsub("[^0]", "")) end
 
-function M.OpenFor(player, inst, seat)
+-- opts (optional, the Day One plan, Task 2): opts.presets = true puts presets = true on the OpenDAW payload, so the
+-- client opens on the preset chooser (Systems/DayOne's "Make it now")
+function M.OpenFor(player, inst, seat, opts)
 	local ctx = ctxRef
 	local prof = ctx.Data.GetProfile(player)
 	prof.daw = M.Migrate(prof.daw)
@@ -161,7 +163,7 @@ function M.OpenFor(player, inst, seat)
 	local kind = room and room:GetAttribute("RoomKind") -- the room's kind; its OK_Room is the asset's own ("bedroom_starter")
 	RS.OK.Remotes.InteractionEvent:FireClient(player, "OpenDAW", { source = inst:GetFullName(), daw = prof.daw, seated = seated,
 		persistent = ctx.Data.Persistent == true, level = prof.level, station = inst:GetAttribute("StationName") or "STUDIO PC",
-		room = type(kind) == "string" and kind or nil })
+		room = type(kind) == "string" and kind or nil, presets = type(opts) == "table" and opts.presets == true or nil })
 	openedEv:Fire(player, inst)
 end
 
