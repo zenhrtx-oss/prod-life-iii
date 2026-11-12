@@ -9,9 +9,14 @@
 -- inside Cfg.BroadcastCooldown of their last send that went in is "cooldown", and so is one inside
 -- Cfg.FlipCheckCooldown of their last send that reached the flip check, which diffs the beat against every recent
 -- airing: all three come before it, so it runs at most once a FlipCheckCooldown per producer (launch audit A5/A12).
+-- Your rooms (the Your Rooms plan, Task 6): M.StationOf(player) -> inst?, room? is the beat-making spot the player is at,
+-- the hub's for anyone and a room's laptop for its owner only (the room Model's OwnerId, InteractionService.MayUse's rule);
+-- AtStation (deliveries in Contracts, ON MONITORS here) is StationOf ~= nil. The OpenDAW payload's `room` is the laptop's
+-- room kind (RoomKind: "bedroom", "home", "real"), nil in the hub.
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local Cfg = require(RS.OK.Modules.DAWConfig)
 local Check = require(RS.OK.Modules.BriefCheck)
+local RoomScope = require(RS.OK.Modules.RoomScope)
 local M = { Enabled = true, Version = 4 }
 local savedEv, triedEv, openedEv = Instance.new("BindableEvent"), Instance.new("BindableEvent"), Instance.new("BindableEvent")
 M.Opened = openedEv.Event         -- (player, inst) the beat maker opened at the PC or a laptop
@@ -76,23 +81,33 @@ end
 local function studio() return workspace:FindFirstChild("OKStudio") end
 
 -- the monitors are controlled from a beat-making spot: seated in the producer chair, near the studio PC, or near a
--- studio laptop (OK_Interactable parts with Kind = "Station")
+-- studio laptop (OK_Interactable parts with Kind = "Station"). A laptop inside a room (RoomScope.RoomOf) counts only for
+-- the player in its room Model's OwnerId; a room with none counts for nobody. Returns the spot (the chair, the PC's
+-- screen or the laptop) and the room Model it is in (nil in the hub), or nil when the player is at none.
 local CS = game:GetService("CollectionService")
-function M.AtStation(player)
-	local s = studio(); local cr = s and s:FindFirstChild("ControlRoom")
+function M.StationOf(player)
 	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-	if not (cr and hum and root) then return false end
+	if not (hum and root) then return nil end
 	local reach = Cfg.CloseDistance + 4
-	local chair, screen = cr:FindFirstChild("Chair_Seat"), cr:FindFirstChild("Screen_Main")
-	if chair and chair.Occupant == hum then return true end
-	if screen and (root.Position - screen.Position).Magnitude <= reach then return true end
+	local s = studio(); local cr = s and s:FindFirstChild("ControlRoom")
+	if cr then
+		local chair, screen = cr:FindFirstChild("Chair_Seat"), cr:FindFirstChild("Screen_Main")
+		if chair and chair.Occupant == hum then return chair, nil end
+		if screen and (root.Position - screen.Position).Magnitude <= reach then return screen, nil end
+	end
 	for _, inst in ipairs(CS:GetTagged("OK_Interactable")) do
 		if inst:GetAttribute("Kind") == "Station" and inst:IsA("BasePart") and inst:IsDescendantOf(workspace)
-			and (root.Position - inst.Position).Magnitude <= reach then return true end
+			and (root.Position - inst.Position).Magnitude <= reach then
+			local room = RoomScope.RoomOf(inst)
+			if room == nil then return inst, nil end
+			local owner = room:GetAttribute("OwnerId")
+			if owner ~= nil and owner == player.UserId then return inst, room end
+		end
 	end
-	return false
+	return nil
 end
+function M.AtStation(player) return M.StationOf(player) ~= nil end
 
 local ctxRef
 -- has the player unlocked a beat-maker feature ("Bass", "Rolls", "Swing")? Owning the gear for it (Systems/Gear).
@@ -136,8 +151,11 @@ function M.OpenFor(player, inst, seat)
 		if seat.Occupant == hum then seated = true
 		elseif seat.Occupant == nil then seat:Sit(hum); seated = seat.Occupant == hum end
 	end
+	local room = RoomScope.RoomOf(inst)
+	local kind = room and room:GetAttribute("RoomKind") -- the room's kind; its OK_Room is the asset's own ("bedroom_starter")
 	RS.OK.Remotes.InteractionEvent:FireClient(player, "OpenDAW", { source = inst:GetFullName(), daw = prof.daw, seated = seated,
-		persistent = ctx.Data.Persistent == true, level = prof.level, station = inst:GetAttribute("StationName") or "STUDIO PC" })
+		persistent = ctx.Data.Persistent == true, level = prof.level, station = inst:GetAttribute("StationName") or "STUDIO PC",
+		room = type(kind) == "string" and kind or nil })
 	openedEv:Fire(player, inst)
 end
 

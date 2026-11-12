@@ -17,8 +17,15 @@
 -- * Plot(k, owned, cfg, template, owner): Model Plot_<kk> (Atomic) with the Landing at RoomRules.PlotOrigin(k) and each
 --   owned kind at origin + its `at`: a clone of template (a Model for the bedroom, or { [kind] = Model }), else its
 --   stand-in; each room named Room_<kind> with RoomKind, Plot and (given owner = { id, name }) OwnerId and OwnerName set,
---   its missing anchors added and its ExitPrompt enabled. Unparented.
--- Copy: research/rooms/copy_2026-11-12.md §1, §2 and §10 (draft lines on the user's approval list), in M.Copy.
+--   its missing anchors added, its ExitPrompt enabled and its RackSpot added. Unparented.
+-- * RackSpot(room) (Task 6): an invisible part RackSpot, a child of the room Model, M.RACK_SIDE studs room-local east of
+--   the room's Station (StationOf), tagged OK_Interactable with Kind = "GearRack" (Systems/Gear's handler opens the Gear
+--   tab), with a RackPrompt in the house style on F / ButtonY (copy §3.2, §3.3), so it shows beside the laptop's E prompt.
+--   Its UIOffset stacks it M.RACK_UI_GAP px off the laptop's prompt (a default prompt is 72 px tall), so on a phone the two
+--   tap targets don't overlap (t105b checks it from its camera). It sits inside the room, so the hub's 12 tagged
+--   interactables stay 12 (RoomScope), and InteractionService's owner rule makes it the room owner's only. A room with no
+--   Station gets none.
+-- Copy: research/rooms/copy_2026-11-12.md §1, §2, §3 and §10 (draft lines on the user's approval list), in M.Copy.
 local RS = game:GetService("ReplicatedStorage")
 local CS = game:GetService("CollectionService")
 local Config = require(RS.OK.Config)
@@ -48,6 +55,10 @@ M.Copy = {
 	Objects = { bedroom = "Bedroom", home = "Home studio", real = "Real studio" }, -- 2.5 - 2.7
 	LockedSign = { home = "HOME STUDIO · LOCKED", real = "REAL STUDIO · LOCKED" }, -- 2.8, 2.9
 	LockedHint = "SEE THE CAREER TAB", -- 2.10 (optional: the user may drop it)
+	-- §3 your laptop is yours: the owner toast (InteractionService.Guard; the whole name, the toast label wraps) and the
+	-- rack prompt beside the laptop
+	OwnerOnly = "{player}'s laptop. only they can use it.", -- 3.1
+	RackAction = "Open gear rack", RackObject = "Your laptop", -- 3.2, 3.3
 	-- §10 the door modes' labels (the plate's {MODE}; Task 14 cycles the mode, the default shows until then)
 	Modes = { open = "OPEN", friends = "FRIENDS ONLY", locked = "LOCKED" },
 	-- a stand-in's own prompts, as the bedroom asset's (bedroom_setup.lua: "Make a beat" / "Your laptop", "Leave" /
@@ -57,6 +68,8 @@ M.Copy = {
 }
 
 M.LANDING_HEIGHT = 10
+M.RACK_SIDE = 0.6    -- studs, room-local +x of the Station: beside the laptop, within the same reach
+M.RACK_UI_GAP = 88   -- px the rack's prompt is stacked off the laptop's (its UIOffset.Y): the default prompt's 72 px plus a gap
 local DOOR_W, DOOR_H = 4, 8 -- a landing door frame's opening
 
 function M.PlotName(k) return string.format("Plot_%02d", k) end
@@ -175,6 +188,25 @@ function M.Anchors(room, kindCfg)
 		end
 	end
 	return added
+end
+
+-- the rack spot (Task 6) ------------------------------------------------------------------------------------------------
+function M.RackSpot(room)
+	local have = room:FindFirstChild("RackSpot")
+	if have then return have end
+	local st = M.StationOf(room)
+	if not st then return nil end
+	local pivot = room:GetPivot()
+	local rel = pivot:PointToObjectSpace(st.Position)
+	-- queryable, as the bedroom asset leaves its laptop screen (bedroom_setup.lua) for its prompt; tiny and invisible
+	local spot = L.part("RackSpot", Vector3.new(0.4, 0.4, 0.4), pivot * CFrame.new(rel.X + M.RACK_SIDE, rel.Y, rel.Z),
+		{ Transparency = 1, CanCollide = false, CanTouch = false, CanQuery = true, CastShadow = false })
+	L.tag(spot, "GearRack", M.Copy.RackObject)
+	local pp = prompt(spot, "RackPrompt", M.Copy.RackAction, M.Copy.RackObject)
+	pp.KeyboardKeyCode = Enum.KeyCode.F; pp.GamepadKeyCode = Enum.KeyCode.ButtonY
+	pp.UIOffset = Vector2.new(0, -M.RACK_UI_GAP)
+	spot.Parent = room
+	return spot
 end
 
 -- stand-ins ----------------------------------------------------------------------------------------------------------
@@ -358,6 +390,7 @@ function M.Plot(k, owned, cfg, template, owner)
 			local exit = door and door:FindFirstChild("ExitPrompt")
 			if exit and exit:IsA("ProximityPrompt") then exit.Enabled = true end
 			if door then M.DoorSound(door) end
+			M.RackSpot(room) -- before the plot is parented: InteractionService.Adopt hooks it with the Station
 			room.Parent = plot
 		end
 	end

@@ -46,7 +46,11 @@
 --   kept; no rebuild), Guest(slot) (a stand-in Model in that plot, moved like a guest on Release), Station(kind?),
 --   RunStation(kind?) (InteractionService._RunHandler("Station") on it: { acted, toast }), Sent (the toasts sent this
 --   player since the last read), OnOpen(cmd, a) (the next time this player's beat maker opens at a laptop in a plot,
---   run hook command cmd(a) 2 s later: a client test's server-side move; disarmed after 30 s).
+--   run hook command cmd(a) 2 s later: a client test's server-side move; disarmed after 30 s). Task 6: MayUse(inst)
+--   (InteractionService.MayUse(player, inst): ok, ownerName?), StationOf (DAW.StationOf: { inst, room }), Run(kind, inst)
+--   (InteractionService._RunHandler(kind) on inst: { acted, toast }; the RackSpot's GearRack, say).
+-- * Each room's laptop and its RackSpot (RoomBuild.RackSpot, Task 6) are tagged and are their owner's only
+--   (InteractionService's owner rule reads the room Model's OwnerId).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Config = require(RS.OK.Config)
@@ -714,6 +718,16 @@ dispatch = function(cmd, userId, a, b)
 		return { acted = acted, toast = text }
 	end
 	if cmd == "Sent" then local log = sent[p.UserId] or {}; sent[p.UserId] = nil; return log end
+	if cmd == "MayUse" then return ctx.Interaction.MayUse(p, a) end
+	if cmd == "StationOf" then
+		local inst, room = require(RS.OK.Systems.DAW).StationOf(p)
+		return { inst = inst, room = room }
+	end
+	if cmd == "Run" then
+		if typeof(b) ~= "Instance" then return nil end
+		local acted, text = ctx.Interaction._RunHandler(a, p, b)
+		return { acted = acted, toast = text }
+	end
 	if cmd == "OnOpen" then return arm(p, a, b) end
 	return nil
 end

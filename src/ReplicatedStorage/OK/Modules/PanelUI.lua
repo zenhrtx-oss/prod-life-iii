@@ -69,8 +69,11 @@ function M.Build(gui, Theme)
   corner(content, 10)
   local list = new("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, content)
   new("UIPadding", {PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10)}, content)
-  local toast = new("TextLabel", {Name = "Toast", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -24), Size = UDim2.fromOffset(360, 40), BackgroundColor3 = Theme.panel, TextColor3 = Theme.text, Font = Theme.font, TextSize = 16, Text = "", Visible = false}, gui)
+  -- the toast wraps rather than cut a line: 360 wide, at least 40 tall, growing upward from its bottom edge (the rooms
+  -- plan's Task 6: copy §3.1 with a long owner name runs to two lines)
+  local toast = new("TextLabel", {Name = "Toast", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -24), Size = UDim2.fromOffset(360, 40), AutomaticSize = Enum.AutomaticSize.Y, TextWrapped = true, BackgroundColor3 = Theme.panel, TextColor3 = Theme.text, Font = Theme.font, TextSize = 16, Text = "", Visible = false}, gui)
   corner(toast, 10); new("UIStroke", {Color = Theme.accent2, Thickness = 1}, toast)
+  new("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6)}, toast)
   local footer = new("TextLabel", {Name = "Footer", Size = UDim2.new(1, -36, 0, 36), Position = UDim2.new(0, 18, 1, -48), BackgroundTransparency = 1, Text = "", TextColor3 = Theme.muted, Font = Theme.font, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left}, panel)
   -- measured from the panel, never from Content, which this resizes
   local function fitContent()

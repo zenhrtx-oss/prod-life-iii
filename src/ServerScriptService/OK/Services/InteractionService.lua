@@ -4,9 +4,17 @@
 -- handler, then fires M.Used(player, kind, inst) for the tour and analytics.
 -- In Studio only, M._RunHandler(kind, player, inst) runs a registered handler directly for tests.
 -- M.Adopt(root) readies a room built at runtime (Systems/Rooms) before it is parented into Workspace.
+-- One owner rule (the Your Rooms plan, Task 6): a tagged part inside a room (Modules/RoomScope.RoomOf: a player's laptop
+-- and its RackSpot) is only its owner's. M.MayUse(player, inst) -> ok, ownerName? answers it from the room Model's
+-- OwnerId (a room with none is nobody's, preflight m18); every part outside a room answers true. M.Guard(player, inst) is
+-- MayUse plus, on a refusal, the owner toast (copy §3.1, RoomBuild.Copy.OwnerOnly, with the whole OwnerName: the toast
+-- label wraps). The prompt path guards after the cooldown and before the handler: a refusal plays no sound and fires no
+-- Used. Systems/Stations guards again inside its handler.
 local CS, TS, Players = game:GetService("CollectionService"), game:GetService("TweenService"), game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local Config = require(RS.OK.Config)
+local RoomScope = require(RS.OK.Modules.RoomScope)
+local RoomCopy = require(RS.OK.Modules.RoomBuild).Copy
 local Event, ProfileFn = RS.OK.Remotes.InteractionEvent, RS.OK.Remotes.ProfileFunction
 
 local M = {}
@@ -24,6 +32,32 @@ local function send(player, kind, payload)
 	Event:FireClient(player, kind, payload)
 end
 local function xpText(n) return (n and n > 0) and (" · +" .. n .. " XP") or "" end
+
+-- the owner rule -------------------------------------------------------------------------------------------------------
+-- a room's owner by name: its OwnerName, else the owner's DisplayName while they are in the server (copy §1's {player})
+local function ownerName(room, id)
+	local name = room:GetAttribute("OwnerName")
+	if type(name) == "string" and name ~= "" then return name end
+	local owner = type(id) == "number" and Players:GetPlayerByUserId(id) or nil
+	return owner and owner.DisplayName or nil
+end
+function M.MayUse(player, inst)
+	if typeof(inst) ~= "Instance" then return false end
+	local room = RoomScope.RoomOf(inst)
+	if room == nil then return true end -- the hub's parts are everyone's
+	local id = room:GetAttribute("OwnerId")
+	if id == nil then return false end -- a room nobody owns (a test plot) is nobody's to use (preflight m18)
+	if player and id == player.UserId then return true end
+	return false, ownerName(room, id)
+end
+-- MayUse, and on a refusal the owner toast when the room names its owner. Through send(), so _RunHandler's capture sees it
+function M.Guard(player, inst)
+	local ok, name = M.MayUse(player, inst)
+	if not ok and name then
+		send(player, "Toast", { text = (string.gsub(RoomCopy.OwnerOnly, "{player}", function() return name end)) })
+	end
+	return ok
+end
 
 -- handlers -------------------------------------------------------------------------
 local function consolePower(player, inst)
@@ -175,6 +209,7 @@ local function hook(inst)
 			if why == "global" then send(player, "Toast", { text = "Someone just used that · try again in a moment" }) end
 			return
 		end
+		if not M.Guard(player, inst) then return end -- someone else's room: the toast only, no sound, no Used
 		print(string.format("[OK] %s used %s", player.Name, tostring(kind)))
 		local h = handlers[kind]
 		if h then
