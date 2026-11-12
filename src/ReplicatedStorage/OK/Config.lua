@@ -100,6 +100,8 @@ Config.Ranks = { "INTERN", "RUNNER", "ASSISTANT", "ENGINEER", "BEATMAKER", "PROD
 -- kind "voice" = a keys instrument for the piano roll (DAWConfig.Voices[i].gear); the music box is free.
 -- kind "fit" = something you wear (slot = where it sits; one fit per slot). needs = career stats you must have before
 -- BUY ({ [stat] = n }, Modules/CareerRules.Check). plate_legend stays LAST (t21, t27 and t30 treat it as the top tier).
+-- kind "speakers" = your room's desk speakers (tier = its Config.Rooms.Speakers index; Systems/Rooms builds them and
+-- plays a room play through them). Not a look: nothing to equip.
 Config.Gear = {
   { id = "808",        name = "Sub Boom 808",      kind = "tool",  feature = "Bass",  price = 0,   level = 1, desc = "The 808 row in the beat maker" },
   { id = "rollfx",     name = "Roll FX",           kind = "tool",  feature = "Rolls", price = 250, level = 1, desc = "Hat rolls: tap a hat pad twice or three times" },
@@ -111,7 +113,12 @@ Config.Gear = {
   { id = "plate_gold", name = "Gold nameplate",    kind = "plate", color = Color3.fromRGB(255, 205, 80),  price = 1500, level = 5, desc = "Your nameplate turns gold" },
   { id = "kit_iron",   name = "IRON kit",          kind = "kit",   kit = "iron", price = 2000, level = 6, needs = { placements = 1 }, desc = "Distorted kick, rim snare, slap clap and metal shaker" },
   { id = "neon_gold",  name = "On-air neon: Gold", kind = "neon",  color = Color3.fromRGB(255, 190, 40),  price = 2200, level = 7, desc = "The room's neon flashes gold while your beat airs" },
-  { id = "fit_cuban",    name = "Cuban link",       kind = "fit",   slot = "neck", fit = "cuban", price = 3500, level = 1, needs = { placements = 2, followers = 5000 }, desc = "A gold chain, built from parts" },
+  -- Task 7 (the Your Rooms plan): your room's speakers, tier 2 and 3 of Config.Rooms.Speakers (tier 1 is the laptop's own).
+  -- They go before fit_cuban (t41_check keeps the fits just before plate_legend); neither has a feature, so neither
+  -- enters the pacing sim's gear (spec/economy_fixture.lua). Copy: research/rooms/copy_2026-11-12.md §4
+  { id = "spk_monitors", name = "Desk monitors", kind = "speakers", tier = 2, price = 500, level = 2, needs = { followers = 200 }, desc = "Real speakers for your desk. They fill your room" },
+  { id = "spk_studio", name = "Studio monitors", kind = "speakers", tier = 3, price = 3000, level = 5, needs = { placements = 2, followers = 5000 }, desc = "Big, bright speakers. They fill the whole studio" },
+  { id = "fit_cuban",   name = "Cuban link",       kind = "fit",   slot = "neck", fit = "cuban", price = 3500, level = 1, needs = { placements = 2, followers = 5000 }, desc = "A gold chain, built from parts" },
   { id = "fit_snapback", name = "Sponsor snapback", kind = "fit",   slot = "head", fit = "snapback", price = 1500, level = 1, needs = { sponsors = 1 }, desc = "A cap with a flat brim" },
   { id = "fit_shades",   name = "Shades",           kind = "fit",   slot = "face", fit = "shades", price = 2000, level = 1, needs = { aura = 500 }, desc = "Dark shades" },
   { id = "plate_legend", name = "Legend nameplate", kind = "plate", color = Color3.fromRGB(190, 110, 255), price = 4000, level = 10, needs = { hits = 1, followers = 20000, aura = 1000 }, desc = "A purple Legend nameplate" },

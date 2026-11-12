@@ -76,13 +76,67 @@ local ROOMS = {
     { 245, 245, 245 }, { 245, 245, 245 }, { 245, 245, 245 }, { 245, 245, 245 },
   },
 }
--- literal copies of the live ids the catalog's unlocks may name: Config.Gear's ids (Task 7 adds spk_monitors and
--- spk_studio), Config.Life.Firsts and Config.Life.Tiers
+-- literal copies of the live ids the catalog's unlocks may name: Config.Gear's ids (Task 7 added spk_monitors and
+-- spk_studio, before fit_cuban), Config.Life.Firsts and Config.Life.Tiers
 local GEAR_IDS = { "808", "rollfx", "swing", "neon_ice", "kit_tape", "voice_pluck", "voice_chime", "plate_gold", "kit_iron",
-	"neon_gold", "fit_cuban", "fit_snapback", "fit_shades", "plate_legend" }
+	"neon_gold", "spk_monitors", "spk_studio", "fit_cuban", "fit_snapback", "fit_shades", "plate_legend" }
 local FIRSTS = { "beat", "delivery", "delivery3", "placement", "hit", "sponsor", "hall", "cypher", "level5", "buzzing", "known", "streak7" }
 local TIERS = { { id = "LOCAL", followers = 0 }, { id = "BUZZING", followers = 1000 }, { id = "KNOWN", followers = 5000 },
 	{ id = "FAMOUS", followers = 20000 }, { id = "ICON", followers = 100000 } }
+-- literal copies of the two speaker gear rows (Task 7, research/rooms/copy_2026-11-12.md §4; build/t41_check.lua pins
+-- them to live Config.Gear). Neither has a feature, so neither enters the sim's gear (economy_fixture.gear)
+local SPEAKER_GEAR = {
+	spk_monitors = { tier = 2, price = 500, level = 2, needs = { followers = 200 } },
+	spk_studio = { tier = 3, price = 3000, level = 5, needs = { placements = 2, followers = 5000 } },
+}
+-- the live x10 economy the pacing sim runs on (spec/economy_fixture.lua; t46 pins it to live Config)
+local E = require("./economy_fixture")
+
+-- DayOneFloor (Task 7, the §6 pacing line; preflight R1: test-only economy-walk code, so a local helper here, not a
+-- RoomRules function). A short first session: the fixture's first three requests a new player can take (level 1, needs
+-- only free gear: j1-j3) and nothing else (no daily, walk-in, phone card or FIRE), CareerSim's way: stars 3, 2, 3 (money
+-- and XP x1.5 at 3 stars, rounded half up), each delivery's feed, then the tour's, the day's activity and the beat-save
+-- XP, then the cheapest feature gear while it's affordable (Roll FX, then the Swing Unit). Returns { money, followers,
+-- level } plus xp, deliveries and bought (the features bought), for the asserts and the report.
+local function DayOneFloor(e)
+	local function round(x) return math.floor(x + 0.5) end
+	local owned = {}
+	for _, g in ipairs(e.gear) do if g.price == 0 then owned[g.id] = true end end
+	local function has(feature)
+		for _, g in ipairs(e.gear) do if g.feature == feature and owned[g.id] then return true end end
+		return false
+	end
+	local money, xp, followers, n, three = 0, 0, 0, 0, true
+	for _, rq in ipairs(e.requests) do
+		if n >= 3 then break end
+		local can = rq.level <= 1
+		for _, f in ipairs(rq.needs or {}) do if not has(f) then can = false end end
+		if can then
+			n += 1
+			local stars = three and 3 or 2
+			three = not three
+			local mult = stars >= 3 and 1.5 or 1
+			money += round(rq.cred * mult)
+			xp += round(rq.xp * mult)
+			followers += (e.feeds.delivery[stars] or {}).followers or 0
+		end
+	end
+	xp += e.tourXP + e.activityXP + e.beatSaveXP
+	local level = 1
+	for i, th in ipairs(e.levels) do if xp >= th then level = i end end
+	local bought = {}
+	while true do
+		local best
+		for _, g in ipairs(e.gear) do
+			if not owned[g.id] and level >= g.level and money >= g.price and (not best or g.price < best.price) then best = g end
+		end
+		if not best then break end
+		owned[best.id] = true
+		money -= best.price
+		bought[best.feature] = true
+	end
+	return { money = money, followers = followers, level = level, xp = xp, deliveries = n, bought = bought }
+end
 
 local fails = {}
 local function eq(name, got, want)
@@ -605,6 +659,36 @@ for i = 2, #ROOMS.Speakers do
 	ok("Speakers tier " .. i .. ": louder", hi.volume > lo.volume)
 end
 eq("Speakers tier 1 needs no gear", ROOMS.Speakers[1].gear, nil)
+-- every speaker tier's gear is a Config.Gear id, and the gear row's tier is that tier (Task 7)
+local gearIds = setOf(GEAR_IDS)
+for i, s in ipairs(ROOMS.Speakers) do
+	if s.gear ~= nil then
+		ok("Speakers tier " .. i .. ": gear " .. tostring(s.gear) .. " is a Config.Gear id", gearIds[s.gear] == true)
+		eq("Speakers tier " .. i .. ": the gear row's tier", SPEAKER_GEAR[s.gear] and SPEAKER_GEAR[s.gear].tier, i)
+	end
+end
+-- no speaker gear is in the sim's gear (economy_fixture.gear: the rows with a feature), so the pacing can't move
+for _, g in ipairs(E.gear) do ok("economy gear " .. g.id .. " is not speaker gear", SPEAKER_GEAR[g.id] == nil) end
+
+-- DayOneFloor: the §6 pacing line (Task 7). A short first session reaches the first monitors and not the studio ones --
+local floor = DayOneFloor(E)
+eq("DayOneFloor: three starter deliveries", floor.deliveries, 3)
+ok("DayOneFloor: Roll FX and Swing Unit bought", floor.bought.Rolls == true and floor.bought.Swing == true)
+local MON, STU = SPEAKER_GEAR.spk_monitors, SPEAKER_GEAR.spk_studio
+ok(string.format("DayOneFloor: money %d >= spk_monitors' price %d", floor.money, MON.price), floor.money >= MON.price)
+ok(string.format("DayOneFloor: followers %d >= spk_monitors' %d", floor.followers, MON.needs.followers), floor.followers >= MON.needs.followers)
+ok(string.format("DayOneFloor: level %d >= spk_monitors' %d", floor.level, MON.level), floor.level >= MON.level)
+-- can the floor buy a gear row? Money, level and every career need (the floor holds no placements, aura, hits or sponsors)
+local function reach(row, f)
+	if f.money < row.price or f.level < row.level then return false end
+	for stat, n in pairs(row.needs or {}) do
+		if (f[stat] or 0) < n then return false end
+	end
+	return true
+end
+ok("DayOneFloor: spk_monitors is affordable in session 1", reach(MON, floor))
+ok("DayOneFloor: spk_studio is out of reach in session 1", not reach(STU, floor))
+ok("DayOneFloor: spk_studio's needs exceed the floor", (STU.needs.followers or 0) > floor.followers and (STU.needs.placements or 0) > 0)
 
 -- CanEnter: the owner always; open admits anyone; friends admits friends; locked admits only the owner -------------
 local ENTER = {
@@ -846,4 +930,5 @@ for _, e in ipairs(CAT.ById.floor_lamp and CAT.ById.floor_lamp.parts or {}) do i
 eq("catalog: the floor lamp's shade is Neon", neonLamp, 1)
 
 if #fails > 0 then error(#fails .. " room rules case(s) failed: " .. table.concat(fails, "; ")) end
-print("SPEC OK: room rules (the maximal home " .. #maxJson .. " bytes)")
+print(string.format("SPEC OK: room rules (the maximal home %d bytes; day one floor $%d, %d followers, %d XP, level %d)",
+	#maxJson, floor.money, floor.followers, floor.xp, floor.level))

@@ -51,6 +51,24 @@
 --   (InteractionService._RunHandler(kind) on inst: { acted, toast }; the RackSpot's GearRack, say).
 -- * Each room's laptop and its RackSpot (RoomBuild.RackSpot, Task 6) are tagged and are their owner's only
 --   (InteractionService's owner rule reads the room Model's OwnerId).
+-- * Your room's speakers (Task 7). The tier is RoomRules.SpeakerTier over the Config.Rooms.Speakers gear you own (read
+--   through the Gear system; a failed read counts as not owned): 1 = the laptop's own speakers, 2 = spk_monitors, 3 =
+--   spk_studio. At tier 2 and 3 every room of your plot holds a pair of RoomItems.Speakers models, RoomSpeaker_L and
+--   RoomSpeaker_R, on its Desk_Speaker_L / _R anchors: built with the plot, and refitted when your Gear attribute
+--   changes (a pair already at your tier stays; only models Rooms made, RoomItem = "speaker", are replaced).
+--   PlayLocal(p, pattern, bpm, swing, kit, voice, room?) is ON SPEAKERS at your own room's laptop (Systems/DAW's room
+--   branch; pattern, bpm, swing, kit and voice already checked there): it writes ReplicatedStorage.OK.RoomPlaying.Plot_<k>
+--   (Beat, BPM, Swing, Kit, Voice, OwnerId, OwnerName, Room = the room's kind, Tier, StartAt = server time +
+--   Config.Monitors.LeadSeconds, Loops and EndsAt from MonitorService.LoopsFor, then Token = its last + 1, then Active),
+--   replacing any play under way, and ends itself at EndsAt (only the play with that Token). No queue, no NowPlaying, no
+--   FIRE, no BroadcastTried: it isn't an airing. One play a Config.Rooms.PlayCooldown per player ("cooldown"); no slot or
+--   plot is "away", no RoomPlaying folder "off"; every answer carries room = true. It fires Played (player, tier, kind),
+--   which finishes the tour's "monitors" step (Systems/Tour). StopLocal(p) ends your plot's play (DAW_Stop runs it); a
+--   released slot's play ends with its plot. StarterPlayerScripts/OK/RoomClient plays it for everyone in the plot.
+--   Hook (Studio): Play(pattern, bpm) and Stop run DAW_Broadcast's and DAW_Stop's own handlers for the player (DAW._Broadcast,
+--   DAW._Stop: the remote's path, the room branch included); Counts ({ played, tried }: Played and DAW.BroadcastTried
+--   fires for the player since the last read); SpeakerTier; Fire(token) (Systems/Reactions.Send for the player: the
+--   live FIRE rule, which reads only NowPlaying).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Config = require(RS.OK.Config)
@@ -59,11 +77,14 @@ local Build = require(RS.OK.Modules.RoomBuild)
 local WalkInRules = require(RS.OK.Modules.WalkInRules)
 local LifeRules = require(RS.OK.Modules.LifeRules)
 local Catalog = require(RS.OK.Data.RoomCatalog)
+local Items = require(RS.OK.Modules.RoomItems)
 local Copy = Build.Copy
 
 local M = { Enabled = true, Version = 1 }
 local rebuiltEv = Instance.new("BindableEvent")
 M.Rebuilt = rebuiltEv.Event -- (player, k) after a player's plot is (re)built
+local playedEv = Instance.new("BindableEvent")
+M.Played = playedEv.Event -- (player, tier, kind) after a room play went on (Task 7)
 
 local ctx
 local Cfg = Config.Rooms
@@ -77,9 +98,12 @@ local woken = {}      -- [player] = true once the first character came
 local respawnHome = {} -- [player] = was the player inside their own plot when their last character went
 local busy = {}       -- [player] = a door move under way (a mashed prompt moves once)
 local gateConns = {}  -- [player] = the connection on their CareerGates attribute
+local gearConns = {}  -- [player] = the connection on their Gear attribute (their speakers follow it)
+local lastPlay = {}   -- [player] = os.clock() of their last room play that went on (Config.Rooms.PlayCooldown)
 local testGuests = {} -- [k] = { Model } (the hook's Guest)
 local sent = {}       -- Studio: [userId] = { toast text }
 local armed = {}      -- Studio: [player] = the hook's OnOpen entry
+local counts = {}     -- Studio: [userId] = { played = n, tried = n } since the hook's last Counts
 local template, plotsFolder, hall, roomsDoor
 local dispatch -- the hook's command runner (OnOpen runs one later)
 
@@ -379,6 +403,48 @@ local function resetHome(p)
 	return true
 end
 
+-- your speakers (Task 7) -------------------------------------------------------------------------------------------------
+-- the speaker tier p's gear gives: RoomRules.SpeakerTier over the Config.Rooms.Speakers gear they own, read through the
+-- Gear system (ctx.Gear, else the live module). A read that fails counts as not owned: the tier only ever falls back to 1
+local function speakerTier(p)
+	local speakers = Cfg.Speakers or {}
+	local owned = {}
+	local okGear, Gear = pcall(function() return (ctx and ctx.Gear) or require(RS.OK.Systems.Gear) end)
+	if p and okGear and type(Gear) == "table" then
+		for _, s in ipairs(speakers) do
+			if s.gear then
+				local okOwn, owns = pcall(Gear.Owns, p, s.gear)
+				if okOwn and owns == true then owned[s.gear] = true end
+			end
+		end
+	end
+	return Rules.SpeakerTier(owned, speakers)
+end
+-- a room's desk speakers at `tier`: a RoomItems.Speakers model RoomSpeaker_L / _R on each Desk_Speaker_L / _R anchor at
+-- tier 2 and up, none at tier 1. A model already at that tier stays; only models Rooms made (RoomItem "speaker") go
+local function fitSpeakers(room, tier)
+	for _, side in ipairs({ "L", "R" }) do
+		local name = "RoomSpeaker_" .. side
+		local have = room:FindFirstChild(name)
+		if have and have:GetAttribute("RoomItem") ~= "speaker" then have = nil end
+		if not (have and have:GetAttribute("Tier") == tier) then
+			if have then have:Destroy() end
+			local a = room:FindFirstChild("Desk_Speaker_" .. side, true)
+			local m = (tier >= 2 and a and a:IsA("Attachment")) and Items.Speakers(tier) or nil
+			if m then
+				m.Name = name
+				m:PivotTo(a.WorldCFrame)
+				m.Parent = room
+			end
+		end
+	end
+end
+local function fitPlotSpeakers(plot, tier)
+	for _, room in ipairs(plot:GetChildren()) do
+		if room:GetAttribute("RoomKind") then fitSpeakers(room, tier) end
+	end
+end
+
 -- plots ------------------------------------------------------------------------------------------------------------------
 -- the kinds an owner has, ladder order (a fake owner from the hook's Fill: the bedroom). Reading it repairs the saved home too
 -- (state), which may wait for the profile: build() calls this before its generation check
@@ -396,8 +462,10 @@ local function build(k)
 	buildGen[k] = (buildGen[k] or 0) + 1
 	local gen = buildGen[k]
 	local owned = ownedFor(o) -- may wait for the profile
+	local tier = o.player and speakerTier(o.player) or 1 -- a fake owner (the hook's Fill) has the laptop's own
 	if buildGen[k] ~= gen or owners[k] ~= o then return nil end -- released or rebuilt meanwhile
 	local plot = Build.Plot(k, owned, Cfg, template, { id = o.id, name = o.name })
+	fitPlotSpeakers(plot, tier)
 	ctx.Interaction.Adopt(plot)
 	hookPlot(plot, k)
 	local old = plots[k]
@@ -420,6 +488,30 @@ local function syncRooms(p)
 	if slotOf[p] ~= k or owners[k] ~= o or not plots[k] then return false end -- released while the profile was read
 	if sameList(st.owned, kindsOf[k] or {}) then return false end
 	return build(k) ~= nil
+end
+-- the owner's Gear attribute changed: their plot's speakers follow their tier (no plot yet: its build fits them)
+local function syncSpeakers(p)
+	local k = slotOf[p]
+	local o = k and owners[k]
+	if not (o and o.player == p and plots[k]) then return false end
+	local tier = speakerTier(p)
+	local plot = plots[k]
+	if not (plot and plot.Parent and slotOf[p] == k) then return false end
+	fitPlotSpeakers(plot, tier)
+	return true
+end
+
+-- room plays (Task 7) ------------------------------------------------------------------------------------------------------
+local function playFolder(k)
+	local rp = RS.OK:FindFirstChild("RoomPlaying")
+	local f = rp and rp:FindFirstChild(string.format("Plot_%02d", k))
+	return (f and f:IsA("Folder")) and f or nil
+end
+-- slot k's play ends (its plot is going, or its owner stopped it); true when one was on
+local function endPlay(k)
+	local f = playFolder(k)
+	if f and f:GetAttribute("Active") == true then f:SetAttribute("Active", false); return true end
+	return false
 end
 local function claim(p)
 	local k = slotOf[p]
@@ -473,6 +565,7 @@ local function releaseSlot(k, leaving)
 		if o.player.Parent then o.player:SetAttribute("PlotSlot", 0) end
 	end
 	if plot then plot:Destroy() end
+	endPlay(k) -- its speakers are gone with it
 	plate(k)
 	for _, q in ipairs(movers) do pcall(presence, q) end
 	return true
@@ -533,6 +626,10 @@ local function onJoin(p)
 		local ok, err = pcall(syncRooms, p)
 		if not ok then report("rooms after a gate change: " .. tostring(err)) end
 	end)
+	gearConns[p] = p:GetAttributeChangedSignal("Gear"):Connect(function()
+		local ok, err = pcall(syncSpeakers, p)
+		if not ok then report("speakers after a gear change: " .. tostring(err)) end
+	end)
 	if p.Character then onCharacter(p, p.Character) end
 	if k then
 		task.spawn(function()
@@ -547,10 +644,12 @@ local function onLeave(p)
 		local ok, err = pcall(releaseSlot, k, true)
 		if not ok then report("release: " .. tostring(err)) end
 	end
-	woken[p], respawnHome[p], busy[p], slotOf[p] = nil, nil, nil, nil
-	sent[p.UserId] = nil
+	woken[p], respawnHome[p], busy[p], slotOf[p], lastPlay[p] = nil, nil, nil, nil, nil
+	sent[p.UserId], counts[p.UserId] = nil, nil
 	local gc = gateConns[p]
 	if gc then gc:Disconnect(); gateConns[p] = nil end
+	local gr = gearConns[p]
+	if gr then gr:Disconnect(); gearConns[p] = nil end
 	local a = armed[p]
 	if a then a.conn:Disconnect(); armed[p] = nil end
 end
@@ -596,6 +695,50 @@ function M.Station(p, kind)
 	local k = slotOf[p]
 	local room = k and roomOf(k, kind or "bedroom")
 	return room and Build.StationOf(room) or nil
+end
+-- ON SPEAKERS at your own room's laptop (Systems/DAW's room branch, which checked the beat, kit and voice first): the beat
+-- plays on that room's speakers. `room` is the laptop's room Model (or a kind; default the bedroom). Returns { ok = true,
+-- room = true, tier, kind, position = 0 } or { ok = false, room = true, reason = "away" | "cooldown" | "off" | "invalid" }
+function M.PlayLocal(p, pattern, bpm, swing, kit, voice, room)
+	local k = slotOf[p]
+	if not (k and plots[k]) then return { ok = false, room = true, reason = "away" } end
+	if type(pattern) ~= "string" or type(bpm) ~= "number" or bpm ~= bpm or bpm <= 0 or bpm == math.huge then
+		return { ok = false, room = true, reason = "invalid" }
+	end
+	local kind = typeof(room) == "Instance" and room:GetAttribute("RoomKind") or room
+	if type(kind) ~= "string" or not Cfg.Kinds[kind] then kind = "bedroom" end
+	local now = os.clock()
+	if lastPlay[p] and now - lastPlay[p] < (Cfg.PlayCooldown or 1) then return { ok = false, room = true, reason = "cooldown" } end
+	local f = playFolder(k)
+	if not f then return { ok = false, room = true, reason = "off" } end -- no ReplicatedStorage.OK.RoomPlaying (build/19_rooms.lua)
+	local DAWCfg = require(RS.OK.Modules.DAWConfig)
+	local Mon = require(game:GetService("ServerScriptService").OK.Services.MonitorService)
+	local loops, dur = Mon.LoopsFor(bpm, DAWCfg.Steps, Config.Monitors)
+	local tier = speakerTier(p)
+	lastPlay[p] = now
+	local lead = (Config.Monitors and Config.Monitors.LeadSeconds) or 0.5
+	local startAt = workspace:GetServerTimeNow() + lead
+	local token = math.floor(tonumber(f:GetAttribute("Token")) or 0) + 1
+	f:SetAttribute("Beat", pattern); f:SetAttribute("BPM", bpm); f:SetAttribute("Swing", tonumber(swing) or 0)
+	f:SetAttribute("Kit", type(kit) == "string" and kit or "studio")
+	f:SetAttribute("Voice", type(voice) == "string" and voice or (DAWCfg.Voices and DAWCfg.Voices[1].id) or "")
+	f:SetAttribute("OwnerId", p.UserId); f:SetAttribute("OwnerName", p.DisplayName)
+	f:SetAttribute("Room", kind); f:SetAttribute("Tier", tier)
+	f:SetAttribute("StartAt", startAt); f:SetAttribute("Loops", loops); f:SetAttribute("EndsAt", startAt + dur)
+	f:SetAttribute("Token", token); f:SetAttribute("Active", true) -- last: a listener reads the whole play on these
+	task.delay(lead + dur + 0.1, function()
+		if f.Parent and f:GetAttribute("Token") == token and f:GetAttribute("Active") == true then f:SetAttribute("Active", false) end
+	end)
+	playedEv:Fire(p, tier, kind)
+	return { ok = true, room = true, tier = tier, kind = kind, position = 0 }
+end
+-- ends p's own room play (DAW_Stop); true when one was on
+function M.StopLocal(p)
+	local k = slotOf[p]
+	local f = k and playFolder(k)
+	if not (f and f:GetAttribute("Active") == true and f:GetAttribute("OwnerId") == p.UserId) then return false end
+	f:SetAttribute("Active", false)
+	return true
 end
 -- edit-mode tests (build/t102_check.lua): a fake ctx ({ Data = DataService copy, Gear = Gear copy }) and a fresh Config; no
 -- Init needed. _State(p) is state(p) as the plot's build reads it: home (the saved table), dropped, unbuilt, owned.
@@ -729,7 +872,24 @@ dispatch = function(cmd, userId, a, b)
 		return { acted = acted, toast = text }
 	end
 	if cmd == "OnOpen" then return arm(p, a, b) end
+	-- Task 7: DAW_Broadcast's and DAW_Stop's own handlers for this player (the remote's path: the room branch, the
+	-- BroadcastTried rule); Counts since the last read; the speaker tier; the live FIRE rule for a token
+	if cmd == "Play" then return require(RS.OK.Systems.DAW)._Broadcast(p, a, b, 0) end
+	if cmd == "Stop" then require(RS.OK.Systems.DAW)._Stop(p); return true end
+	if cmd == "Counts" then
+		local c = counts[p.UserId] or {}
+		counts[p.UserId] = nil
+		return { played = c.played or 0, tried = c.tried or 0 }
+	end
+	if cmd == "SpeakerTier" then return speakerTier(p) end
+	if cmd == "Fire" then return require(RS.OK.Systems.Reactions).Send(p, a) end
 	return nil
+end
+local function bump(p, key)
+	if typeof(p) ~= "Instance" then return end
+	local c = counts[p.UserId] or {}
+	counts[p.UserId] = c
+	c[key] = (c[key] or 0) + 1
 end
 local function makeHook()
 	local SOK = game:GetService("ServerScriptService"):FindFirstChild("OK")
@@ -737,6 +897,9 @@ local function makeHook()
 	local hook = SOK:FindFirstChild("_StudioRoomsHook") or Instance.new("BindableFunction")
 	hook.Name = "_StudioRoomsHook"; hook.Parent = SOK
 	hook.OnInvoke = dispatch
+	M.Played:Connect(function(p) bump(p, "played") end)
+	local okDAW, DAW = pcall(require, RS.OK.Systems.DAW)
+	if okDAW and type(DAW) == "table" and DAW.BroadcastTried then DAW.BroadcastTried:Connect(function(p) bump(p, "tried") end) end
 end
 
 -- start ------------------------------------------------------------------------------------------------------------------

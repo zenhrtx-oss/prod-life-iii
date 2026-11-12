@@ -1,4 +1,5 @@
 -- OK Beat Maker client (v3): window, seated view, controls, local preview, slots, unlocks, kits and keys voices, saves, and the room listener.
+-- (A room play, ON SPEAKERS at your own room's laptop, is played by StarterPlayerScripts/OK/RoomClient, not here.)
 local RS = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -95,6 +96,28 @@ local loading = false
 for _, a in ipairs({ "Pattern", "BPM", "Swing" }) do root:GetAttributeChangedSignal(a):Connect(function() if not loading and root.Visible then dirty = true end end) end
 local myBroadcast = false
 local myQueued = false -- waiting in the monitors' line
+-- your room's speakers (the Your Rooms plan, Task 7): at your own room's laptop (the OpenDAW payload's room) the Monitors
+-- button reads "🔊 ON SPEAKERS" and plays the beat on that room's speakers (Systems/Rooms.PlayLocal; RoomClient plays it),
+-- never into the monitors' line, so a room play leaves myBroadcast, myQueued and QueuePos alone. The button is found by
+-- name: Modules/DAWUI is Aku's design area and stays untouched. Copy: research/rooms/copy_2026-11-12.md §4
+local monitorsBtn = root:FindFirstChild("Monitors", true)
+if monitorsBtn and not monitorsBtn:IsA("GuiButton") then monitorsBtn = nil end
+local MONITORS_LABEL = monitorsBtn and monitorsBtn.Text or "📢 ON MONITORS" -- DAWUI's own text, for the hub
+local SPEAKERS_LABEL = "🔊 ON SPEAKERS" -- 4.5
+local TIER_STATUS = { -- 4.6 - 4.8, by the play's speaker tier
+	"On your laptop speakers · only people right next to you hear it",
+	"On your desk monitors · everyone in your room hears it",
+	"On your studio monitors · the whole studio hears it",
+}
+local openRoom = nil -- the open beat maker's room kind (the OpenDAW payload's room), nil at the hub's PC and laptops
+-- is your own room play on (your plot's RoomPlaying folder)?
+local function myRoomPlay()
+	local k = player:GetAttribute("PlotSlot")
+	local rp = RS.OK:FindFirstChild("RoomPlaying")
+	local f = rp and type(k) == "number" and k > 0 and rp:FindFirstChild(string.format("Plot_%02d", k))
+	if not f then return false end
+	return f:GetAttribute("Active") == true and f:GetAttribute("OwnerId") == player.UserId
+end
 
 -- SAMPLE IT: copy the beat on the monitors into your beat maker; changed 8+ pads it airs as "flip of <producer>" --------
 local sampleBtn = Instance.new("TextButton")
@@ -438,6 +461,10 @@ ui.OnPlayChanged = function(on)
 		if NP:GetAttribute("Active") and NP:GetAttribute("OwnerId") == player.UserId then
 			StopEv:FireServer()
 			root:SetAttribute("Status", "Stopped your beat on the monitors")
+		elseif myRoomPlay() and not myQueued then
+			-- your speakers stop, so the preview doesn't play over them (DAW_Stop ends a room play too); never while you wait
+			-- in the monitors' line, which DAW_Stop would also cancel
+			StopEv:FireServer()
 		end
 		preview:Start(function() return root:GetAttribute("Pattern") end, function() return root:GetAttribute("BPM") end,
 			function(step, hits, hitTracks)
@@ -516,8 +543,21 @@ ui.OnSave = function()
 end
 
 ui.OnMonitors = function()
-	root:SetAttribute("Status", "Sending to the monitors…")
+	root:SetAttribute("Status", openRoom and "Sending to your speakers…" or "Sending to the monitors…") -- 4.10 at a room's laptop
 	local ok, res = pcall(function() return BroadcastFn:InvokeServer(root:GetAttribute("Pattern"), root:GetAttribute("BPM"), root:GetAttribute("Swing"), root:GetAttribute("FlipToken"), root:GetAttribute("Kit"), root:GetAttribute("Voice")) end)
+	if ok and type(res) == "table" and res.room then
+		-- your room's speakers: the tier's line (4.6 - 4.8), the local preview stopped; a refusal reads 4.9
+		if res.ok then
+			ui.Stop()
+			root:SetAttribute("Status", TIER_STATUS[res.tier] or TIER_STATUS[1])
+			root:SetAttribute("LastBroadcast", "ok")
+		else
+			local reason = tostring(res.reason or "error")
+			root:SetAttribute("Status", "Couldn't play on your speakers (" .. reason .. ")")
+			root:SetAttribute("LastBroadcast", reason)
+		end
+		return
+	end
 	if ok and type(res) == "table" and res.ok then
 		root:SetAttribute("QueuePos", res.position or 0)
 		root:SetAttribute("LastBroadcast", "ok")
@@ -562,6 +602,8 @@ Event.OnClientEvent:Connect(function(kind, payload)
 	sourcePos = (src and src:IsA("BasePart")) and src.Position or nil
 	if type(payload.daw) == "table" then daw = payload.daw end
 	if payload.level then root:SetAttribute("Level", payload.level) end
+	openRoom = type(payload.room) == "string" and payload.room or nil
+	if monitorsBtn then monitorsBtn.Text = openRoom and SPEAKERS_LABEL or MONITORS_LABEL end
 	refreshCompact()
 	if not ui.IsOpen() then
 		loading = true

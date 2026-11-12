@@ -5,8 +5,11 @@
 -- The client gets "Tour" events { done, count, total, text, target } and highlights the target.
 -- "monitors" counts when the beat goes on air or into the line, or the line is full, so a newcomer is never
 -- stuck waiting for someone else's beat. Finishing pays a one-time +RewardXP; skipping pays nothing.
+-- A room play (ON SPEAKERS at your own room's laptop, Systems/Rooms.Played; the Your Rooms plan, Task 7) counts for
+-- "monitors" too, so a player who wakes up in their bedroom can finish the tour there.
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local DAW = require(RS.OK.Systems.DAW)
+local Rooms = require(RS.OK.Systems.Rooms)
 local Contracts = require(RS.OK.Systems.Contracts)
 local Gear = require(RS.OK.Systems.Gear)
 local M = { Enabled = true, Version = 1 }
@@ -79,6 +82,7 @@ function M.Init(c)
 		-- on air, already in line, or the line is full all count: a newcomer is never stuck waiting on others
 		if ok or reason == "inline" or reason == "full" or reason == "cypher" then M.Advance(player, "monitors") end
 	end)
+	Rooms.Played:Connect(function(player) M.Advance(player, "monitors") end) -- your room's speakers (no BroadcastTried)
 	RS.OK.Remotes.Tour_Skip.OnServerEvent:Connect(M.Skip)
 	local function onJoin(p) task.spawn(function() ctx.Data.GetProfile(p); send(p) end) end
 	Players.PlayerAdded:Connect(onJoin)

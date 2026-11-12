@@ -12,7 +12,9 @@ local TweenService = game:GetService("TweenService")
 local E = {}
 E.__index = E
 
--- opts.parentFor(track) -> Instance; opts.volumeScale; opts.rolloff = {min, max}; opts.muted() -> bool
+-- opts.parentFor(track) -> Instance; opts.volumeScale; opts.rolloff = {min, max}; opts.muted() -> bool;
+-- opts.soundGroup = a SoundGroup every sound plays through (a room's speaker tier, StarterPlayerScripts/OK/RoomClient).
+-- Every sound reads opts as it is made, so a caller may change them between plays
 function E.new(cfg, samples, opts)
 	opts = opts or {}
 	local self = setmetatable({ cfg = cfg, samples = samples, playing = false, step = 0, hits = 0, opts = opts }, E)
@@ -45,6 +47,7 @@ local function setup(self, tmpl, t)
 		s.RollOffMinDistance = self.opts.rolloff[1]
 		s.RollOffMaxDistance = self.opts.rolloff[2]
 	end
+	if self.opts.soundGroup then s.SoundGroup = self.opts.soundGroup end
 	s.Parent = parent
 	return s
 end

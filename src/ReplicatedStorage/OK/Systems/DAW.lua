@@ -13,6 +13,12 @@
 -- the hub's for anyone and a room's laptop for its owner only (the room Model's OwnerId, InteractionService.MayUse's rule);
 -- AtStation (deliveries in Contracts, ON MONITORS here) is StationOf ~= nil. The OpenDAW payload's `room` is the laptop's
 -- room kind (RoomKind: "bedroom", "home", "real"), nil in the hub.
+-- Task 7: ON MONITORS at your own room's laptop (StationOf's room) plays the beat on that room's speakers instead
+-- (Systems/Rooms.PlayLocal: no queue, no NowPlaying, so no FIRE): checked after the beat (kit, voice, pattern, empty) and
+-- before the cypher reservation, so a cypher in the hub never blocks your speakers, and it stamps neither the send nor
+-- the flip-check cooldown. Its answers carry room = true, and DAW_Broadcast fires no BroadcastTried for them (that
+-- feeds Funnel step 6, an airing). DAW_Stop also ends your room play (Rooms.StopLocal). M._Broadcast and M._Stop are
+-- the two remotes' own handlers, for the Studio rooms hook's Play and Stop.
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local Cfg = require(RS.OK.Modules.DAWConfig)
 local Check = require(RS.OK.Modules.BriefCheck)
@@ -215,7 +221,10 @@ function M.Init(ctx)
 		local p, b, sw = M.Validate(pattern, bpm, swing, M.UnlockFn(player))
 		if not p then return { ok = false, reason = b } end
 		if hits(p) == 0 then return { ok = false, reason = "empty" } end
-		if not M.AtStation(player) then return { ok = false, reason = "away" } end
+		local spot, room = M.StationOf(player)
+		if not spot then return { ok = false, reason = "away" } end
+		-- your own room's laptop: that room's speakers, never the monitors' line (Task 7)
+		if room then return require(RS.OK.Systems.Rooms).PlayLocal(player, p, b, sw, kitId, voiceId, room) end
 		if ctx.Monitors.reserved then return { ok = false, reason = "cypher" } end -- a cypher round holds the monitors
 		if flipToken ~= nil and type(flipToken) ~= "number" then return { ok = false, reason = "invalid" } end
 		local inline = ctx.Monitors:InLine(player.UserId) -- on air or in line already: your place, no flip check
@@ -241,13 +250,23 @@ function M.Init(ctx)
 		if r.ok then print(string.format("[OK] %s queued a beat on the monitors (%d BPM, place %d)", player.Name, b, r.position)) end
 		return r
 	end
-	Remotes.DAW_Broadcast.OnServerInvoke = function(player, pattern, bpm, swing, flipToken, kit, voice)
+	-- DAW_Broadcast's handler: a room play (res.room) isn't an airing, so it fires no BroadcastTried (Funnel step 6, the
+	-- tour's monitors step: Rooms.Played finishes that one)
+	local function broadcast(player, pattern, bpm, swing, flipToken, kit, voice)
 		local res = tryBroadcast(player, pattern, bpm, swing, flipToken, kit, voice)
-		triedEv:Fire(player, res.ok == true, res.reason)
+		if not res.room then triedEv:Fire(player, res.ok == true, res.reason) end
 		return res
 	end
+	Remotes.DAW_Broadcast.OnServerInvoke = broadcast
 
-	Remotes.DAW_Stop.OnServerEvent:Connect(function(player) ctx.Monitors:Cancel(player.UserId) end)
+	-- DAW_Stop's handler: your beat off the monitors (or out of their line), and your room play ended
+	local function stop(player)
+		ctx.Monitors:Cancel(player.UserId)
+		local ok, err = pcall(function() require(RS.OK.Systems.Rooms).StopLocal(player) end)
+		if not ok then warn("[OK][ERR] room stop: " .. tostring(err)) end
+	end
+	Remotes.DAW_Stop.OnServerEvent:Connect(stop)
+	M._Broadcast, M._Stop = broadcast, stop -- the Studio rooms hook's Play and Stop (the remotes' own path)
 
 	ctx.Interaction.Register("Computer", function(player, inst)
 		local s = studio()

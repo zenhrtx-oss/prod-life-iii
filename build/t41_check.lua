@@ -173,13 +173,34 @@ for _, g in ipairs(st.gear) do
   table.insert(ids, g.id)
   assert(g.needs and g.check and g.check.money and type(g.owned) == "boolean" and type(g.levelOk) == "boolean" and g.price and g.level and g.name and g.kind, "gear row shape: " .. g.id)
 end
-assert(table.concat(ids, ",") == "kit_iron,fit_cuban,fit_snapback,fit_shades,plate_legend", "Career.State gear rows: " .. table.concat(ids, ","))
-assert(st.gear[1].levelOk == false and st.gear[2].levelOk == true and st.gear[2].check.ok == false, "gear row levelOk/check wrong (kit_iron is level 6; fit_cuban needs 2 placements)")
+assert(table.concat(ids, ",") == "kit_iron,spk_monitors,spk_studio,fit_cuban,fit_snapback,fit_shades,plate_legend", "Career.State gear rows: " .. table.concat(ids, ","))
+-- rows by id (preflight F1: the room speakers, Task 7, sit between kit_iron and fit_cuban)
+local gearRow = {}
+for _, g in ipairs(st.gear) do gearRow[g.id] = g end
+assert(gearRow.kit_iron.levelOk == false and gearRow.fit_cuban.levelOk == true and gearRow.fit_cuban.check.ok == false, "gear row levelOk/check wrong (kit_iron is level 6; fit_cuban needs 2 placements)")
+-- the speaker rows equal spec/room_rules_spec.lua's literal (SPEAKER_GEAR), and carry no feature (so the pacing sim's
+-- gear, spec/economy_fixture.lua, can't hold them)
+local SPEAKER_GEAR = {
+  spk_monitors = { tier = 2, price = 500, level = 2, needs = { followers = 200 } },
+  spk_studio = { tier = 3, price = 3000, level = 5, needs = { placements = 2, followers = 5000 } },
+}
+for id, want in pairs(SPEAKER_GEAR) do
+  local it
+  for _, g in ipairs(Cfg.Gear) do if g.id == id then it = g end end
+  assert(it and it.kind == "speakers" and it.feature == nil and it.tier == want.tier and it.price == want.price and it.level == want.level,
+    "Config.Gear " .. id .. ": kind " .. tostring(it and it.kind) .. ", feature " .. tostring(it and it.feature) .. ", tier " .. tostring(it and it.tier)
+    .. ", price " .. tostring(it and it.price) .. ", level " .. tostring(it and it.level) .. "; want speakers, no feature, the spec's literal")
+  local nk = 0
+  for stat, need in pairs(it.needs or {}) do nk += 1; assert(want.needs[stat] == need, "Config.Gear " .. id .. " needs " .. stat .. " = " .. tostring(need) .. ", the spec's literal says " .. tostring(want.needs[stat])) end
+  for _ in pairs(want.needs) do nk -= 1 end
+  assert(nk == 0, "Config.Gear " .. id .. "'s needs and the spec's literal name different stats")
+  assert(Cfg.Rooms.Speakers[want.tier].gear == id, "Config.Rooms.Speakers[" .. want.tier .. "].gear is " .. tostring(Cfg.Rooms.Speakers[want.tier].gear) .. ", want " .. id)
+end
 -- a failing Life leaves the tab whole, with no life; the same for a view that can't be built
 local realRoster = Life.Roster
 Life.Roster = function() error("t41: Life is down") end
 local broke = Career.State(pe)
-assert(broke.life == nil and #broke.gates == 2 and #broke.gear == 5 and broke.stats.money == 100, "a failing Life should give a nil life and a whole State")
+assert(broke.life == nil and #broke.gates == 2 and #broke.gear == 7 and broke.stats.money == 100, "a failing Life should give a nil life and a whole State")
 Life.Roster = realRoster
 local realCfgLife = Cfg.Life
 Cfg.Life = nil
@@ -188,7 +209,7 @@ Cfg.Life = realCfgLife
 assert(noView.life == nil and #noView.gates == 2, "a view that fails should give a nil life and a whole State")
 assert(type(Career.State(pe).life) == "table", "the life should come back when Life does")
 table.insert(out, "(e) a failing Life or view: Career.State has no life, the tab whole")
-table.insert(out, "(e) studio_two: needs (0 placements; answered with Fetch's state, nothing published), money ($4,999), ok at $5,000 leaving $0, then owned; sponsor_tv needs a sponsor, toggles, never spends; State: 2 gates, 5 gear rows")
+table.insert(out, "(e) studio_two: needs (0 placements; answered with Fetch's state, nothing published), money ($4,999), ok at $5,000 leaving $0, then owned; sponsor_tv needs a sponsor, toggles, never spends; State: 2 gates, 7 gear rows (the speaker rows pinned to the spec)")
 
 -- f) Gear: needs refuse after the level check; fits equip by slot
 local pf = { UserId = 4107, Name = "T41f" }
