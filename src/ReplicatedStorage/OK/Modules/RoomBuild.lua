@@ -14,10 +14,20 @@
 -- * Anchors(room, kindCfg): adds each Attachment named in kindCfg.anchors that the room lacks (an imported asset brings
 --   its own; Config fills only the gaps), on the room's Sockets part (made at the room's pivot when there is none).
 --   Returns the names it added, sorted.
--- * Plot(k, owned, cfg, template, owner): Model Plot_<kk> (Atomic) with the Landing at RoomRules.PlotOrigin(k) and each
---   owned kind at origin + its `at`: a clone of template (a Model for the bedroom, or { [kind] = Model }), else its
+-- * Plot(k, owned, cfg, template, owner, opts): Model Plot_<kk> (Atomic) with the Landing at RoomRules.PlotOrigin(k) and
+--   each owned kind at origin + its `at`: a clone of template (a Model for the bedroom, or { [kind] = Model }), else its
 --   stand-in; each room named Room_<kind> with RoomKind, Plot and (given owner = { id, name }) OwnerId and OwnerName set,
---   its missing anchors added, its ExitPrompt enabled and its RackSpot added. Unparented.
+--   its missing anchors added, its ExitPrompt enabled and its RackSpot added. Unparented. Without opts, nothing else.
+-- * The full plot (Task 15, tests only: build/room_test.lua's 12-plot phone test and build/t114_check.lua; Systems/Rooms
+--   never asks for one): Plot(..., { full = true, plaques? }) builds every kind in cfg.Kinds (owned is ignored: every room
+--   unlocked, the landing's doors all working) and furnishes each room with the parts a player's own plot would hold, through
+--   Modules/RoomItems and Systems/Rooms' own names: an Items Folder showing RoomRules.FullHome's list for the kind (every
+--   room at its item limit from Data/RoomCatalog, every Poster_<n> spot hung) through RoomEdit.Fit; each closet's hangers
+--   (RoomItems.Hangers: every Config.Gear fit in its Modules/Fits colour, as many as RoomRules.HangerCount leaves of
+--   cfg.ItemParts); a Plaques Folder (attribute RoomPlaques) with a RoomItems.Plaque RoomPlaque_<n> (attribute Slot) on every
+--   Plaque_<n> anchor, hung bedroom first as Rooms hangs them, from opts.plaques ({ { kind, text } } in hang order; without
+--   it LifeRules.DiscoText's own lines with no names); and a pair of FULL_TIER desk speakers (RoomItems.Speakers,
+--   RoomSpeaker_L / _R on Desk_Speaker_L / _R). The plot carries FullPlot = true. No light, prompt or tag is added.
 -- * RackSpot(room) (Task 6): an invisible part RackSpot, a child of the room Model, M.RACK_SIDE studs room-local east of
 --   the room's Station (StationOf), tagged OK_Interactable with Kind = "GearRack" (Systems/Gear's handler opens the Gear
 --   tab), with a RackPrompt in the house style on F / ButtonY (copy §3.2, §3.3), so it shows beside the laptop's E prompt.
@@ -61,7 +71,7 @@ M.Copy = {
 	RackAction = "Open gear rack", RackObject = "Your laptop", -- 3.2, 3.3
 	-- §7 plaques: 7.1-7.3 are LifeRules.DiscoText's own lines (no new words); 7.4 is the weekly single's plate, {title} upper-cased
 	WeeklyPlate = "WEEKLY SINGLE · {title}", -- 7.4
-	-- §10 the door modes' labels (the plate's {MODE}; Task 14 cycles the mode, the default shows until then)
+	-- §10 the door modes' labels: the hall plate's {MODE} and the owner's DoorPrompt (Systems/Rooms, Task 14: the saved mode)
 	Modes = { open = "OPEN", friends = "FRIENDS ONLY", locked = "LOCKED" },
 	-- a stand-in's own prompts, as the bedroom asset's (bedroom_setup.lua: "Make a beat" / "Your laptop", "Leave" /
 	-- "YOUR ROOM"; copy §3.3 names the laptop "Your laptop")
@@ -70,6 +80,7 @@ M.Copy = {
 }
 
 M.LANDING_HEIGHT = 10
+M.FULL_TIER = 3      -- a full plot's desk speakers (Task 15): Config.Rooms.Speakers' top tier, spk_studio
 M.RACK_SIDE = 0.6    -- studs, room-local +x of the Station: beside the laptop, within the same reach
 M.RACK_UI_GAP = 88   -- px the rack's prompt is stacked off the laptop's (its UIOffset.Y): the default prompt's 72 px plus a gap
 local DOOR_W, DOOR_H = 4, 8 -- a landing door frame's opening
@@ -365,7 +376,80 @@ local function templateFor(template, kind)
 	return nil
 end
 
-function M.Plot(k, owned, cfg, template, owner)
+-- the full plot's furnishing (Task 15; see the header). Lazy requires: InteractionService and TourUI load this module for
+-- its Copy, and only the tests ever furnish
+local FULL_KINDS = { "hit", "placement", "trackone" }
+local function fullPlaques(n)
+	local LifeRules = require(RS.OK.Modules.LifeRules)
+	local rows = {}
+	for i = 1, n do
+		local kind = FULL_KINDS[(i - 1) % #FULL_KINDS + 1]
+		local text = LifeRules.DiscoText({ d = i, kind = kind }, {})
+		if text then table.insert(rows, { kind = kind, text = text }) end
+	end
+	return rows
+end
+local function furnish(plot, kinds, cfg, opts)
+	local Items = require(RS.OK.Modules.RoomItems)
+	local Edit = require(RS.OK.Modules.RoomEdit)
+	local Catalog = require(RS.OK.Data.RoomCatalog)
+	assert(type(Rules.FullHome) == "function", "RoomRules has no FullHome: a stale cached Modules/RoomRules (refresh the modules after its sync)")
+	local home = Rules.FullHome(cfg, Catalog)
+	local total = 0
+	for _, kind in ipairs(kinds) do total += (cfg.Kinds[kind] or {}).plaques or 0 end
+	local rows = type(opts.plaques) == "table" and opts.plaques or fullPlaques(total)
+	local fits = {}
+	local okFits, Fits = pcall(require, RS.OK.Modules.Fits)
+	for _, it in ipairs(Config.Gear or {}) do
+		if it.kind == "fit" then table.insert(fits, { id = it.id, color = okFits and Fits.Colors[it.fit] or nil }) end
+	end
+	local at = 0
+	for _, kind in ipairs(kinds) do
+		local room = plot:FindFirstChild(M.RoomName(kind))
+		if room then
+			-- the speakers, as Systems/Rooms' fitSpeakers sets a pair
+			for _, side in ipairs({ "L", "R" }) do
+				local a = room:FindFirstChild("Desk_Speaker_" .. side, true)
+				local m = (a and a:IsA("Attachment")) and Items.Speakers(M.FULL_TIER) or nil
+				if m then
+					m.Name = "RoomSpeaker_" .. side
+					m:PivotTo(a.WorldCFrame)
+					m.Parent = room
+				end
+			end
+			-- the plaques, as Systems/Rooms' hangPlaques hangs them: the next row on the next anchor, bedroom first
+			local folder = Instance.new("Folder")
+			folder.Name = "Plaques"
+			folder:SetAttribute("RoomPlaques", true)
+			folder.Parent = room
+			for slot = 1, (cfg.Kinds[kind] or {}).plaques or 0 do
+				local row, a = rows[at + 1], room:FindFirstChild("Plaque_" .. slot, true)
+				local m = (row and a and a:IsA("Attachment")) and Items.Plaque(row, row.text) or nil
+				if m then
+					m.Name = "RoomPlaque_" .. slot
+					m:SetAttribute("Slot", slot)
+					m:PivotTo(a.WorldCFrame)
+					m.Parent = folder
+					at += 1
+				end
+			end
+			-- the things, as a player's saved home shows them (floor items and posters), then the closets' hangers
+			local items = Edit.Fit(room, home.items[kind], nil, Catalog, cfg)
+			for _, m in ipairs(items:GetChildren()) do
+				if m:IsA("Model") and m:GetAttribute("ItemId") == "closet" then
+					local base = 0
+					for _, d in ipairs(m:GetDescendants()) do if d:IsA("BasePart") then base += 1 end end
+					local max = Rules.HangerCount(#fits, base, cfg.ItemParts, Items.HANGER_PARTS)
+					Items.Hangers(m, table.move(fits, 1, max, 1, {}), max)
+				end
+			end
+		end
+	end
+end
+
+function M.Plot(k, owned, cfg, template, owner, opts)
+	local full = type(opts) == "table" and opts.full == true
+	if full then owned = M.KindOrder(cfg) end
 	local ox, oy, oz = Rules.PlotOrigin(k, cfg)
 	local O = CFrame.new(ox, oy, oz)
 	local plot = Instance.new("Model")
@@ -395,6 +479,10 @@ function M.Plot(k, owned, cfg, template, owner)
 			M.RackSpot(room) -- before the plot is parented: InteractionService.Adopt hooks it with the Station
 			room.Parent = plot
 		end
+	end
+	if full then
+		furnish(plot, owned, cfg, opts)
+		plot:SetAttribute("FullPlot", true)
 	end
 	plot.WorldPivot = O
 	return plot

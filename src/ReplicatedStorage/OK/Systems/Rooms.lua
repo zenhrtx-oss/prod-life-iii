@@ -14,6 +14,12 @@
 --   the same. Under the test hold (Studio, ReplicatedStorage.OK has WalkInsPaused, true or false: WalkIns' held()) neither
 --   moves anyone, so the existing suite keeps starting at the hub spawn; tests drive them through the hook. Without the
 --   building (Workspace.OK_Rooms' Hall and RoomsDoor: the only way out of a plot) neither moves anyone either.
+-- * The throwaway-test seam (Task 15, build/room_test.lua; Studio or not, since the user tours a private publish): while
+--   Workspace.RoomTest (the 12-plot phone test's root Folder, whose plots stand on the real slot origins) exists, Rooms
+--   claims no slot (claim answers nil and PlotSlot reads 0; the hook's Fill claims none and answers 0), builds no plot, and moves no one on join or respawn (the
+--   wake-up and the respawn rule hold, forced ones too, and nobody gets the "building is full" toast): everyone stays at
+--   the hub spawn and the test's ROOM TOUR moves them. Nothing else changes; with no RoomTest (the whole suite, and every
+--   real server) it does nothing. build/room_test_remove.lua deletes RoomTest, and this seam goes with the test.
 -- * Doors (untagged prompts, hooked here; each press is checked for reach, as InteractionService does): the corridor's
 --   RoomsDoor -> the hall's HallSpawn; the hall's door k -> plot k's landing (RoomRules.CanEnter on the owner's saved
 --   door mode, Task 14 below; the owner always enters; a refusal toasts copy 1.16 / 1.17); the landing's
@@ -236,6 +242,8 @@ local friendGen = 0    -- bumped by every clear of the cache: an answer to an as
 local function report(msg) warn("[OK][ERR] rooms: " .. tostring(msg)) end
 -- the test hold, as Systems/WalkIns' held(): Studio only, so a stray attribute in a published place never holds anyone
 local function held() return RunService:IsStudio() and RS.OK:GetAttribute("WalkInsPaused") ~= nil end
+-- the throwaway-test seam (see the header): the 12-plot phone test stands on the slots' origins
+local function roomTest() return workspace:FindFirstChild("RoomTest") ~= nil end
 
 -- copy ---------------------------------------------------------------------------------------------------------------
 -- a {player} in a toast: past 10 characters it is cut to 9 plus "…" (copy §1, tokens)
@@ -1036,7 +1044,7 @@ end
 -- (re)builds plot k for its owner; an old plot goes only once the new one stands (same place, so nobody falls)
 local function build(k)
 	local o = owners[k]
-	if not o then return nil end
+	if not o or roomTest() then return nil end -- the phone test's plot stands on this slot's origin
 	buildGen[k] = (buildGen[k] or 0) + 1
 	local gen = buildGen[k]
 	local st = stateFor(o) -- may wait for the profile
@@ -1124,6 +1132,10 @@ end
 local function claim(p)
 	local k = slotOf[p]
 	if k then return k end
+	if roomTest() then -- the phone test's 12 plots hold every slot's spot
+		p:SetAttribute("PlotSlot", 0)
+		return nil
+	end
 	k = Rules.Claim(slots, Cfg.Slots)
 	if not k then
 		p:SetAttribute("PlotSlot", 0)
@@ -1184,6 +1196,7 @@ end
 -- the wake-up and the respawn rule ----------------------------------------------------------------------------------------
 -- your bedroom's Spawn (forced: past the test hold); no slot: the full toast, and you stay in the studio
 local function wakeUp(p, forced)
+	if roomTest() then return false end -- before the full toast: the phone test's server has no plots to be full of
 	if not forced and held() then return false end
 	local k = slotOf[p]
 	if not k then
@@ -1199,6 +1212,7 @@ local function wakeUp(p, forced)
 end
 -- after a respawn: back to your bedroom if your last character went inside your own plot; returns "room", "hub" or "held"
 local function respawnRule(p, forced)
+	if roomTest() then return "held" end
 	if not forced and held() then return "held" end
 	local k = slotOf[p]
 	if k and respawnHome[p] and hall and roomsDoor then
@@ -1476,6 +1490,7 @@ function M._State(p) local st = state(p); return st.home, st.dropped, st.unbuilt
 
 -- the Studio hook --------------------------------------------------------------------------------------------------------
 local function fillSlots(n)
+	if roomTest() then return 0 end -- the throwaway-test seam: no slot is claimed, not even a fake owner's
 	local made = 0
 	for _ = 1, math.clamp(math.floor(tonumber(n) or 0), 0, Cfg.Slots) do
 		local k = Rules.Claim(slots, Cfg.Slots)

@@ -1,6 +1,7 @@
 -- OK Studio RoomRules (the Your Rooms plan, Task 1): the rules behind every player's own rooms. Plot origins and slot
 -- claims, which rooms you own, a room's box in the world, the item grid (Cells, Centre, Fits), the save's repair on
--- load, item unlocks, plaques, speaker tiers, the closet's hanger count, door access and modes, and poster designs. Pure: no Roblox globals and no
+-- load, item unlocks, plaques, speaker tiers, the closet's hanger count, door access and modes, poster designs, and (Task 15,
+-- tests only) FullHome, every room filled to its limit for the phone test. Pure: no Roblox globals and no
 -- require; Config.Rooms (cfg), its Kinds rows (kindCfg), Data/RoomCatalog (catalog) and Config.Life.Tiers (tiers) come
 -- in as arguments, so the server (Systems/Rooms), the client's decorate mode and the luau CLI
 -- (spec/room_rules_spec.lua) run the same file.
@@ -455,6 +456,100 @@ function R.PosterOk(design, cfg)
 	local words, colors = tbl(cfg.PosterWords), tbl(cfg.PosterColors)
 	return inRange(design.w, words and #words or 0) and inRange(design.c, colors and #colors or 0)
 		and inRange(design.s, tonumber(cfg.PosterStyles) or 0)
+end
+
+-- full rooms (Task 15: the 12-plot phone test; RoomBuild.Plot's full-plot option and the tests read it, never a player's save) --
+-- a saved home with every room in cfg.Kinds filled to its limit, as if every catalog item were open: { v = 1, door =
+-- cfg.DoorDefault, items = { [kind] = { entry, ... } } }. Per kind, in ladder order: first a poster on every wall spot
+-- 1..posters (slot n's word, colour and style step through cfg.PosterWords, PosterColors and 1..PosterStyles, offset by the
+-- kind's order so two rooms differ), then the catalog's floor items allowed in the kind, in catalog order and round again,
+-- each at the first place that Fits (turn 0 then 1; rows north to south, each west to east, over the bounding box of the
+-- kind's grid), until the room is at its limit or a whole round places nothing. The rounds first keep a free cell between
+-- items, so a big room reads as furnished rather than stacked; once that places nothing more they pack cell to cell (the
+-- bedroom's floor only fits that way). Every entry is checked by Fits against the ones before it, so Repair keeps them all.
+-- Deterministic: the same cfg and catalog give the same home.
+function R.FullHome(cfg, catalog)
+	local out = { v = 1, door = cfg.DoorDefault, items = {} }
+	local items = type(catalog) == "table" and tbl(catalog.Items) or {}
+	local unlocked = {}
+	for _, item in ipairs(items) do
+		if type(item) == "table" and type(item.id) == "string" then unlocked[item.id] = true end
+	end
+	local kinds = {}
+	for kind in pairs(cfg.Kinds) do table.insert(kinds, kind) end
+	table.sort(kinds, function(a, b) return (cfg.Kinds[a].order or 0) < (cfg.Kinds[b].order or 0) end)
+	local words, colors = #(tbl(cfg.PosterWords) or {}), #(tbl(cfg.PosterColors) or {})
+	local styles = math.floor(tonumber(cfg.PosterStyles) or 0)
+	for _, kind in ipairs(kinds) do
+		local kc = cfg.Kinds[kind]
+		local limit = tonumber(kc.limit) or 0
+		local o = tonumber(kc.order) or 0
+		local list = {}
+		if words > 0 and colors > 0 and styles > 0 then
+			for slot = 1, tonumber(kc.posters) or 0 do
+				local e = { id = "poster", slot = slot, w = (o * 5 + slot - 1) % words + 1, c = (o * 3 + slot - 1) % colors + 1,
+					s = (slot - 1) % styles + 1 }
+				if R.Fits(list, e, kc, catalog, unlocked, kind, nil, cfg) then table.insert(list, e) end
+			end
+		end
+		local floors = {}
+		for _, item in ipairs(items) do
+			if type(item) == "table" and item.kind == "floor" and allowedIn(item, kind) then table.insert(floors, item) end
+		end
+		local gx0, gz0, gx1, gz1 = math.huge, math.huge, -math.huge, -math.huge
+		for _, a in ipairs(tbl(kc.grid) or {}) do
+			local x0, z0, x1, z1 = area(a)
+			if x0 then
+				gx0, gz0 = math.min(gx0, math.floor(x0)), math.min(gz0, math.floor(z0))
+				gx1, gz1 = math.max(gx1, math.ceil(x1) - 1), math.max(gz1, math.ceil(z1) - 1)
+			end
+		end
+		local taken = {}
+		-- are the cells, and every cell within `margin` of them, free of the items placed so far?
+		local function clear(cells, margin)
+			for _, c in ipairs(cells) do
+				for dz = -margin, margin do
+					for dx = -margin, margin do
+						if taken[(c[1] + dx) .. ":" .. (c[2] + dz)] then return false end
+					end
+				end
+			end
+			return true
+		end
+		local function spot(item, margin)
+			if gx0 > gx1 or gz0 > gz1 then return nil end
+			for r = 0, 1 do
+				for z = gz0, gz1 do
+					for x = gx0, gx1 do
+						local e = { id = item.id, x = x, z = z, r = r }
+						if clear(R.Cells(item, e), margin) then
+							local fits, why = R.Fits(list, e, kc, catalog, unlocked, kind, nil, cfg)
+							if fits then return e end
+							if why ~= "bounds" and why ~= "overlap" then return nil end -- "max", "limit": no other place helps
+						end
+					end
+				end
+			end
+			return nil
+		end
+		for margin = 1, 0, -1 do
+			local placed = true
+			while placed and #list < limit do
+				placed = false
+				for _, item in ipairs(floors) do
+					if #list >= limit then break end
+					local e = spot(item, margin)
+					if e then
+						table.insert(list, e)
+						for _, c in ipairs(R.Cells(item, e)) do taken[c[1] .. ":" .. c[2]] = true end
+						placed = true
+					end
+				end
+			end
+		end
+		if #list > 0 then out.items[kind] = list end
+	end
+	return out
 end
 
 return R

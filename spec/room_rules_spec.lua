@@ -1001,6 +1001,67 @@ local neonLamp = 0
 for _, e in ipairs(CAT.ById.floor_lamp and CAT.ById.floor_lamp.parts or {}) do if e.m == "Neon" then neonLamp += 1 end end
 eq("catalog: the floor lamp's shade is Neon", neonLamp, 1)
 
+-- FullHome (Task 15, the 12-plot phone test): every room at its limit, every poster spot hung, Repair keeps it all ---------
+local fullT0 = os.clock()
+local fullHome = R.FullHome(ROOMS, CAT)
+local fullMs = (os.clock() - fullT0) * 1000
+local allOpen = {}
+for _, it in ipairs(CAT.Items) do allOpen[it.id] = true end
+local allKinds = R.Owned({ home_studio = true, real_studio = true }, ROOMS.Kinds)
+eq("FullHome: v", fullHome.v, 1)
+eq("FullHome: the default door", fullHome.door, ROOMS.DoorDefault)
+local fullCount = 0
+for _, kind in ipairs(allKinds) do
+	local kc = ROOMS.Kinds[kind]
+	local list = fullHome.items[kind] or {}
+	fullCount += #list
+	eq("FullHome " .. kind .. ": entries at the limit", #list, kc.limit)
+	local slots, posters, closets, floorIds = {}, 0, 0, {}
+	for _, e in ipairs(list) do
+		local it = CAT.ById[e.id]
+		if it and it.kind == "wall" then
+			posters += 1
+			slots[e.slot] = true
+			ok("FullHome " .. kind .. ": poster " .. tostring(e.slot) .. "'s design is in range", R.PosterOk(e, ROOMS))
+		else
+			floorIds[e.id] = true
+			if e.id == "closet" then closets += 1 end
+		end
+	end
+	eq("FullHome " .. kind .. ": a poster on every wall spot", posters, kc.posters)
+	for s = 1, kc.posters do ok("FullHome " .. kind .. ": wall spot " .. s .. " hung", slots[s] == true) end
+	eq("FullHome " .. kind .. ": closets", closets, kc.booth and 1 or 0) -- home and real (the closet's rooms) hold one
+	-- every entry fits against the ones before it, as Repair checks them
+	for i, e in ipairs(list) do
+		eq("FullHome " .. kind .. ": entry " .. i .. " (" .. e.id .. ") fits", why(table.move(list, 1, i - 1, 1, {}), e, kind, allOpen, nil, kc), "ok")
+	end
+	-- no two floor items share a cell
+	local cellsSeen, clash = {}, nil
+	for _, e in ipairs(list) do
+		for _, c in ipairs(R.Cells(CAT.ById[e.id], e)) do
+			local key = c[1] .. ":" .. c[2]
+			if cellsSeen[key] then clash = key end
+			cellsSeen[key] = true
+		end
+	end
+	eq("FullHome " .. kind .. ": no shared cell", clash, nil)
+	-- the biggest room shows every floor item it may hold
+	if kind == "real" then
+		for _, it in ipairs(CAT.Items) do
+			if it.kind == "floor" and (it.rooms == nil or setOf(it.rooms)[kind]) then ok("FullHome real: holds a " .. it.id, floorIds[it.id] == true) end
+		end
+	end
+end
+eq("FullHome: 46 entries in all (6 + 16 + 24)", fullCount, 46)
+local repaired, fullDropped, fullUnbuilt = R.Repair(fullHome, allKinds, ROOMS, CAT, allOpen)
+eq("FullHome: Repair drops nothing", #fullDropped, 0)
+eq("FullHome: Repair leaves nothing unbuilt", #fullUnbuilt, 0)
+for _, kind in ipairs(allKinds) do
+	eq("FullHome " .. kind .. ": Repair keeps the same list", listKey(repaired.items[kind] or {}), listKey(fullHome.items[kind] or {}))
+end
+eq("FullHome: the same home twice (deterministic)", json(R.FullHome(ROOMS, CAT)), json(fullHome))
+encodes("the full home", fullHome)
+
 if #fails > 0 then error(#fails .. " room rules case(s) failed: " .. table.concat(fails, "; ")) end
-print(string.format("SPEC OK: room rules (the maximal home %d bytes; day one floor $%d, %d followers, %d XP, level %d)",
-	#maxJson, floor.money, floor.followers, floor.xp, floor.level))
+print(string.format("SPEC OK: room rules (the maximal home %d bytes; the full home %d entries in %.0f ms; day one floor $%d, %d followers, %d XP, level %d)",
+	#maxJson, fullCount, fullMs, floor.money, floor.followers, floor.xp, floor.level))
