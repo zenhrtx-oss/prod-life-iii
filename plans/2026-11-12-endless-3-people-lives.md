@@ -266,8 +266,10 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
 - Modify: `Modules/WalkInRules.lua` (`RelWrite` stays), `Systems/WalkIns.lua` and `Systems/Phone.lua` `apply`, and `Modules/CareerSim.lua`: an outcome's `rels` list written in order. An archived `who` updates `arc[id].sc`.
 - Modify: `Modules/WebRules.lua` `Resolve`: `$`, `$b` and `$c` in `rels`.
 - Modify: `spec/walkins_data_spec.lua`:
-  - a choice marked `neutral = true` (staying out of it) must have a cost: a `rels` entry with a negative score, or a `tie` with `t > 0`
-  - an outcome that backs one person (`score > 0` for one `rels` entry) in an item with two slots must lower another's
+  - the cost rules apply only to items marked `dispute = true` (two people at odds), never to cooperative scenes:
+    - in a dispute item, a choice marked `side = "$"` (or `"$b"`) backs that person, and must lower the other's score
+    - in a dispute item, a choice marked `neutral = true` (staying out of it) must have its own cost: a negative `rels` score, or a `tie` with `t > 0`
+  - outside dispute items, `rels` may raise everyone, for example two collaborators both delivering on a shared project; a negotiated decline needs no penalty
 - Create: `build/t163a_play_server.lua`.
 
 **Interfaces:**
@@ -338,7 +340,7 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
 - Modify: `spec/walkins_data_spec.lua`:
   - each arc's links resolve
   - every `turn` follows the warning rule
-  - every two-slot backing follows the ripple rule
+  - every `dispute` item's `side` and `neutral` choices follow the ripple rules
 - Modify: `spec/pacing_spec.lua`: on the 200 seeds, each arc is reached by some random run, its median length in played days is ≥ 14 ("weeks or months"), and every guardrail holds.
 - Create: `build/t165a_play_server.lua`: arc 1 end to end through the hooks, with both artists and both endings (back one, then on a fresh run the joint track).
 
@@ -403,3 +405,4 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
 5. **Event-once applies to chain follow-ups, not to repeatable situation cards.** Why: the spec wants situations to come back with someone new ("Mix of new and if yes it feels new"), while a chain's links are history.
 6. **No item catalog at launch.** Keepsakes are the only things people give, shown in the discography, and items wait for the reward plan (spec §4.8's last line). Why: the 20-item map and prices are still proposals.
 7. **New-era carryover is written down, not built** (`era_fields`). Why: the spec puts new eras after launch, and asks launch only to leave room. `prof.era` and the era in every key are that room.
+8. **The ripple cost applies only to authored disputes** (`dispute = true` items, their `side` and `neutral` choices). Why: in a real conflict, backing one person costs you with the other, and staying out has its own cost. A joint success or a polite decline isn't zero-sum, and a blanket rule would force penalties onto cooperative scenes. (From Codex's review, 11-12 21:49.)
