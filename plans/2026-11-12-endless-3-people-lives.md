@@ -124,7 +124,10 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
   - `prof.walkins.chains[arcId .. ":" .. lead] = { era, start, slots = { b = id, c = id }, done = false }`.
   - A slot is bound once, the first time an item needs it (`WebRules.BindSlot`), and is never re-drawn.
   - An item with `newSlot = "c"` may bind `c` once, when `c` is unset.
-  - An item with `revise = true` may change `slots` or credits, and records `revised = day`.
+  - An item with `revise = true` is an explicit revised agreement. It may change the chain's `terms` and `credits` (`chains[k].terms`, `chains[k].credits`) and records `revised = day`.
+    - It **never changes `slots`**: the people stay the same.
+    - A new person joins a chain only through `newSlot` (a real introduction), once.
+  - **The project beat.** When plan 2's promise delivery raises `"request:<who>"`, it passes `fields = { promise, beat = { pattern, bpm, stars } }`. Every open chain record whose lead or slot is `who` then stores `lastBeat`: a copy of that beat, the project actually delivered.
 - **Grants:** `prof.grants = { [key] = day }`. `GrantRules`:
   - `EventKey(itemId, lead, era) -> "e:" .. …`. A follow-up of a chain resolves once. Pick skips a due entry whose key is granted, and removes it.
   - `AchKey(ids, era, family, tier) -> "a:" .. sorted(ids) .. …`
@@ -132,7 +135,9 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
   - `Grant(grants, key, day) -> boolean`: true only the first time.
 - **Keepsakes:** `prof.keepsakes = { { id, chain, era, day, story = { ids }, credits = { ids }, beat = { pattern, bpm, stars }? } }`.
   - They are never changed or removed.
-  - An outcome's `keepsake = { family, story = { "$", "$b" }, credits = { "$" }, beat = "best" | nil }` mints one through `GrantRules` (`AchKey` on the story people), with `beat` pinned from `Contracts.BestBeat` at that moment.
+  - An outcome's `keepsake = { family, story = { "$", "$b" }, credits = { "$" }, beat = "project" | nil }` mints one through `GrantRules` (`AchKey` on the story people).
+    - With `beat = "project"`, the record pins the chain's `lastBeat`. With no `lastBeat`, it has no beat.
+    - A keepsake never takes your current best beat, so it can't name a beat that wasn't the project. Copy that promises "your track" is used only with `beat = "project"` (a `walkins_data_spec` rule).
   - The discography shows it, in words from §C1.
 - **The era:** `prof.era`, default 1. Every chain record, grant key and keepsake carries it. Gear, fits and rooms already live outside `prof.career` (`prof.gear`, `prof.career.gates`); §6's "kept apart" needs no move now. This plan records which fields a new era must keep (`research/endless/era_fields_2026-11-12.md`).
 - **Config:** `Config.People = { CloseDays = 14, ReactMax = 40, TieAtBirth = 30, FireHypeMax = 3 }`.
@@ -297,7 +302,7 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
 - Create: `build/t164a_play_server.lua`.
 
 **Interfaces:**
-- Consumes: Tasks 1–4; plan 2's queue, archive and `Contracts.BestBeat`.
+- Consumes: Tasks 1–4; plan 2's queue, its archive, and the `"request:<who>"` event's `fields.beat`. Plan 2 Task 7's `Deliver` passes `fields.beat`; if the built code doesn't, this task adds it.
 - Produces: `GrantRules.*`, chain records and keepsakes. The after-launch reward plan and Codex's item map key items off `ItemKey` and keepsakes.
 
 - [ ] **Step 1: Write the failing tests.**
@@ -309,9 +314,10 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
   - **t164a:**
     - a test chain bound to g1 binds `$b` (g2) once; a later item asking `$b` gets g2 again
     - a `newSlot = "c"` item binds g3 once
-    - a `revise` item swaps the credits and records `revised`
+    - a `revise` item changes the credits and records `revised`, while `slots` stay the same people
     - resolving the chain's follow-up twice (re-planted through the hook) grants once and shows once
-    - the keepsake's `beat` stays as it was after `SetRecent` changes the beats
+    - a promise delivered for g1 in the chain sets `lastBeat`, and the keepsake pins it; the keepsake's `beat` stays the same after `SetRecent` changes the recent beats and after a better beat is delivered for someone else
+    - a keepsake minted with no delivered project has no beat
     - archiving is refused for g1 to g3 while the chain is open
     - a JSON round trip keeps keepsakes byte for byte
     - marker `T164A PLAY OK`

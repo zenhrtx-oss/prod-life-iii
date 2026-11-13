@@ -485,7 +485,7 @@ Line numbers are from 11-12; the pre-flight scan re-reads them.
   - `M.Promise(player, who, tpl, lv)` adds one (refused at `MaxPromises`)
   - `Offers` (:116) lists promises first, each with `brief = BriefFor(...)` and `promise = true`
   - `Pick` (:160) accepts a promise id
-  - `Deliver` (:236): a promise brief pays once through `Delivery` at its reward, × 1.5 for 3 stars as today. It then removes the promise, raises `"request:<who>"` and adds 1 to the person's `h`.
+  - `Deliver` (:236): a promise brief pays once through `Delivery` at its reward, × 1.5 for 3 stars as today. It then removes the promise, raises `"request:<who>"` with `fields = { who, promise = id, beat = { pattern, bpm, stars } }` (the delivered beat, for plan 3's keepsakes) and adds 1 to the person's `h`.
   - `M.Drop(player, id)`: a promise let go writes `rel` −1 for its person and raises `"rel"` as WriteRel does
   - `M.State` sends `promises`
   - Picking another request leaves an accepted promise in `promises` (the §4.2 seam).
