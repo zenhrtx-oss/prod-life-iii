@@ -6,9 +6,10 @@
 --   and earns one back every `every` seconds, up to `burst`; every call takes one, a call finding none is refused.
 --   Forget(p) drops a player's bucket (they left).
 -- * Check(action): the client's action table type-checked and COPIED into one of ours (the client's table is never kept):
---   { op = "place" | "move" | "remove", kind = string, id? (place), index? (move, remove: a whole number), x?, z?, r? (place and
---   move: numbers; r is quarter turns, RoomRules' scheme: 0..3, and nil means 0 for a place, the item's own turn for a move) },
---   or nil, "invalid" for anything else. It checks types only: ranges, bounds and overlaps are RoomRules.Fits' call.
+--   { op = "place" | "move" | "remove" | "poster", kind = string, id? (place), index? (move, remove: a whole number), x?, z?, r?
+--   (place and move: numbers; r is quarter turns, RoomRules' scheme: 0..3, and nil means 0 for a place, the item's own turn for
+--   a move), slot, w, c, s (poster, Task 13: whole numbers, the wall spot and the design's word, colour and style) }, or nil,
+--   "invalid" for anything else. It checks types only: ranges, bounds, slots and designs are RoomRules.Fits' call.
 -- * Apply(home, a, owned, unlocked, cfg, catalog): the checked action `a` on the saved home (prof.career.home; the one
 --   table is changed in place, and only when the action is allowed). owned = the room kinds you own (Rules.Owned's list),
 --   unlocked = Rules.Unlocked's set, cfg = Config.Rooms. Returns { ok = true, op, kind, index, item? } or { ok = false,
@@ -16,16 +17,24 @@
 --   at: a stale view) or one of RoomRules.Fits' ("unknown" for an id, "locked", "room", "bounds", "overlap", "limit",
 --   "max", "rot", "slot", "design"). A move leaves the item out of its own overlap check (ignoreIndex), so a rotation in
 --   place is a move to the same cell with a new r. A remove closes the list (no hole) and drops an emptied list, as
---   Repair would. Entries are built from named fields only: { id, x, z, r }. unbuilt (optional, last; R-T10 fix 1, the 11-12
+--   Repair would. Entries are built from named fields only: { id, x, z, r }, a poster { id = "poster", slot, w, c, s }.
+--   "poster" (Task 13) hangs a poster you designed on wall spot `slot`: the room's poster already on that slot, if any, is
+--   replaced in place (a redesign: Fits leaves it out of every check, so a full room still takes it, and its index stays),
+--   else a new entry goes at the end. The answer's op is "poster" and its index the entry's. "slot" then only means a spot
+--   out of range (the op carries no index, so a taken spot is redesigned, never refused). unbuilt (optional, last; R-T10 fix 1, the 11-12
 --   unbuilt-cells ruling) = Repair's `unbuilt` list: that room's entries kept unbuilt (locked) still hold their cells, so
 --   a place or a move onto them is "overlap" (RoomRules.UnbuiltCells into Fits' `held`); removing one stays allowed.
--- * Fit(room, list, skip, catalog): makes the room's `Items` Folder (created once, attribute RoomItemsFolder) show
+-- * Fit(room, list, skip, catalog, cfg): makes the room's `Items` Folder (created once, attribute RoomItemsFolder) show
 --   `list` (that room's saved entries): one RoomItems.Build model per built floor entry, named Item_<index>, attributes ItemId,
 --   Index (its place in the saved list) and Sig (id:x:z:r), at Rules.Centre of its footprint turned r quarter turns about
---   +Y, so r = 1 turns its front from -Z to -X (RoomRules' scheme). skip = { [index] = true } for the entries that stay
+--   +Y, so r = 1 turns its front from -Z to -X (RoomRules' scheme); and (Task 13) one RoomItems.Poster model per wall entry,
+--   Item_<index> too (Sig id@slot:w:c:s, attribute Slot), pivoted onto the room's Poster_<slot> Attachment (found by name
+--   like every anchor: an import's own, else Config's), so it hangs flush on the wall facing in. cfg = Config.Rooms (the
+--   poster words, colours and styles); without it, or without the slot's anchor (reported), a poster isn't built.
+--   skip = { [index] = true } for the entries that stay
 --   unbuilt (locked ones: Repair keeps them in the save). A model already standing exactly as an entry says (same Sig) is
---   kept, so a remove or a move rebuilds only what changed. Only models this made (ItemId and Sig) are ever replaced or
---   destroyed; anything else in the folder is left alone. Wall entries (posters) are Task 13's: not built here.
+--   kept, so a remove, a move or a redesign rebuilds only what changed. Only models this made (ItemId and Sig) are ever
+--   replaced or destroyed; anything else in the folder is left alone.
 local RS = game:GetService("ReplicatedStorage")
 local Rules = require(RS.OK.Modules.RoomRules)
 local Items = require(RS.OK.Modules.RoomItems)
@@ -54,7 +63,8 @@ end
 function E.Forget(p) buckets[p] = nil end
 
 -- the action ---------------------------------------------------------------------------------------------------------------
-local OPS = { place = true, move = true, remove = true }
+local OPS = { place = true, move = true, remove = true, poster = true }
+local POSTER_FIELDS = { "slot", "w", "c", "s" }
 local function isInt(v) return type(v) == "number" and v == v and v % 1 == 0 and v >= -1e6 and v <= 1e6 end
 
 function E.Check(action)
@@ -62,6 +72,13 @@ function E.Check(action)
 	local op, kind = action.op, action.kind
 	if type(op) ~= "string" or OPS[op] ~= true or type(kind) ~= "string" or #kind > 24 then return nil, "invalid" end
 	local a = { op = op, kind = kind }
+	if op == "poster" then
+		for _, f in ipairs(POSTER_FIELDS) do
+			if not isInt(action[f]) then return nil, "invalid" end
+			a[f] = action[f] + 0
+		end
+		return a
+	end
 	if op == "place" then
 		if type(action.id) ~= "string" or #action.id > 32 then return nil, "invalid" end
 		a.id = action.id
@@ -80,7 +97,16 @@ end
 
 local function refuse(reason) return { ok = false, reason = reason } end
 local function copyEntry(e)
+	if e.slot ~= nil then return { id = e.id, slot = e.slot, w = e.w, c = e.c, s = e.s } end
 	return { id = e.id, x = e.x, z = e.z, r = e.r }
+end
+-- the index of the wall entry (a poster) hanging on wall spot `slot` in `list`, or nil
+local function wallAt(list, slot, catalog)
+	for i, e in ipairs(list or {}) do
+		local item = type(e) == "table" and catalog.ById[e.id] or nil
+		if type(item) == "table" and item.kind == "wall" and e.slot == slot then return i end
+	end
+	return nil
 end
 
 function E.Apply(home, a, owned, unlocked, cfg, catalog, unbuilt)
@@ -94,6 +120,23 @@ function E.Apply(home, a, owned, unlocked, cfg, catalog, unbuilt)
 	local idx = {}
 	for _, u in ipairs(type(unbuilt) == "table" and unbuilt or {}) do
 		if type(u) == "table" and u.kind == a.kind then table.insert(idx, u.index) end
+	end
+	if a.op == "poster" then
+		local entry = { id = "poster", slot = a.slot, w = a.w, c = a.c, s = a.s }
+		local at = wallAt(list, a.slot, catalog)
+		local ok, why = Rules.Fits(list or {}, entry, kc, catalog, unlocked, a.kind, at, cfg)
+		if not ok then return refuse(why) end
+		if at then
+			list[at] = entry
+		else
+			if not list then
+				list = {}
+				items[a.kind] = list
+			end
+			table.insert(list, entry)
+			at = #list
+		end
+		return { ok = true, op = "poster", kind = a.kind, index = at, item = copyEntry(entry) }
 	end
 	if a.op == "place" then
 		local entry = { id = a.id, x = a.x, z = a.z, r = a.r or 0 }
@@ -138,11 +181,34 @@ local function folderOf(room)
 	return f
 end
 
-local function sig(e) return tostring(e.id) .. ":" .. tostring(e.x) .. ":" .. tostring(e.z) .. ":" .. tostring(e.r or 0) end
+local function sig(e)
+	if e.slot ~= nil then -- a wall entry: its spot and its design (two posters on two spots never share one)
+		return tostring(e.id) .. "@" .. tostring(e.slot) .. ":" .. tostring(e.w) .. ":" .. tostring(e.c) .. ":" .. tostring(e.s)
+	end
+	return tostring(e.id) .. ":" .. tostring(e.x) .. ":" .. tostring(e.z) .. ":" .. tostring(e.r or 0)
+end
 
--- one entry's model at its cell, unparented; nil for an unknown id, a wall item, or junk coordinates
-local function modelFor(room, e, catalog)
+-- a wall entry's model on its spot, unparented; nil without cfg, for a design RoomItems.Poster refuses, or for a spot whose
+-- anchor the room lacks (reported: the asset contract names Poster_1..n)
+local function posterFor(room, e, cfg)
+	if type(cfg) ~= "table" then return nil end
+	local a = room:FindFirstChild("Poster_" .. tostring(e.slot), true)
+	if not (a and a:IsA("Attachment")) then
+		warn("[OK][ERR] rooms: " .. room:GetFullName() .. " has no Poster_" .. tostring(e.slot) .. " anchor for a poster")
+		return nil
+	end
+	local m = Items.Poster(e, cfg)
+	if not m then return nil end
+	m:PivotTo(a.WorldCFrame)
+	m:SetAttribute("Sig", sig(e))
+	m:SetAttribute("Slot", e.slot)
+	return m
+end
+
+-- one entry's model at its cell (a floor item) or on its spot (a wall item), unparented; nil for an unknown id or junk
+local function modelFor(room, e, catalog, cfg)
 	local item = catalog.ById[e.id]
+	if type(item) == "table" and item.kind == "wall" then return posterFor(room, e, cfg) end
 	if type(item) ~= "table" or item.kind ~= "floor" then return nil end
 	local cx, cz = Rules.Centre(item, e)
 	if not cx then return nil end
@@ -153,7 +219,7 @@ local function modelFor(room, e, catalog)
 	return m
 end
 
-function E.Fit(room, list, skip, catalog)
+function E.Fit(room, list, skip, catalog, cfg)
 	local folder = folderOf(room)
 	local have, stale = {}, {}
 	for _, m in ipairs(folder:GetChildren()) do
@@ -166,7 +232,7 @@ function E.Fit(room, list, skip, catalog)
 		if not (skip and skip[i]) and type(e) == "table" and type(e.id) == "string" then
 			local s = sig(e)
 			local m = have[s]
-			if m then have[s] = nil else m = modelFor(room, e, catalog) end
+			if m then have[s] = nil else m = modelFor(room, e, catalog, cfg) end
 			if m then
 				m.Name = "Item_" .. i
 				m:SetAttribute("Index", i)

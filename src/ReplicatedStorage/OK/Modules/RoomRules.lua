@@ -1,6 +1,6 @@
 -- OK Studio RoomRules (the Your Rooms plan, Task 1): the rules behind every player's own rooms. Plot origins and slot
 -- claims, which rooms you own, a room's box in the world, the item grid (Cells, Centre, Fits), the save's repair on
--- load, item unlocks, plaques, speaker tiers, door access and modes, and poster designs. Pure: no Roblox globals and no
+-- load, item unlocks, plaques, speaker tiers, the closet's hanger count, door access and modes, and poster designs. Pure: no Roblox globals and no
 -- require; Config.Rooms (cfg), its Kinds rows (kindCfg), Data/RoomCatalog (catalog) and Config.Life.Tiers (tiers) come
 -- in as arguments, so the server (Systems/Rooms), the client's decorate mode and the luau CLI
 -- (spec/room_rules_spec.lua) run the same file.
@@ -416,6 +416,18 @@ function R.SpeakerTier(gear, speakers)
 		if s.gear == nil or owned[s.gear] then best = i end
 	end
 	return best
+end
+
+-- the closet (Task 12 fix 1) -----------------------------------------------------------------------------------------
+-- how many hangers a closet shows for `owned` fits: as many as fit in the item's part budget (itemParts, Config.Rooms
+-- .ItemParts) after its own recipe's baseParts, perHanger parts each (at least 1), never more than owned and never below
+-- 0. The closet then never passes the budget however many fits there are (Systems/Rooms hangs the first ones, in
+-- Config.Gear order; the closet panel still lists every fit owned)
+function R.HangerCount(owned, baseParts, itemParts, perHanger)
+	local n = math.floor(tonumber(owned) or 0)
+	local per = math.max(1, math.floor(tonumber(perHanger) or 1))
+	local room = math.floor(((tonumber(itemParts) or 0) - (tonumber(baseParts) or 0)) / per)
+	return math.max(0, math.min(n, room))
 end
 
 -- doors --------------------------------------------------------------------------------------------------------------

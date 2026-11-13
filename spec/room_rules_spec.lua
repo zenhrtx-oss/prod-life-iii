@@ -36,10 +36,10 @@ local ROOMS = {
       anchors = { Entrance = { 8, 0, 8.5, 0, -1 }, VisitorSpot = { 2, 0, -3.6, -0.5764, -0.8172 },
         CritterSpot = { -1.5, 0, 2, 0.6332, 0.774 },
         Desk_Speaker_L = { -1.6, 3, -9.3, 0, 1 }, Desk_Speaker_R = { 1.6, 3, -9.3, 0, 1 },
-        Plaque_1 = { 11.9, 5.4, -7.5, -1, 0 }, Plaque_2 = { 11.9, 5.4, -5, -1, 0 }, Plaque_3 = { 11.9, 5.4, -2.5, -1, 0 },
-        Plaque_4 = { 11.9, 5.4, 0, -1, 0 }, Plaque_5 = { 11.9, 5.4, 2.5, -1, 0 }, Plaque_6 = { 11.9, 5.4, 5, -1, 0 },
-        Poster_1 = { -11.9, 5.5, -6, 1, 0 }, Poster_2 = { -11.9, 5.5, -2, 1, 0 }, Poster_3 = { -11.9, 5.5, 2, 1, 0 },
-        Poster_4 = { -11.9, 5.5, 6, 1, 0 },
+        Plaque_1 = { 12, 5.4, -7.5, -1, 0 }, Plaque_2 = { 12, 5.4, -5, -1, 0 }, Plaque_3 = { 12, 5.4, -2.5, -1, 0 },
+        Plaque_4 = { 12, 5.4, 0, -1, 0 }, Plaque_5 = { 12, 5.4, 2.5, -1, 0 }, Plaque_6 = { 12, 5.4, 5, -1, 0 },
+        Poster_1 = { -12, 5.5, -6, 1, 0 }, Poster_2 = { -12, 5.5, -2, 1, 0 }, Poster_3 = { -12, 5.5, 2, 1, 0 },
+        Poster_4 = { -12, 5.5, 6, 1, 0 },
         BoothSpot = { -8.5, 0, -6.5, 0, 1 }, BoothCam = { -8.5, 5, -1.5, 0, -1 } } },
     real = { order = 3, gate = "real_studio", at = { 85, -14.6 }, size = { 36, 28 }, limit = 24, plaques = 10, posters = 6, booth = true,
       grid = { { -8, -7, 8, 12 }, { 8, -12, 17, 8 }, { -17, -4, -8, 13 } },
@@ -50,12 +50,12 @@ local ROOMS = {
       anchors = { Entrance = { 14, 0, 12.5, 0, -1 }, VisitorSpot = { 2, 0, -7.6, -0.5764, -0.8172 },
         CritterSpot = { -2, 0, 3, 0.6332, 0.774 },
         Desk_Speaker_L = { -2.1, 3, -13.4, 0, 1 }, Desk_Speaker_R = { 2.1, 3, -13.4, 0, 1 },
-        Plaque_1 = { 17.9, 5.4, -11.25, -1, 0 }, Plaque_2 = { 17.9, 5.4, -8.75, -1, 0 }, Plaque_3 = { 17.9, 5.4, -6.25, -1, 0 },
-        Plaque_4 = { 17.9, 5.4, -3.75, -1, 0 }, Plaque_5 = { 17.9, 5.4, -1.25, -1, 0 }, Plaque_6 = { 17.9, 5.4, 1.25, -1, 0 },
-        Plaque_7 = { 17.9, 5.4, 3.75, -1, 0 }, Plaque_8 = { 17.9, 5.4, 6.25, -1, 0 }, Plaque_9 = { 17.9, 5.4, 8.75, -1, 0 },
-        Plaque_10 = { 17.9, 5.4, 11.25, -1, 0 },
-        Poster_1 = { -17.9, 5.5, -10, 1, 0 }, Poster_2 = { -17.9, 5.5, -6, 1, 0 }, Poster_3 = { -17.9, 5.5, -2, 1, 0 },
-        Poster_4 = { -17.9, 5.5, 2, 1, 0 }, Poster_5 = { -17.9, 5.5, 6, 1, 0 }, Poster_6 = { -17.9, 5.5, 10, 1, 0 },
+        Plaque_1 = { 18, 5.4, -11.25, -1, 0 }, Plaque_2 = { 18, 5.4, -8.75, -1, 0 }, Plaque_3 = { 18, 5.4, -6.25, -1, 0 },
+        Plaque_4 = { 18, 5.4, -3.75, -1, 0 }, Plaque_5 = { 18, 5.4, -1.25, -1, 0 }, Plaque_6 = { 18, 5.4, 1.25, -1, 0 },
+        Plaque_7 = { 18, 5.4, 3.75, -1, 0 }, Plaque_8 = { 18, 5.4, 6.25, -1, 0 }, Plaque_9 = { 18, 5.4, 8.75, -1, 0 },
+        Plaque_10 = { 18, 5.4, 11.25, -1, 0 },
+        Poster_1 = { -18, 5.5, -10, 1, 0 }, Poster_2 = { -18, 5.5, -6, 1, 0 }, Poster_3 = { -18, 5.5, -2, 1, 0 },
+        Poster_4 = { -18, 5.5, 2, 1, 0 }, Poster_5 = { -18, 5.5, 6, 1, 0 }, Poster_6 = { -18, 5.5, 10, 1, 0 },
         BoothSpot = { -13.5, 0, -10, 0, 1 }, BoothCam = { -13.5, 5, -4, 0, -1 } } },
   },
   Speakers = {
@@ -145,6 +145,19 @@ end
 local function ok(name, cond) if not cond then table.insert(fails, name) end end
 local function near(a, b, eps) return type(a) == "number" and math.abs(a - b) <= (eps or 1e-9) end
 local function setOf(list) local s = {} for _, v in ipairs(list) do s[v] = true end return s end
+-- a stand-in wall anchor { x, y, z, nx, nz } (a plaque or a poster) sits on its wall's inner plane and faces straight in: its
+-- facing is exactly (+-1, 0) on an x wall or (0, +-1) on a z wall, and points back at the room's middle (R-T13 review, M5)
+local function wallAnchorOk(v, size)
+	local onX = near(math.abs(v[4]), 1, 1e-6) and v[5] == 0 and near(math.abs(v[1]), size[1] / 2, 1e-6) and v[1] * v[4] < 0
+	local onZ = near(math.abs(v[5]), 1, 1e-6) and v[4] == 0 and near(math.abs(v[3]), size[2] / 2, 1e-6) and v[3] * v[5] < 0
+	return onX or onZ
+end
+ok("wall guard: an x-wall anchor facing straight in passes", wallAnchorOk({ -12, 5.5, -6, 1, 0 }, { 24, 20 }))
+ok("wall guard: a z-wall anchor facing straight in passes", wallAnchorOk({ 3, 5.5, 10, 0, -1 }, { 24, 20 }))
+ok("wall guard: a diagonal facing on an x wall fails", not wallAnchorOk({ -12, 5.5, -6, 0.7071, 0.7071 }, { 24, 20 }))
+ok("wall guard: a diagonal facing on a z wall fails", not wallAnchorOk({ 3, 5.5, 10, 0.7071, -0.7071 }, { 24, 20 }))
+ok("wall guard: a facing out of the room fails", not wallAnchorOk({ -12, 5.5, -6, -1, 0 }, { 24, 20 }))
+ok("wall guard: an anchor off its wall's plane fails", not wallAnchorOk({ -11, 5.5, -6, 1, 0 }, { 24, 20 }))
 local function idList(list, field) -- "a,b,c" of a list's field (or the values themselves)
 	local t = {}
 	for _, e in ipairs(list or {}) do
@@ -676,6 +689,29 @@ eq("SpeakerTier nil", R.SpeakerTier(nil, ROOMS.Speakers), 1)
 eq("SpeakerTier monitors", R.SpeakerTier({ spk_monitors = true }, ROOMS.Speakers), 2)
 eq("SpeakerTier studio", R.SpeakerTier({ spk_studio = true }, ROOMS.Speakers), 3)
 eq("SpeakerTier both", R.SpeakerTier({ spk_monitors = true, spk_studio = true }, ROOMS.Speakers), 3)
+
+-- the closet's hangers (Task 12 fix 1): never past the item part budget, however many fits
+eq("HangerCount 3 fits, 7 + 1-part hangers in 12", R.HangerCount(3, 7, 12, 1), 3)
+eq("HangerCount 5 fits fill the budget", R.HangerCount(5, 7, 12, 1), 5)
+eq("HangerCount 6 fits: capped at 5", R.HangerCount(6, 7, 12, 1), 5)
+eq("HangerCount 50 fits: capped at 5", R.HangerCount(50, 7, 12, 1), 5)
+eq("HangerCount none owned", R.HangerCount(0, 7, 12, 1), 0)
+eq("HangerCount base at the budget", R.HangerCount(3, 12, 12, 1), 0)
+eq("HangerCount base past the budget", R.HangerCount(3, 13, 12, 1), 0)
+eq("HangerCount 2-part hangers", R.HangerCount(3, 7, 12, 2), 2)
+eq("HangerCount junk", R.HangerCount(nil, nil, nil, nil), 0)
+eq("HangerCount junk perHanger reads 1", R.HangerCount(4, 7, 12, 0), 4)
+do -- the live closet recipe, one-part hangers (RoomItems.HANGER_PARTS), with 0 to 40 fits owned: always within ItemParts
+	local base = #CAT.ById.closet.parts
+	local worst = 0
+	for owned = 0, 40 do
+		local n = R.HangerCount(owned, base, ROOMS.ItemParts, 1)
+		ok("HangerCount(" .. owned .. ") <= owned", n <= owned)
+		worst = math.max(worst, base + n)
+	end
+	ok(string.format("the closet with any number of fits stays within ItemParts (%d of %d)", worst, ROOMS.ItemParts), worst <= ROOMS.ItemParts)
+	ok("the closet shows all three launch fits", R.HangerCount(3, base, ROOMS.ItemParts, 1) == 3)
+end
 -- each tier reaches further and plays louder than the one under it (preflight R6)
 for i = 2, #ROOMS.Speakers do
 	local lo, hi = ROOMS.Speakers[i - 1], ROOMS.Speakers[i]
@@ -809,6 +845,17 @@ for _, kind in ipairs({ "bedroom", "home", "real" }) do
 		end
 	end
 	for name in pairs(a) do ok(kind .. " anchor " .. name .. " is one the contract names", wantSet[name] == true) end
+	-- the stand-ins' wall anchors sit on their wall's inner plane, facing into the room (R-T12 moved the plaques, R-T13 the
+	-- posters): a wall item pivots onto the anchor with its back flush on the wall (RoomItems.Plaque, RoomItems.Poster). The
+	-- facing is axis-aligned (R-T13 review, M5): exactly (+-1, 0) on an x wall and (0, +-1) on a z wall, pointing inward
+	if kind ~= "bedroom" then
+		for _, prefix in ipairs({ "Plaque_", "Poster_" }) do
+			for i = 1, (prefix == "Plaque_" and k.plaques or k.posters) do
+				local v = a[prefix .. i]
+				if v then ok(kind .. " anchor " .. prefix .. i .. " on its wall's plane, facing in", wallAnchorOk(v, k.size)) end
+			end
+		end
+	end
 	local function covered(x, z)
 		for _, area in ipairs(k.keep or {}) do
 			if x >= area[1] and x <= area[3] and z >= area[2] and z <= area[4] then return true end

@@ -3,7 +3,9 @@
 -- credits (payload.profile.credits, newest first); the credits wall opens it.
 -- Tabs come from M.Tabs (data-driven). The Gear tab lists Config.Gear with BUY / EQUIP buttons (an item whose career
 -- needs aren't met shows NEEDS and what it needs); buying and equipping go through C.OnBuy(id) / C.OnEquip(id), which
--- the client wires to the Gear remotes and then calls C.Refresh(payload). The Career tab (payload.career = Career_Get)
+-- the client wires to the Gear remotes and then calls C.Refresh(payload). With payload.closet (a room's closet) the Gear tab
+-- is your closet: only the fits you own, to wear or take off (see renderers.Gear; C.InCloset() says whether the open panel is
+-- that). The Career tab (payload.career = Career_Get)
 -- shows the six stats, the gates (UNLOCK / SHOWING / HIDDEN through C.OnUnlock(id)) and the stat-gated gear (BUY
 -- through C.OnBuy(id)). Rows are named Gear_<id>, Gate_<id> and CareerGear_<id>; each has an "Action" button. Above the
 -- gates sit the milestone bars Bar_tier, Bar_level and Bar_hall (a Label, a Back with a Fill, and a Fraction attribute 0..1).
@@ -261,18 +263,38 @@ function M.Build(gui, Theme)
     for i, r in ipairs(c.recent or {}) do line(string.format("%s  <font color='#9696a5'>%s · prod. %s</font>  %s", r.t, r.a, tostring(c.name or ""), string.rep("★", r.s or 0)), Theme.text, 14, Theme.font, 40 + i) end
     footer.Text = "Producer card · Backspace / B to close"
   end
-  -- gear rack: one row per item, BUY / EQUIP / OWNED / locked
+  -- gear rack: one row per item, BUY / EQUIP / OWNED / locked. With payload.closet (your closet's prompt, Systems/Rooms; the
+  -- Your Rooms plan, Task 12) it is your closet instead: under "YOUR CLOSET" (header line ClosetHeader) only the fits you own
+  -- (Config.Gear kind "fit", owned in payload.gear), each in the rack's row (Gear_<id>, its swatch the fit's own colour) with
+  -- its EQUIP / EQUIPPED button, through C.OnEquip (wear or take off); none owned: the empty line (ClosetEmpty). No money line,
+  -- nothing to buy. A closet button's press goes through its Command attribute ("press": a click sets it, as the beat
+  -- maker's SAMPLE IT does, so a test can press it the same way). Copy: research/rooms/copy_2026-11-12.md §8.3 - 8.5
+  local CLOSET_HEADER = "YOUR CLOSET" -- 8.3
+  local CLOSET_EMPTY = "Nothing in here yet. Buy a fit at the gear rack and it hangs here." -- 8.4
+  local CLOSET_FOOTER = "Closet · Backspace / B to close" -- 8.5
   renderers.Gear = function(payload)
     local Config = require(RS.OK.Config)
     local g = (payload and payload.gear) or { items = {}, cred = 0, level = 1 }
+    local closet = type(payload) == "table" and payload.closet == true
     local owned, equipped, meets = {}, {}, {}
     for _, it in ipairs(g.items or {}) do owned[it.id] = it.owned; equipped[it.id] = it.equipped; meets[it.id] = it.meets end
-    line("Gear rack", Theme.gold, 18, Theme.fontBlack, 0)
-    line(string.format("You have <b>%s</b>. Session requests pay money; tools unlock beat-maker features, looks change how you show up.", Format.Money(g.cred or 0)), Theme.muted, 13, Theme.font, 1)
+    local fitColors = {}
+    if closet then
+      local okFits, Fits = pcall(require, RS.OK.Modules.Fits)
+      fitColors = okFits and type(Fits) == "table" and type(Fits.Colors) == "table" and Fits.Colors or {}
+      local head = line(CLOSET_HEADER, Theme.gold, 18, Theme.fontBlack, 0)
+      head.Name = "ClosetHeader"; head.RichText = false
+    else
+      line("Gear rack", Theme.gold, 18, Theme.fontBlack, 0)
+      line(string.format("You have <b>%s</b>. Session requests pay money; tools unlock beat-maker features, looks change how you show up.", Format.Money(g.cred or 0)), Theme.muted, 13, Theme.font, 1)
+    end
+    local shown = 0
     for i, it in ipairs(Config.Gear) do
+      if closet and not (it.kind == "fit" and owned[it.id]) then continue end
+      shown += 1
       local row = new("Frame", {Name = "Gear_" .. it.id, Size = UDim2.new(1, 0, 0, 56), BackgroundColor3 = Theme.panel, LayoutOrder = 10 + i}, content)
       corner(row, 8)
-      local swatch = it.color or Theme.accent2
+      local swatch = (closet and fitColors[it.fit]) or it.color or Theme.accent2
       new("Frame", {Name = "Swatch", Size = UDim2.fromOffset(6, 40), Position = UDim2.fromOffset(8, 8), BackgroundColor3 = swatch, BorderSizePixel = 0}, row)
       new("TextLabel", {Name = "Name", Size = UDim2.new(1, -150, 0, 22), Position = UDim2.fromOffset(22, 6), BackgroundTransparency = 1, Text = it.name .. "  <font color='#9696a5'>" .. string.upper(it.kind) .. "</font>", RichText = true,
         TextColor3 = Theme.text, Font = Theme.fontBlack, TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left}, row)
@@ -294,9 +316,21 @@ function M.Build(gui, Theme)
       corner(b, 8)
       b:SetAttribute("Action", action or "")
       if action == "buy" then b.MouseButton1Click:Connect(function() C.OnBuy(it.id) end)
+      elseif action == "equip" and closet then
+        b:SetAttribute("Command", "")
+        b.MouseButton1Click:Connect(function() b:SetAttribute("Command", "press") end)
+        b:GetAttributeChangedSignal("Command"):Connect(function()
+          if b:GetAttribute("Command") ~= "press" then return end
+          b:SetAttribute("Command", "")
+          C.OnEquip(it.id)
+        end)
       elseif action == "equip" then b.MouseButton1Click:Connect(function() C.OnEquip(it.id) end) end
     end
-    footer.Text = "Gear rack · Backspace / B to close"
+    if closet and shown == 0 then
+      local empty = line(CLOSET_EMPTY, Theme.muted, 14, Theme.font, 1)
+      empty.Name = "ClosetEmpty"; empty.RichText = false
+    end
+    footer.Text = closet and CLOSET_FOOTER or "Gear rack · Backspace / B to close"
   end
   -- the Career tab: six stats, the gates and the stat-gated gear, each need ticked against what you have
   local function chipRow(parent, check, cost)
@@ -499,6 +533,8 @@ function M.Build(gui, Theme)
   -- switch the open panel to a tab (the client's Studio test seam; players click the tab buttons)
   function C.Select(tab) if panel.Visible and tabButtons[tab] then careerFor(tab); select(tab) end end
   function C.Current() return panel.Visible and current or nil end
+  -- the open panel is your closet (the Gear tab with payload.closet): ClientMain picks its equip-failure line by it
+  function C.InCloset() return panel.Visible and current == "Gear" and lastPayload.closet == true end
   -- re-render the open tab with fresh data (after a purchase); keeps keys the new payload doesn't carry. refetchCareer:
   -- the career changed too and comes again in the background; a tab that shows it waits instead of re-rendering twice
   function C.Refresh(payload, refetchCareer)

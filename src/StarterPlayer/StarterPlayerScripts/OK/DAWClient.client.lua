@@ -109,9 +109,14 @@ local TIER_STATUS = { -- 4.6 - 4.8, by the play's speaker tier
 	"On your desk monitors · everyone in your room hears it",
 	"On your studio monitors · the whole studio hears it",
 }
--- the open beat maker's room kind (the OpenDAW payload's room), nil at the hub's PC and laptops; a delivery made at a room's
--- laptop shows its result at once, with no listen-back cutaway (req.OnDeliver; the Day One plan, Task 5)
+-- the open beat maker's room kind (the OpenDAW payload's room), nil at the hub's PC and laptops; and where its deliveries'
+-- listen-back plays (the payload's booth, Systems/Rooms.Booth; the Your Rooms plan, Task 12), kept from the open for
+-- req.OnDeliver: { spot, cam } (CFrames) at a laptop in a room with a booth (home, real): the artist stands on that room's
+-- BoothSpot and the camera looks from its BoothCam; false in a room without one (the bedroom): the result shows at once,
+-- with no cutaway (the Day One plan, Task 5); nil at the hub: the hub's vocal booth. A room laptop whose payload brought
+-- no booth (Rooms.Booth failed) still shows its result at once: that hub booth is ~6,000 studs from any plot
 local openRoom = nil
+local openBooth = nil
 -- is your own room play on (your plot's RoomPlaying folder)?
 local function myRoomPlay()
 	local k = player:GetAttribute("PlotSlot")
@@ -253,6 +258,7 @@ local function endCutaway()
 end
 req.OnDeliver = function()
 	if (req.Card:GetAttribute("Active") or "") == "" then fetchSessions(); req.ShowPicker(); return end
+	local booth, atRoom = openBooth, openRoom ~= nil -- where this beat maker was opened (a reopen meanwhile can't move it)
 	req.SetMessage("Delivering…")
 	local pattern, bpm, sw = root:GetAttribute("Pattern"), root:GetAttribute("BPM"), root:GetAttribute("Swing")
 	local ok, res = pcall(function() return SessDeliver:InvokeServer(pattern, bpm, sw) end)
@@ -276,17 +282,18 @@ req.OnDeliver = function()
 	-- listen-back: the camera cuts to the vocal booth, where the artist nods to two bars of your beat with their
 	-- reaction overhead; then the camera comes back and the result screen shows the stars, pay and credit
 	listenToken += 1
-	-- none at a room's laptop (openRoom: your bedroom's, say): that booth is the hub's, about 6,000 studs from your plot, so
-	-- there is no cutaway, no artist in it and no playback, and the result screen shows at once (the Day One plan, Task 5:
-	-- Day One's card 2 waits only for that screen; the Your Rooms plan's R-T12 later replaces this with its `booth` payload)
-	if openRoom then
+	-- at a room's laptop it is that room's booth (booth: { spot, cam }, Task 12); a room with none (booth false: your bedroom)
+	-- has no cutaway, no artist and no playback, and the result screen shows at once (the Day One plan, Task 5: Day One's
+	-- card 2 waits only for that screen); so does a room laptop whose payload brought no booth (see openBooth)
+	local roomBooth = type(booth) == "table" and booth or nil
+	if not roomBooth and (booth == false or atRoom) then
 		req.ShowResult(res)
 		return
 	end
 	local my = listenToken
 	local brief = Briefs.BriefById[res.brief]; local artist = brief and Artists.ArtistById[brief.artist]
 	local cam = workspace.CurrentCamera
-	local fig = artist and Booth.Show(artist, res.stars, res.reaction, 9)
+	local fig = artist and Booth.Show(artist, res.stars, res.reaction, 9, roomBooth and roomBooth.spot or nil)
 	local mineOnAir = NP:GetAttribute("Active") and NP:GetAttribute("OwnerId") == player.UserId
 	local bars = 2 * Cfg.Steps * 60 / (bpm or 120) / 4
 	local cut = math.clamp(bars, 3, 5)
@@ -296,12 +303,20 @@ req.OnDeliver = function()
 		gui.Enabled = false
 		cam.CameraType = Enum.CameraType.Scriptable
 		local head = fig:FindFirstChild("Head")
-		local look = head and head.Position or Vector3.new(83.6, 4.2, -2)
-		-- just inside the booth glass (the tinted pane would wash the shot out), angled so the artist and the
-		-- reaction above them both fit
-		local aim = look - Vector3.new(0, 0.9, 0)
-		cam.CFrame = CFrame.lookAt(Vector3.new(80.5, 4.6, look.Z + 4.5), aim)
-		cam.Focus = CFrame.new(aim)
+		if roomBooth then
+			-- from the room's BoothCam, turned onto the artist so they and the reaction above them are in the shot
+			local look = head and head.Position or (roomBooth.spot.Position + Vector3.new(0, 4.9, 0))
+			local aim = look - Vector3.new(0, 0.9, 0)
+			cam.CFrame = CFrame.lookAt(roomBooth.cam.Position, aim)
+			cam.Focus = CFrame.new(aim)
+		else
+			local look = head and head.Position or Vector3.new(83.6, 4.2, -2)
+			-- just inside the booth glass (the tinted pane would wash the shot out), angled so the artist and the
+			-- reaction above them both fit
+			local aim = look - Vector3.new(0, 0.9, 0)
+			cam.CFrame = CFrame.lookAt(Vector3.new(80.5, 4.6, look.Z + 4.5), aim)
+			cam.Focus = CFrame.new(aim)
+		end
 		if not mineOnAir then ui.Play() end
 		task.delay(cut, function()
 			if listenToken ~= my then return end
@@ -619,6 +634,10 @@ Event.OnClientEvent:Connect(function(kind, payload)
 	if type(payload.daw) == "table" then daw = payload.daw end
 	if payload.level then root:SetAttribute("Level", payload.level) end
 	openRoom = type(payload.room) == "string" and payload.room or nil
+	local pb = payload.booth
+	if type(pb) == "table" and typeof(pb.spot) == "CFrame" and typeof(pb.cam) == "CFrame" then openBooth = { spot = pb.spot, cam = pb.cam }
+	elseif pb == false then openBooth = false
+	else openBooth = nil end
 	if monitorsBtn then monitorsBtn.Text = openRoom and SPEAKERS_LABEL or MONITORS_LABEL end
 	refreshCompact()
 	if not ui.IsOpen() then

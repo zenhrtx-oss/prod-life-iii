@@ -2,7 +2,8 @@
 -- tour's coach marks (CoachUI).
 -- Studio-only test seam: the OK_UI attribute PanelCommand = "os" | "tab:<Name>" | "unlock:<id>" | "card:self" |
 -- "banner:<text>" (as a LifeBanner) | "level:<n>" (a LEVEL UP banner, nothing else) | "nolife" (Story, on a career that came
--- back without its life) | "dayjoin" (the DAY toast's read as a client whose UI is built only now: DayToasts = the toasts a
+-- back without its life) | "closet:empty" (your closet with no fit owned: the Gear tab with a closet payload and nothing
+-- owned, copy 8.4) | "dayjoin" (the DAY toast's read as a client whose UI is built only now: DayToasts = the toasts a
 -- new reader and the live one made between them) runs that action and is cleared to "" when it has finished (tests wait for
 -- the "" as the acknowledgement; "os" and "tab:" also wait, up to 5 s, for the panel's background career fetch). CareerOut =
 -- a fetch still out at the acknowledgement.
@@ -44,9 +45,13 @@ local function openOS()
 end
 local hud = require(RS.OK.Modules.HUD).Build(gui, Theme, { onOS = openOS })
 -- gear rack: buy / equip from the Gear tab, then re-render it with the server's answer
+-- the unreachable line by the panel's mode (R-T12 review, M3): the closet's own, copy 8.7, else the rack's. Read before the
+-- call, which yields: the panel may be closed by the time it fails
+local CLOSET_UNREACHED = "Couldn't reach your closet" -- 8.7
 local function gearAction(remote, id, verb)
+  local inCloset = panel.InCloset()
   local ok, res = pcall(function() return remote:InvokeServer(id) end)
-  if not (ok and type(res) == "table") then panel.Toast("Couldn't reach the rack"); return end
+  if not (ok and type(res) == "table") then panel.Toast(inCloset and CLOSET_UNREACHED or "Couldn't reach the rack"); return end
   gui:SetAttribute("LastGear", res.ok and "ok" or tostring(res.reason))
   if res.ok then
     local Cfg = require(RS.OK.Config)
@@ -182,6 +187,11 @@ if RunService:IsStudio() then
     elseif c == "nolife" then
       sourcePos = nil
       panel.Open("Story", { career = {} })
+    elseif c == "closet:empty" then -- your closet with no fit owned (copy 8.4), as Gear.State would send it (R-T12 review, M1)
+      sourcePos = nil
+      local items = {}
+      for _, it in ipairs(Config.Gear) do table.insert(items, { id = it.id, owned = false, equipped = false, needs = it.needs, meets = true }) end
+      panel.Open("Gear", { tab = "Gear", closet = true, gear = { items = items, cred = 0, level = 1 } })
     elseif c == "dayjoin" then
       local fresh = dayReader()
       gui:SetAttribute("DayToasts", (fresh() and 1 or 0) + (fresh() and 1 or 0) + (readDay() and 1 or 0))

@@ -20,7 +20,8 @@
 -- Decorate mode (Task 10; the bar is Modules/RoomUI, PlayerGui.OK_Room; the server is Systems/Rooms):
 -- * Only the owner sees a room's DecoratePrompt: this client turns off every DecoratePrompt under Workspace.OK_Plots whose
 --   room (the ancestor Model with RoomKind) has another OwnerId, as it streams in. That rule starts first, on its own, so
---   nothing the edit bar waits on can hold it back.
+--   nothing the edit bar waits on can hold it back. Task 14: the same rule turns off every landing DoorPrompt (the owner's
+--   door mode) whose own OwnerId attribute isn't this player's.
 -- * In: the server's Room remote "decorate" { kind } (the owner pressed that room's DecoratePrompt). Not while the beat
 --   maker is open, and only for this player's own room (Plot_<PlotSlot>.Room_<kind>, OwnerId this player) once Room_Get has
 --   answered with that room and, after that wait, the same live character still stands in their own plot (InPlot =
@@ -51,14 +52,33 @@
 --   and destroys the preview.
 -- * The Room remote's "state" (the server's State after any change to your rooms) refreshes the view while decorating; after
 --   a Room_Edit that answers ok this client also asks Room_Get, so the view never waits on the push.
+-- * Posters you design (Task 13). In a room with wall spots (Config.Rooms.Kinds.<kind>.posters: home and real) the Poster_n
+--   anchors are Attachments, which no tap can hit, and from straight above a poster on the wall is a line (preflight m21).
+--   So each spot gets a client-only hit part, OK_DecoratePreview.PosterSlots.Slot_<n>: a see-through plate on the floor
+--   against the wall under the spot (SLOT_W along the wall, SLOT_D into the room), queryable, never colliding or touching;
+--   pale while free, in the hung poster's colour while one hangs there; hidden (LocalTransparencyModifier 1, and left out of
+--   the tap) while a floor item or the designer is picked. With nothing picked the hint reads 6.13 then 9.29 while a spot is
+--   free and the room isn't full (used < limit; posters count), and in the designer 9.30 while the design can be hung, else the
+--   sentence for why not (RoomUI.Sentence, e.g. 6.36 for a full room). A tap on a free spot (or Command "slot:n") opens the designer (RoomUI's "poster" face) for a new poster, word 1,
+--   colour 1, style 1; a tap on a spot holding a poster, or on the poster itself, picks it for a redesign (🗑 REMOVE shows; its
+--   own design is turned off on this client under the preview). While designing, the camera stands level in front of the
+--   spot, the poster and a margin between the top bar and the bar; the live preview (OK_DecoratePreview.PosterPreview, a
+--   RoomItems.Poster that answers no ray) hangs on the spot; GhostOk is the client's RoomRules.Fits for the design (a
+--   redesign leaves itself out). WORD / COLOR / STYLE ◀ ▶ ("word:-1", "word:+1", ...; wrapping) change it; HANG ("hang", or
+--   Enter) sends Room_Edit { op = "poster", kind, slot, w, c, s } (the server redesigns a spot that holds one); 🗑 REMOVE
+--   (Delete) sends "remove" at its index; ✕ CANCEL (Backspace) closes the designer and the camera goes back over the room.
+--   World taps are ignored while designing. No TextBox anywhere: the words are preset.
 -- Test attributes on OK_Room (RoomUI writes Rows and Layout): Editing, Kind, Item (the id the bar shows), Selected ("",
 -- "new:<id>" or "item:<index>"), Ghost ("x,z,r" of the ghost's lowest cell and turn, or ""), GhostOk, LastEdit ("" on the way
 -- in, "sending", then "ok" or the refusal: "error" for a failed call), LeftBy (why the last session ended: "done", "moved",
--- "died", "respawn", "room", "error": a throw while setting up), ControlsOn (the ControlModule's own controlsEnabled, else its active controller's `enabled`,
+-- "died", "respawn", "room", "error": a throw while setting up), Poster ("slot,w,c,s" of the design on show, or ""; Task 13),
+-- ControlsOn (the ControlModule's own controlsEnabled, else its active controller's `enabled`,
 -- read back right after this client disabled or enabled it; nil when neither can be read; in a game with no PlayerModule,
 -- this client's own flag for the WalkSpeed / jump fallback. A test can't require the ControlModule itself: from its own VM
 -- that would be a second copy); Command = "next" | "prev" | "add" | "cell:x,z" | "pick:index" | "rotate" | "place" | "remove" |
--- "cancel" | "done" | "tap:x,y" (a tap at that screen point, as a real tap's own path), cleared to "" once taken.
+-- "cancel" | "done" | "tap:x,y" (a tap at that screen point, as a real tap's own path) | "slot:n" | "word:+1" | "word:-1" |
+-- "color:+1" | "color:-1" | "style:+1" | "style:-1" | "hang" (Task 13), cleared to "" once taken. Selected also reads
+-- "slot:<n>" while a new poster is designed for spot n (a hung one is "item:<index>").
 local RS = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local SoundService = game:GetService("SoundService")
@@ -68,10 +88,17 @@ local OK = RS:WaitForChild("OK", 30)
 
 -- decorate mode (Task 10) ------------------------------------------------------------------------------------------------
 -- only the owner sees a room's DecoratePrompt: installed first, on its own (R-T10 fix 3, review minor 3), so nothing the
--- edit bar waits on (the remotes, RoomUI.Build, the requires) can keep a visitor from seeing another owner's prompt
+-- edit bar waits on (the remotes, RoomUI.Build, the requires) can keep a visitor from seeing another owner's prompt.
+-- The same for the landing's DoorPrompt (Task 14: the owner's door mode), which Systems/Rooms stamps with its owner's id
+-- (the Landing model has no RoomKind or OwnerId of its own)
 task.spawn(function()
 	local function gate(d)
-		if not (d:IsA("ProximityPrompt") and d.Name == "DecoratePrompt") then return end
+		if not d:IsA("ProximityPrompt") then return end
+		if d.Name == "DoorPrompt" then
+			if d:GetAttribute("OwnerId") ~= player.UserId then d.Enabled = false end
+			return
+		end
+		if d.Name ~= "DecoratePrompt" then return end
 		local a = d.Parent
 		while a and a ~= workspace and not (a:IsA("Model") and a:GetAttribute("RoomKind") ~= nil) do a = a.Parent end
 		if not (a and a ~= workspace and a:GetAttribute("OwnerId") == player.UserId) then d.Enabled = false end
@@ -101,13 +128,21 @@ task.spawn(function()
 	local Items = require(OK.Modules.RoomItems)
 	local RoomUI = require(OK.Modules.RoomUI)
 	local Theme = require(OK.Modules.UITheme)
-	local ui = RoomUI.Build(Theme)
+	local ui = RoomUI.Build(Theme, RoomsCfg)
 	local gui = ui.gui
 	local Copy = RoomUI.Copy
 	local CEILING_MIN = 7 -- studs above the floor: a part whose bottom is this high is hidden while decorating
 	local MOVED = 3       -- studs: the character moved this far (a teleport): decorate mode ends
 	local RED, GREEN = Color3.fromRGB(230, 60, 60), Color3.fromRGB(70, 200, 120)
 	local ACT = "OK_Decorate"
+	-- posters (Task 13)
+	local POSTER_N = { w = #(RoomsCfg.PosterWords or {}), c = #(RoomsCfg.PosterColors or {}), s = tonumber(RoomsCfg.PosterStyles) or 0 }
+	local POSTER_KEY = { word = "w", color = "c", style = "s" }
+	local SLOT_W, SLOT_D, SLOT_T = 3.6, 2.5, 0.04 -- studs: a wall spot's hit plate along the wall, into the room, thick
+	local SLOT_LIFT = 0.06 -- studs the plate's underside floats above the floor: clear of the booth mat's top (y 0.05, RoomBuild), so no face is coplanar with it
+	local SLOT_FREE = Color3.fromRGB(235, 235, 235)
+	local WALL_MARGIN = 1 -- studs the designer's camera keeps round the poster
+	local PREVIEW_OUT = 0.02 -- studs the preview stands proud of the wall (over a hung poster being redesigned)
 
 	local function hum() local c = player.Character; return c and c:FindFirstChildOfClass("Humanoid") end
 	local function rootPart() local c = player.Character; return c and c:FindFirstChild("HumanoidRootPart") end
@@ -194,8 +229,11 @@ task.spawn(function()
 	end
 
 	-- the session: { kind, room, pivot, view (State), rv (view.rooms[kind]), set (unlocked), list (browse ids), browse, sel = nil |
-	-- { id, index? (a placed item), x, z, r }, busy, msg (a refusal's sentence on show), at (where the character stood),
-	-- folder (OK_DecoratePreview), ghost, plate, faint, hidden / dimmed ({ [part] = its LocalTransparencyModifier before }),
+	-- { id, index? (a placed item), x, z, r }, poster = nil | { slot, w, c, s, index? (a hung one) } (the designer, Task 13; never
+	-- both sel and poster), busy, msg (a refusal's sentence on show), at (where the character stood),
+	-- folder (OK_DecoratePreview), ghost, plate, faint, preview (the poster's), hidden / dimmed ({ [part] = its
+	-- LocalTransparencyModifier before }), guiOff ({ [SurfaceGui] = its Enabled before }), aimed ("top" | "wall:<n>"), anchors
+	-- ({ [n] = the Poster_n Attachment, or false }),
 	-- conns, saved, rows }
 	local ed = nil
 	local leave -- (why)
@@ -317,9 +355,12 @@ task.spawn(function()
 		end
 	end
 	-- the placed item at `index` (its model in the room's Items), dimmed while it is picked
+	-- (a picked poster's own design, its SurfaceGui, is turned off too: the preview stands in front of it)
 	local function undim()
 		for part, v in pairs(ed.dimmed) do if part.Parent then part.LocalTransparencyModifier = v end end
 		ed.dimmed = {}
+		for g, on in pairs(ed.guiOff) do if g.Parent then g.Enabled = on end end
+		ed.guiOff = {}
 	end
 	local function dim(index)
 		undim()
@@ -327,13 +368,111 @@ task.spawn(function()
 		for _, m in ipairs(f and f:GetChildren() or {}) do
 			if m:IsA("Model") and m:GetAttribute("Index") == index then
 				for _, p in ipairs(m:GetDescendants()) do
-					if p:IsA("BasePart") then ed.dimmed[p] = p.LocalTransparencyModifier; p.LocalTransparencyModifier = 0.7 end
+					if p:IsA("BasePart") then ed.dimmed[p] = p.LocalTransparencyModifier; p.LocalTransparencyModifier = 0.7
+					elseif p:IsA("SurfaceGui") then ed.guiOff[p] = p.Enabled; p.Enabled = false end
 				end
 			end
 		end
 	end
 
-	-- the camera: straight down over the room, north at the top, the floor between the top bar and the edit bar
+	-- posters (Task 13) ---------------------------------------------------------------------------------------------------
+	-- the room's Poster_<n> Attachment (found by name like every anchor, once a session: the room doesn't change under it), or nil
+	local function anchorOf(n)
+		local c = ed.anchors[n]
+		if c == nil then
+			local a = ed.room:FindFirstChild("Poster_" .. tostring(n), true)
+			c = (a and a:IsA("Attachment")) and a or false
+			ed.anchors[n] = c
+		end
+		return (c and c.Parent) and c or nil
+	end
+	-- the index of the poster State says hangs on spot n, or nil
+	local function hungAt(n)
+		for i, e in ipairs(ed.rv.items) do
+			local it = type(e) == "table" and Catalog.ById[e.id] or nil
+			if it and it.kind == "wall" and e.slot == n then return i end
+		end
+		return nil
+	end
+	local function spots() return math.max(0, math.floor(tonumber(ed.rv.slots) or 0)) end
+	local function freeSpot()
+		for n = 1, spots() do if not hungAt(n) and anchorOf(n) then return true end end
+		return false
+	end
+	-- the client's Fits for the design on show, as the server's Edit runs it (a redesign leaves itself out)
+	local function posterFits(pd)
+		return Rules.Fits(ed.rv.items, { id = "poster", slot = pd.slot, w = pd.w, c = pd.c, s = pd.s }, kindCfg(), Catalog, ed.set, ed.kind,
+			pd.index, RoomsCfg)
+	end
+	-- the wall spots' hit plates (m21): one per Poster_n anchor, on the floor against the wall under it
+	local function showSlots()
+		local n = spots()
+		local have = ed.folder and ed.folder:FindFirstChild("PosterSlots")
+		if n < 1 and not have then return end
+		local root = previewFolder()
+		local f = root:FindFirstChild("PosterSlots")
+		if not f then
+			f = Instance.new("Folder")
+			f.Name = "PosterSlots"
+			f.Parent = root
+		end
+		local hide = ed.sel ~= nil or ed.poster ~= nil
+		local up = ed.pivot.UpVector
+		for i = 1, n do
+			local a = anchorOf(i)
+			local plate = f:FindFirstChild("Slot_" .. i)
+			if a then
+				if not plate then
+					plate = Instance.new("Part")
+					plate.Name = "Slot_" .. i
+					plate.Anchored = true; plate.Material = Enum.Material.SmoothPlastic
+					plate.CanCollide, plate.CanQuery, plate.CanTouch, plate.CastShadow = false, true, false, false
+					plate.TopSurface, plate.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+					plate.Size = Vector3.new(SLOT_W, SLOT_T, SLOT_D)
+					plate:SetAttribute("PosterSlot", i)
+					plate.Parent = f
+				end
+				local cf = a.WorldCFrame
+				local into = (cf.LookVector - up * cf.LookVector:Dot(up)).Unit
+				local base = a.WorldPosition - up * up:Dot(a.WorldPosition - ed.pivot.Position) -- on the floor under the spot
+				local at = base + into * (SLOT_D / 2) + up * (SLOT_T / 2 + SLOT_LIFT) -- the plate's centre 0.08 up, its top 0.10
+				plate.CFrame = CFrame.lookAt(at, at + into, up)
+				local h = hungAt(i)
+				local e = h and ed.rv.items[h]
+				local col = e and (RoomsCfg.PosterColors or {})[e.c]
+				plate.Color = col and Color3.fromRGB(col[1], col[2], col[3]) or SLOT_FREE
+				plate.Transparency = col and 0.5 or 0.6
+				plate.LocalTransparencyModifier = hide and 1 or 0
+			elseif plate then
+				plate:Destroy()
+			end
+		end
+	end
+	-- the designer's live preview on its spot (client only, answers no ray), and the Poster / GhostOk attributes
+	local function showPoster()
+		if ed.preview then ed.preview:Destroy(); ed.preview = nil end
+		local pd = ed.poster
+		if not pd then
+			gui:SetAttribute("Poster", "")
+			return
+		end
+		local a = anchorOf(pd.slot)
+		local m = a and Items.Poster(pd, RoomsCfg)
+		if m then
+			for _, d in ipairs(m:GetDescendants()) do
+				if d:IsA("BasePart") then d.CanQuery, d.CanCollide, d.CanTouch, d.CastShadow = false, false, false, false end
+			end
+			m.Name = "PosterPreview"
+			m:PivotTo(a.WorldCFrame * CFrame.new(0, 0, -PREVIEW_OUT))
+			m.Parent = previewFolder()
+			ed.preview = m
+		end
+		gui:SetAttribute("GhostOk", posterFits(pd) == true)
+		gui:SetAttribute("Poster", string.format("%d,%d,%d,%d", pd.slot, pd.w, pd.c, pd.s))
+	end
+
+	-- the camera: straight down over the room, north at the top, the floor between the top bar and the edit bar; while the
+	-- poster designer is open (Task 13), level in front of its wall spot instead, the poster and WALL_MARGIN round it in that band
 	local function fitCamera()
 		if not ed then return end
 		local cam = workspace.CurrentCamera
@@ -343,6 +482,22 @@ task.spawn(function()
 		local f = (V.Y / 2) / math.tan(math.rad(cam.FieldOfView) / 2)
 		local top = GuiService:GetGuiInset().Y + 12
 		local bottom = math.max(top + 80, V.Y - ui.Reserved() - 12)
+		local wall = ed.poster and anchorOf(ed.poster.slot)
+		if wall then
+			local acf = wall.WorldCFrame
+			local up = ed.pivot.UpVector
+			local into = (acf.LookVector - up * acf.LookVector:Dot(up)).Unit
+			local PW, PH = Items.POSTER_W + 2 * WALL_MARGIN, Items.POSTER_H + 2 * WALL_MARGIN
+			local d = math.max(f * PW / math.max(80, V.X - 24), f * PH / (bottom - top))
+			local oyw = (top + bottom) / 2 - V.Y / 2
+			local look = acf.Position + up * (oyw * d / f) -- the poster's centre shows at the free band's centre
+			cam.CameraType = Enum.CameraType.Scriptable
+			cam.CFrame = CFrame.lookAt(look + into * d, look, up)
+			cam.Focus = CFrame.new(acf.Position)
+			ed.aimed = "wall:" .. ed.poster.slot
+			return
+		end
+		ed.aimed = "top"
 		local W, D = size[1] + 1, size[2] + 1
 		local h = math.max(f * W / math.max(80, V.X - 24), f * D / (bottom - top))
 		local oy = (top + bottom) / 2 - V.Y / 2 -- px: the free band's centre off the screen's centre (up is negative)
@@ -368,17 +523,38 @@ task.spawn(function()
 		end
 	end
 
+	-- the camera follows what is picked: over the room, or (the designer) at a wall spot
+	local function aim()
+		local want = ed.poster and ("wall:" .. ed.poster.slot) or "top"
+		if ed.aimed ~= want then fitCamera() end
+	end
 	local function paint()
 		if not ed then return end
-		local s, rv = ed.sel, ed.rv
-		local id = s and s.id or ed.list[ed.browse]
-		local item = id and Catalog.ById[id]
-		local hint = ed.msg or (s == nil and Copy.HintPick) or (s.index and Copy.HintItem) or Copy.HintNew
-		ui.Paint({ mode = s == nil and "none" or (s.index and "item" or "new"), name = item and item.name or "",
-			used = tonumber(rv.used) or 0, limit = tonumber(rv.limit) or 0, canAdd = #ed.list > 0, canBrowse = #ed.list > 1,
-			ok = s == nil or gui:GetAttribute("GhostOk") == true, hint = hint })
-		gui:SetAttribute("Item", ed.list[ed.browse] or "")
-		gui:SetAttribute("Selected", s == nil and "" or (s.index and ("item:" .. s.index) or ("new:" .. s.id)))
+		local s, rv, pd = ed.sel, ed.rv, ed.poster
+		if pd then
+			-- 9.30 while the design can be hung; else the sentence for why not (a full room says so before HANG is pressed: a
+			-- redesign of a hung spot leaves itself out of the count, so it never reads "full")
+			local fitsOk, why = posterFits(pd)
+			ui.Paint({ mode = "poster", word = (RoomsCfg.PosterWords or {})[pd.w] or "", color = (RoomsCfg.PosterColorNames or {})[pd.c] or "",
+				style = (RoomsCfg.PosterStyleNames or {})[pd.s] or "", hung = pd.index ~= nil, ok = gui:GetAttribute("GhostOk") == true,
+				hint = ed.msg or (fitsOk ~= true and RoomUI.Sentence(why)) or Copy.HintDesign })
+			gui:SetAttribute("Item", ed.list[ed.browse] or "")
+			gui:SetAttribute("Selected", pd.index and ("item:" .. pd.index) or ("slot:" .. pd.slot))
+		else
+			local id = s and s.id or ed.list[ed.browse]
+			local item = id and Catalog.ById[id]
+			-- 6.13, then 9.29 (Task 13) while a wall spot is free and the room has space to hang a poster in (a full room
+			-- advertises no spot: the limit counts posters)
+			local limit = tonumber(rv.limit)
+			local full = limit ~= nil and (tonumber(rv.used) or 0) >= limit
+			local none = (freeSpot() and not full) and (Copy.HintPick .. " " .. Copy.HintWall) or Copy.HintPick
+			local hint = ed.msg or (s == nil and none) or (s.index and Copy.HintItem) or Copy.HintNew
+			ui.Paint({ mode = s == nil and "none" or (s.index and "item" or "new"), name = item and item.name or "",
+				used = tonumber(rv.used) or 0, limit = tonumber(rv.limit) or 0, canAdd = #ed.list > 0, canBrowse = #ed.list > 1,
+				ok = s == nil or gui:GetAttribute("GhostOk") == true, hint = hint })
+			gui:SetAttribute("Item", ed.list[ed.browse] or "")
+			gui:SetAttribute("Selected", s == nil and "" or (s.index and ("item:" .. s.index) or ("new:" .. s.id)))
+		end
 		local rows = gui:GetAttribute("Rows")
 		if rows ~= ed.rows then ed.rows = rows; fitCamera() end
 	end
@@ -407,22 +583,62 @@ task.spawn(function()
 			local e = rv.items[s.index]
 			if type(e) == "table" and e.id == s.id then dim(s.index) else ed.sel = nil; undim() end
 		end
+		local pd = ed.poster -- the designer's spot: a hung poster's index follows the list, a new one becomes a redesign
+		if pd then
+			local at = hungAt(pd.slot)
+			if pd.index ~= at then
+				pd.index = at
+				if at then dim(at) else undim() end
+			end
+		end
 		showUnbuilt()
 		showGhost()
+		showPoster()
+		showSlots()
 		paint()
+		if ed then aim() end
 	end
+	-- what is picked: a floor item (s), or nil (nothing); either closes the poster designer
 	local function choose(s)
 		ed.sel = s
+		ed.poster = nil
 		ed.msg = nil
 		if s and s.index then dim(s.index) else undim() end
 		showGhost()
+		showPoster()
+		showSlots()
 		paint()
+		aim()
+	end
+	-- the poster designer opened on a design { slot, w, c, s, index? } (Task 13)
+	local function design(pd)
+		ed.sel = nil
+		ed.poster = pd
+		ed.msg = nil
+		if pd.index then dim(pd.index) else undim() end
+		showGhost()
+		showPoster()
+		showSlots()
+		paint()
+		aim()
 	end
 	local function pick(index)
 		local e = ed.rv.items[index]
 		local it = type(e) == "table" and Catalog.ById[e.id] or nil
+		if it and it.kind == "wall" and allowed(it, ed.kind) and Rules.PosterOk(e, RoomsCfg) and anchorOf(e.slot) then
+			if not (ed.poster and ed.poster.index == index) then design({ slot = e.slot, w = e.w, c = e.c, s = e.s, index = index }) end
+			return
+		end
 		if not (it and it.kind == "floor" and isOpen(it, ed.set) and allowed(it, ed.kind)) then return end
 		choose({ id = e.id, index = index, x = e.x, z = e.z, r = e.r or 0 })
+	end
+	-- wall spot n tapped: the poster on it picked, or the designer opened there for a new one
+	local function spot(n)
+		if not (type(n) == "number" and n >= 1 and n <= spots() and anchorOf(n)) then return end
+		if ed.poster and ed.poster.slot == n then return end -- open on it already
+		local at = hungAt(n)
+		if at then pick(at); return end
+		design({ slot = n, w = 1, c = 1, s = 1 })
 	end
 	local function moveGhost(x, z)
 		if not ed.sel then return end
@@ -448,9 +664,10 @@ task.spawn(function()
 	-- a tap: on a placed item it picks it; on the floor it moves the ghost
 	local function tap(pos)
 		if not ed or ed.busy then return end
+		if ed.poster then return end -- the designer: its own buttons only (the camera faces the wall)
+		local ray = workspace.CurrentCamera:ScreenPointToRay(pos.X, pos.Y)
 		local items = ed.room:FindFirstChild("Items")
 		if items then
-			local ray = workspace.CurrentCamera:ScreenPointToRay(pos.X, pos.Y)
 			local params = RaycastParams.new()
 			params.FilterType = Enum.RaycastFilterType.Include
 			params.FilterDescendantsInstances = { items }
@@ -462,6 +679,17 @@ task.spawn(function()
 				if not (ed.sel and ed.sel.index == index) then pick(index) end
 				return
 			end
+		end
+		-- nothing picked: a wall spot's plate (Task 13; with a floor item picked the plates are out of the way)
+		local plates = not ed.sel and ed.folder and ed.folder:FindFirstChild("PosterSlots")
+		if plates then
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Include
+			params.FilterDescendantsInstances = { plates }
+			local hit = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+			local n = hit and hit.Instance:GetAttribute("PosterSlot")
+			if type(n) == "number" then spot(n) end
+			return
 		end
 		floorAt(pos)
 	end
@@ -491,6 +719,31 @@ task.spawn(function()
 		if c == "done" then leave("done"); return end
 		if c == "cancel" then choose(nil); return end
 		if ed.busy then return end
+		-- the poster designer (Task 13)
+		local pd = ed.poster
+		if c == "hang" or (c == "place" and pd) then
+			if pd then send({ op = "poster", kind = ed.kind, slot = pd.slot, w = pd.w, c = pd.c, s = pd.s }) end
+			return
+		end
+		if c == "remove" and pd then
+			if pd.index then send({ op = "remove", kind = ed.kind, index = pd.index }) end
+			return
+		end
+		local field, sign, num = string.match(c, "^(%a+):([%+%-])(%d+)$")
+		if field and POSTER_KEY[field] then
+			if not pd then return end
+			local key = POSTER_KEY[field]
+			local n = POSTER_N[key]
+			if n < 1 then return end
+			pd[key] = (pd[key] - 1 + (sign == "-" and -1 or 1) * tonumber(num)) % n + 1
+			ed.msg = nil
+			showPoster()
+			paint()
+			return
+		end
+		local sn = string.match(c, "^slot:(%d+)$")
+		if sn then spot(tonumber(sn)); return end
+		if pd then return end -- nothing else while designing (rotate, the floor's browse and add)
 		if c == "next" or c == "prev" then
 			if ed.sel or #ed.list == 0 then return end
 			ed.browse = (ed.browse - 1 + (c == "next" and 1 or -1)) % #ed.list + 1
@@ -549,7 +802,7 @@ task.spawn(function()
 		elseif k == Enum.KeyCode.R or k == Enum.KeyCode.ButtonY then gui:SetAttribute("Command", "rotate")
 		elseif k == Enum.KeyCode.Return or k == Enum.KeyCode.KeypadEnter then gui:SetAttribute("Command", "place")
 		elseif k == Enum.KeyCode.Delete then gui:SetAttribute("Command", "remove")
-		elseif k == Enum.KeyCode.Backspace or k == Enum.KeyCode.ButtonB then gui:SetAttribute("Command", ed.sel and "cancel" or "done")
+		elseif k == Enum.KeyCode.Backspace or k == Enum.KeyCode.ButtonB then gui:SetAttribute("Command", (ed.sel or ed.poster) and "cancel" or "done")
 		end
 		return Enum.ContextActionResult.Sink
 	end
@@ -590,7 +843,7 @@ task.spawn(function()
 		local slot = player:GetAttribute("PlotSlot")
 		if not (r and hum() == h and h.Health > 0 and type(slot) == "number" and slot > 0 and player:GetAttribute("InPlot") == slot) then return end
 		ed = { kind = kind, room = room, pivot = room:GetPivot(), at = r.Position, browse = 1, list = {}, faint = {},
-			hidden = {}, dimmed = {}, conns = {}, saved = { pps = PPS.Enabled, touch = GuiService.TouchControlsEnabled } }
+			hidden = {}, dimmed = {}, guiOff = {}, anchors = {}, conns = {}, saved = { pps = PPS.Enabled, touch = GuiService.TouchControlsEnabled } }
 		local my = ed
 		-- the setup in one pcall (R-T10 fix 3, review minor 2): a throw anywhere in it leaves at once ("error"), so nothing is
 		-- ever left off with no bar and no way out
@@ -638,6 +891,7 @@ task.spawn(function()
 		CAS:UnbindAction(ACT)
 		for part, v in pairs(e.hidden) do if part.Parent then part.LocalTransparencyModifier = v end end
 		for part, v in pairs(e.dimmed) do if part.Parent then part.LocalTransparencyModifier = v end end
+		for g, on in pairs(e.guiOff) do if g.Parent then g.Enabled = on end end
 		if e.folder then e.folder:Destroy() end
 		ui.Show(false)
 		local cam = workspace.CurrentCamera
@@ -647,7 +901,7 @@ task.spawn(function()
 		unlock(e)
 		PPS.Enabled = e.saved.pps
 		pcall(function() GuiService.TouchControlsEnabled = e.saved.touch end)
-		for k, v in pairs({ Editing = false, Kind = "", Item = "", Selected = "", Ghost = "", GhostOk = false }) do gui:SetAttribute(k, v) end
+		for k, v in pairs({ Editing = false, Kind = "", Item = "", Selected = "", Ghost = "", GhostOk = false, Poster = "" }) do gui:SetAttribute(k, v) end
 		gui:SetAttribute("LeftBy", tostring(why))
 	end
 

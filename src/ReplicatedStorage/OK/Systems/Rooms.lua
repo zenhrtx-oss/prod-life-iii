@@ -15,8 +15,8 @@
 --   moves anyone, so the existing suite keeps starting at the hub spawn; tests drive them through the hook. Without the
 --   building (Workspace.OK_Rooms' Hall and RoomsDoor: the only way out of a plot) neither moves anyone either.
 -- * Doors (untagged prompts, hooked here; each press is checked for reach, as InteractionService does): the corridor's
---   RoomsDoor -> the hall's HallSpawn; the hall's door k -> plot k's landing (RoomRules.CanEnter on the door mode:
---   Config.Rooms.DoorDefault until Task 14; the owner always enters; a refusal toasts copy 1.16 / 1.17); the landing's
+--   RoomsDoor -> the hall's HallSpawn; the hall's door k -> plot k's landing (RoomRules.CanEnter on the owner's saved
+--   door mode, Task 14 below; the owner always enters; a refusal toasts copy 1.16 / 1.17); the landing's
 --   RoomPrompt -> that room's Spawn; a room's ExitPrompt -> the landing outside its door; the landing's LeavePrompt -> the
 --   hall in front of door k; the hall's HubDoor -> the corridor. Every move: RequestStreamAroundAsync(target, 10) in a
 --   pcall, unseat (Sit false, the seat weld cut, 0.3 s), PivotTo(target + 3 up), checked once.
@@ -33,13 +33,14 @@
 -- * Presence: every 1 s (and after every move) the player attributes InPlot (the slot whose plot you stand in, else 0)
 --   and PlotSlot (your own, else 0). Rooms carry OwnerId, OwnerName, RoomKind and Plot (RoomBuild.Plot sets them).
 -- * The hall's plates and door prompts follow the slots: "STUDIO 07" (copy 1.8) when free; "{player}\nSTUDIO 07 · {MODE}"
---   (1.9) and "Enter" / "{player}'s door" (1.10, 1.11) when owned. "Go to your room" / "Your door" (1.12, 1.13) are per
---   viewer: a client line, not built yet.
+--   (1.9, the owner's door mode, its words in the mode's colour: Task 14) and "Enter" / "{player}'s door" (1.10, 1.11)
+--   when owned. "Go to your room" / "Your door" (1.12, 1.13) are per viewer: a client line, not built yet.
 -- * API: PlotOf(p), Owner(k), BoxesFor(p) (your rooms' world boxes, RoomRules.Box, each with .kind), PlaceOf(p) ("hub",
 --   { slot, kind } with kind a room kind or "landing", or nil), Anchor(p, kind, name) -> CFrame?, Station(p, kind?) ->
 --   BasePart?, Edit(p, action) and State(p) (Task 9), the event Rebuilt (player, k).
 -- * Studio-only hook ServerScriptService.OK._StudioRoomsHook (Studio and running): hook:Invoke(cmd, userId, a, b). Plot,
---   Reset (the home back to its defaults, claim if needed and rebuild), WakeUp, Enter(slot, asFriend), Exit(kind), GoIn(kind), Leave, HubDoor, RoomsDoor
+--   Reset (the home back to its defaults, claim if needed and rebuild; Task 14: the friend check's stub and cache go too), WakeUp,
+--   Enter(slot, asFriend) (true / false answers the friend check, nil runs it), Exit(kind), GoIn(kind), Leave, HubDoor, RoomsDoor
 --   (each the real handler of its prompt), Respawn (LoadCharacter, then the respawn rule past the hold), Release, Claim
 --   (nil when no slot is free; the full toast is the wake-up's), Fill(n) / Unfill (stand-in plots for fake owners), Anchor(kind, name),
 --   InPlot, PlaceOf, Home (a copy of the saved home, repaired), SetHome(home) (a copy, through Repair, saved; returns what it
@@ -115,6 +116,67 @@
 --   what the last hang read and queues the same rebuild when they differ: it catches a disco row that lands after the attribute's
 --   read, a row with no stat move, and a weekly plaque at Dailies' 52 cap, where the attribute can't move. Plaques are not items: they sit outside Items, outside the limit, and write no part of prof.career.home, so
 --   no forgetView is needed. Studio hook: SetWeekly(list) (replaces prof.plaques, sets the Plaques attribute: a test's seam).
+-- * The home studio's closet and booth (Task 12). A placed `closet` (Data/RoomCatalog: home and real only, one a room) is an
+--   item like any other, built and kept by RoomEdit.Fit; after every Fit of a room (a plot's build, a saved Edit, a SetHome,
+--   a Gear change: the same fitRoom) each closet model in its Items is dressed, in a pcall (a throw is reported and never
+--   costs the plot): it gets an untagged ClosetPrompt ("Open closet" / "Your closet", copy 8.1, 8.2, C / DPadRight: its own keys, so a closet
+--   beside the desk never takes the laptop's E / ButtonX under OnePerButton) on its Body
+--   when it has none (a kept model keeps its prompt and its one connection; a moved or new closet is a new model), and
+--   RoomItems.Hangers hangs one one-part hanger per fit you own (Config.Gear kind "fit", read through the Gear system; a
+--   failed read counts as not owned), each in its colour (Modules/Fits' Colors), the first RoomRules.HangerCount of them
+--   in Config.Gear order (fix 1: as many as the closet's own parts leave of Config.Rooms.ItemParts, so a closet never
+--   passes its part budget; the panel still lists every fit), whenever the closet's Hangers attribute differs from that
+--   set: so your Gear attribute's listener (syncItems) rehangs them. A press (within reach, as every Rooms
+--   prompt) by the room's owner (the room Model's OwnerId, as InteractionService.MayUse reads it) sends InteractionEvent
+--   OpenPanel { tab = "Gear", closet = true, gear = Gear.State(p), source = the closet's Body, profile } (PanelUI's closet
+--   mode; the source closes the panel past Config.Interaction.PanelCloseDistance, as the rack's); anyone else gets the toast
+--   "{player}'s closet. only they can use it." (copy 8.6, the owner's name cut as every Rooms toast). The closet writes no
+--   part of prof.career.home (placing it is Edit's), so it needs no forgetView. Booth(inst) -> { spot, cam } (the
+--   WorldCFrames of the BoothSpot and BoothCam Attachments of the room `inst` is in, found by name like every anchor: an
+--   import's own, else Config's through the room's pivot) for a room whose kind has a booth (home, real); false for a room
+--   without one (the bedroom; a booth room missing either anchor is reported and answers false too); nil outside every room
+--   (the hub). Systems/DAW puts it on the OpenDAW payload; DAWClient plays the listen-back there. Studio hook: Closet(kind)
+--   (the prompt's handler for the closet in room `kind`, default home, of the plot the player stands in, else their own:
+--   { acted, toast?, payload? }, nil with no closet there) and Booth(inst).
+-- * Posters you design (Task 13). A poster is a wall item of the saved home, { id = "poster", slot, w, c, s } (a word, a colour
+--   and a style from Config.Rooms' PosterWords, PosterColors and PosterStyles: no typed text, no images), hung in one of a home
+--   or real studio's Poster_1..n wall spots. Edit's op "poster" { op, kind, slot, w, c, s } hangs one, or redesigns the one
+--   already on that spot (RoomEdit.Apply: RoomRules.Fits' "room", "limit" (posters count), "design" and "slot"), through the
+--   same path as every edit: the token bucket, "away" / "owner", the save, forgetView and pushState; "remove" takes one down
+--   by its index. The room's Items folder shows it (RoomEdit.Fit with Config.Rooms: a RoomItems.Poster model, Item_<index>,
+--   on the spot's Poster_<slot> Attachment, flush on the wall facing in), so every path that fits a room (a build, an Edit, a
+--   SetHome, a Gear change) hangs posters too. The client's decorate mode is the designer (Modules/RoomUI, OK/RoomClient).
+-- * Door modes (Task 14). prof.career.home.door is "friends" by default (Config.Rooms.DoorDefault; RoomRules.Repair keeps a
+--   valid one). The hall's door k reads the owner's saved mode on every press (doorMode: state(), the one read path; a fake
+--   owner from the hook's Fill has the default unless the hook's Door set one) and decides with RoomRules.CanEnter: the
+--   owner always enters, "open" lets anyone in, "locked" nobody else (copy 1.16), "friends" only a friend (copy 1.17 for
+--   the rest). Only "friends" asks the friend check (friendAnswer): Player:IsFriendsWith(ownerId) in a pcall, in its own
+--   thread, and a press waits for it at most FRIEND_SECONDS; an error, a non-boolean or a timeout counts as not a friend.
+--   A real answer (true or false) is cached, per (guest, owner) for the session, whenever it comes, even after the presses
+--   waiting on it timed out (R-T14 fix 1, I2: a friend whose check is always slow gets in on a later press); an error or a
+--   timeout's not-a-friend is never cached, so the next press asks again. A press while the same guest's check for the
+--   same owner is in flight shares that check (no second call) and still answers within FRIEND_SECONDS of its own press;
+--   a check in flight for more than FRIEND_DEAD seconds is dead, and the next press starts a fresh one (fix 1, M4; the dead
+--   one's late answer may fill an empty cache entry but never replaces the fresh one's: fix 2). After a
+--   check that waited, the mode is read again (fix 1, M1: a door locked meanwhile refuses with copy 1.16), and an owner who
+--   left meanwhile gets the press copy 1.19 (fix 1, M2). Every press gets the toast or the
+--   move (busy[] guards the move only). A fake owner's made-up id never reaches IsFriendsWith: with no stub it is nobody's
+--   friend. The owner's own DoorPrompt ("Door: {MODE}" / "Who can come in", copy 10.4, 10.5; F / ButtonY, since the
+--   LeavePrompt on the same FrontDoor part has E; stacked Build.RACK_UI_GAP px above it) is untagged, on the landing's
+--   FrontDoor (so pressed from inside), stamped with the plot's OwnerId: RoomClient turns off every DoorPrompt this player
+--   doesn't own, and the handler (cycleDoor) does nothing for anyone but the plot's owner, nor for a press within
+--   DOOR_COOLDOWN of the owner's last cycle (fix 1, M3: no toast, no write, no push). A press moves the mode on one
+--   (RoomRules.NextDoorMode over Config.Rooms.DoorModes: friends -> locked -> open -> friends), saves it (MarkDirty), drops
+--   Room_Get's cache (forgetView), shows it on the hall plate (its words in PLATE_COLORS' colour) and the prompt, tells the
+--   owner (copy 10.6 - 10.8) and pushes the new State. Every state() read of an owner's home also brings the plate and the
+--   prompt up to the saved mode (a SetHome, a Reset, a Career Reset that wiped the home). A visit lasts only while the
+--   owner is online: their leaving runs releaseSlot, which moves everyone in the plot to the hall first ("{player} left the
+--   server", copy 1.19). Studio hook: Door() (the prompt's handler for the player's own slot: the new mode, false with no
+--   slot), Door(slot, mode) (a fake owner's mode, for tests: the mode, false for anything else), FriendCheck(spec | nil)
+--   (fix 1, I1: a named stub built here, server-side, in place of IsFriendsWith: { kind = "answer", value = bool },
+--   { kind = "error" } or { kind = "sleep", seconds = n, value = bool }; nil puts the real check back; both clear the cache;
+--   answers "stub", "real", or false for anything else, changing nothing), FriendCalls (a copy of the current stub's own
+--   counter { calls, done }: calls made, calls that returned; { calls = 0, done = 0 } with no stub).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Config = require(RS.OK.Config)
@@ -125,6 +187,8 @@ local LifeRules = require(RS.OK.Modules.LifeRules)
 local Catalog = require(RS.OK.Data.RoomCatalog)
 local Items = require(RS.OK.Modules.RoomItems)
 local Edit = require(RS.OK.Modules.RoomEdit)
+local RoomScope = require(RS.OK.Modules.RoomScope)
+local Fits = require(RS.OK.Modules.Fits)
 local Copy = Build.Copy
 
 local M = { Enabled = true, Version = 1 }
@@ -160,6 +224,14 @@ local viewGen = setmetatable({}, { __mode = "k" }) -- [player] = bumped by every
 local VIEW_SECONDS = 2 -- Room_Get's cache lives at most this long (a Life unlock, a first or a fame tier, drops nothing)
 local template, plotsFolder, hall, roomsDoor, roomEvent
 local dispatch -- the hook's command runner (OnOpen runs one later)
+local doorMode, cycleDoor -- Task 14: an owner's saved door mode, and the DoorPrompt's handler (both with the saved home, below)
+local plateFree = {}   -- [k] = hall plate k's own text colour (build/19_rooms.lua's), noted before its first colouring
+local friendCache = {} -- [guest Player] = { [ownerId] = true | false }: the friend check's real answers, for the session
+local friendAsks = {}  -- [guest Player] = { [ownerId] = ask }: the check in flight, shared by that guest's presses
+local friendStub       -- Studio: the hook's FriendCheck(spec): a closure built in dispatch, standing in for Player:IsFriendsWith
+local friendCalls      -- Studio: that stub's own counter { calls, done } (the hook's FriendCalls reads a copy)
+local lastDoor = {}    -- [owner Player] = os.clock() of their last door cycle (DOOR_COOLDOWN)
+local friendGen = 0    -- bumped by every clear of the cache: an answer to an ask from before it is never cached
 
 local function report(msg) warn("[OK][ERR] rooms: " .. tostring(msg)) end
 -- the test hold, as Systems/WalkIns' held(): Studio only, so a stray attribute in a published place never holds anyone
@@ -291,16 +363,103 @@ local function move(p, target, door)
 	return res
 end
 
+-- your door (Task 14; see the header) ----------------------------------------------------------------------------------
+local DOOR_ACTION, DOOR_OBJECT = "Door: {MODE}", "Who can come in" -- copy 10.4, 10.5 ({MODE}: Build.Copy.Modes, 10.1 - 10.3)
+local DOOR_TOAST = { -- to the owner after a press, by the new mode: copy 10.6 - 10.8
+	open = "door open. anyone can come in.",
+	friends = "friends only. your friends can come in.",
+	locked = "door locked. only you can come in.",
+}
+-- the DoorPrompt's own key pair (preflight m4): the LeavePrompt on the same FrontDoor part has E / ButtonX, and under
+-- OnePerButton only one prompt a key shows. F / ButtonY is the rack's, which stands by a laptop inside a room, never in
+-- reach of the landing's front door (the bedroom's rack is about 21 studs from it)
+local DOOR_KEY, DOOR_PAD = Enum.KeyCode.F, Enum.KeyCode.ButtonY
+-- the hall plate's words, by the owner's mode (a free plate keeps its own colour, plateFree)
+local PLATE_COLORS = {
+	open = Color3.fromRGB(90, 200, 120),
+	friends = Color3.fromRGB(240, 190, 70),
+	locked = Color3.fromRGB(230, 80, 80),
+}
+local FRIEND_SECONDS = 2 -- a press waits at most this long for the friend check (copy 1.17; Review Focus 4)
+local FRIEND_DEAD = 10   -- a check in flight longer than this is dead: the next press starts a fresh one (R-T14 fix 1, M4)
+local DOOR_COOLDOWN = 0.25 -- an owner's DoorPrompt press this soon after their last cycle is ignored (fix 1, M3)
+
+-- the friend check: is `guest` a friend of owner `o`? Returns the answer and whether this press waited for it. A cached
+-- real answer at once; else the guest's check for that owner in flight (one call per (guest, owner) at a time, in its own
+-- thread: Player:IsFriendsWith, or the hook's stub; one older than FRIEND_DEAD is left to finish on its own and a fresh one
+-- starts), waited for at most FRIEND_SECONDS from this press. An error, a non-boolean or a timeout reads as not a friend
+-- and is never cached; a real answer is cached whenever it comes (fix 1, I2: after the presses waiting on it timed out
+-- too), unless a clear came since (friendGen) or the guest has gone. A dead check superseded by a fresher one (FRIEND_DEAD)
+-- may still fill an empty cache entry when it returns, but never replaces one (R-T14 fix 2: the fresher ask's answer
+-- stands), and never unlinks the fresher ask. A fake owner (the hook's Fill: a made-up id) with no stub is nobody's
+-- friend, and IsFriendsWith never sees the id
+local function friendAnswer(guest, o)
+	local c = friendCache[guest]
+	if c and c[o.id] ~= nil then return c[o.id], false end
+	if o.fake and not friendStub then return false, false end
+	local asks = friendAsks[guest]
+	if not asks then asks = {}; friendAsks[guest] = asks end
+	local ask = asks[o.id]
+	if ask and os.clock() - ask.t0 > FRIEND_DEAD then ask = nil end -- dead: its thread may still finish (and cache)
+	if not ask then
+		ask = { done = false, value = false, t0 = os.clock() }
+		asks[o.id] = ask
+		local gen, stub, ownerId = friendGen, friendStub, o.id
+		task.spawn(function()
+			local ok, res
+			if stub then ok, res = pcall(stub, guest, ownerId)
+			else ok, res = pcall(function() return guest:IsFriendsWith(ownerId) end) end
+			local real = ok and type(res) == "boolean"
+			ask.value = real and res or false
+			ask.done = true
+			local current = asks[ownerId] == ask -- false once a fresher ask superseded this dead one (FRIEND_DEAD)
+			if current then asks[ownerId] = nil end
+			if real and gen == friendGen and guest.Parent then
+				local cc = friendCache[guest]
+				if not cc then cc = {}; friendCache[guest] = cc end
+				if current or cc[ownerId] == nil then cc[ownerId] = res end -- a superseded answer never replaces a newer one
+			end
+		end)
+	end
+	local t1, waited = os.clock(), false
+	while not ask.done and os.clock() - t1 < FRIEND_SECONDS do waited = true; task.wait(0.05) end
+	return ask.done and ask.value == true, waited
+end
+-- the cache and the checks in flight go (the hook's FriendCheck and Reset); a check still running finishes, uncached
+local function clearFriends()
+	friendGen += 1
+	table.clear(friendCache)
+	table.clear(friendAsks)
+end
+
 -- the handlers (each prompt's, and the hook's) ---------------------------------------------------------------------------
--- the hall's door k: onto plot k's landing, if the door lets you in
+-- the hall's door k: onto plot k's landing, if the door lets you in. The owner always enters; anyone else meets the owner's
+-- saved door mode (doorMode). asFriend true or false (the hook's) answers the friend check; nil (the EnterPrompt) runs it,
+-- and only a "friends" door ever does. A refusal toasts copy 1.16 (locked) or 1.17 (friends only). A press that waited for
+-- the check reads the mode again (fix 1, M1: a door locked meanwhile refuses with 1.16); one whose owner left meanwhile
+-- (or whose slot moved on) is told copy 1.19 (fix 1, M2), so no press goes unanswered
 local function enterPlot(p, k, asFriend)
 	k = tonumber(k)
 	local o = k and owners[k]
 	if not (o and plots[k]) then return false end
-	local mode = Cfg.DoorDefault -- Task 14 reads the saved home.door (Task 3 keeps it) and cycles it; the default until then
-	if not Rules.CanEnter(mode, o.id == p.UserId, asFriend == true) then
-		toast(p, fill(mode == "locked" and Copy.Locked or Copy.FriendsOnly, { player = short(o.name) }))
-		return false
+	if o.id ~= p.UserId then
+		local function gone()
+			if owners[k] == o and plots[k] then return false end
+			toast(p, fill(Copy.OwnerLeft, { player = short(o.name) }))
+			return true
+		end
+		local mode = doorMode(o) -- the saved home.door (the owner's profile is loaded once their plot stands)
+		local friend, waited = asFriend, false
+		if mode == "friends" and friend == nil then friend, waited = friendAnswer(p, o) end -- waits FRIEND_SECONDS at most
+		if waited then
+			if gone() then return false end
+			mode = doorMode(o) -- the owner may have cycled the door while the check ran
+		end
+		if not Rules.CanEnter(mode, false, friend == true) then
+			toast(p, fill(mode == "locked" and Copy.Locked or Copy.FriendsOnly, { player = short(o.name) }))
+			return false
+		end
+		if gone() then return false end -- a read of the saved mode can wait for the profile too
 	end
 	return move(p, landingInside(k), hallDoor(k))
 end
@@ -412,6 +571,7 @@ local function hookPlot(plot, k)
 	local landing = plot:FindFirstChild("Landing")
 	if landing then
 		onPrompt(landing:FindFirstChild("FrontDoor"), "LeavePrompt", function(p) leavePlot(p, k) end)
+		onPrompt(landing:FindFirstChild("FrontDoor"), "DoorPrompt", function(p) cycleDoor(p, k) end) -- Task 14 (the owner's only)
 		for _, d in ipairs(landing:GetChildren()) do
 			local kind = d:GetAttribute("RoomKind")
 			if kind then onPrompt(d, "RoomPrompt", function(p) goRoom(p, k, kind) end) end
@@ -427,17 +587,105 @@ local function hookPlot(plot, k)
 	end
 end
 
+-- your closet (Task 12) ----------------------------------------------------------------------------------------------------
+local CLOSET_ACTION, CLOSET_OBJECT = "Open closet", "Your closet" -- copy 8.1, 8.2
+-- the closet's own key pair (R-T12 review, M2). Not E / ButtonX (the laptop's StationPrompt, the exit and the door: under
+-- ProximityPrompt's default OnePerButton only the nearest prompt on a key shows, so a closet beside the desk would hide the
+-- laptop's), nor F / ButtonY (the rack), R / DPadDown (decorate), G / DPadUp (a player's card, on every character) or ButtonB
+-- (closes the panel, the beat maker and decorate mode). C for closet; DPadLeft / DPadRight are the pad directions no code binds
+local CLOSET_KEY, CLOSET_PAD = Enum.KeyCode.C, Enum.KeyCode.DPadRight
+local CLOSET_OWNER = "{player}'s closet. only they can use it." -- copy 8.6
+-- the fits p owns, in Config.Gear order: { { id, color } } (RoomItems.Hangers' rows). Read through the Gear system (ctx.Gear,
+-- else the live module); a read that fails counts as not owned. None for no player (a fake owner)
+local function ownedFits(p)
+	local out = {}
+	if not p then return out end
+	local okGear, Gear = pcall(function() return (ctx and ctx.Gear) or require(RS.OK.Systems.Gear) end)
+	if not (okGear and type(Gear) == "table") then return out end
+	for _, it in ipairs(Config.Gear or {}) do
+		if it.kind == "fit" then
+			local okOwn, owns = pcall(Gear.Owns, p, it.id)
+			if okOwn and owns == true then table.insert(out, { id = it.id, color = Fits.Colors[it.fit] }) end
+		end
+	end
+	return out
+end
+local function fitIds(fits)
+	local ids = {}
+	for _, f in ipairs(fits) do table.insert(ids, f.id) end
+	return table.concat(ids, ",")
+end
+-- the part a closet's prompt stands on: its Body (the recipe's), else any of its parts
+local function closetPart(m)
+	local body = m:FindFirstChild("Body")
+	if body and body:IsA("BasePart") then return body end
+	return m:FindFirstChildWhichIsA("BasePart")
+end
+-- a closet's prompt pressed (or the hook's Closet) by p in `room`: the owner's closet panel, anyone else the owner toast.
+-- Returns { acted, toast?, payload? } (what it sent)
+local function openCloset(p, room, part)
+	if not (room and room.Parent) then return { acted = false } end
+	local owner = room:GetAttribute("OwnerId")
+	if owner == nil then return { acted = false } end -- nobody's room: nothing to say
+	if owner ~= p.UserId then
+		local text = fill(CLOSET_OWNER, { player = short(room:GetAttribute("OwnerName")) })
+		toast(p, text)
+		return { acted = false, toast = text }
+	end
+	local Gear = (ctx and ctx.Gear) or require(RS.OK.Systems.Gear)
+	local payload = { tab = "Gear", closet = true, gear = Gear.State(p), source = part and part:GetFullName() or nil,
+		profile = ctx.Data.ClientProfile(ctx.Data.GetProfile(p)) }
+	RS.OK.Remotes.InteractionEvent:FireClient(p, "OpenPanel", payload)
+	return { acted = true, payload = payload }
+end
+-- every closet model in a room's Items `folder`: its prompt once (hooked here: Systems/Rooms' own, untagged) and its hangers
+-- when the fits it should show differ from the ones hung: the first RoomRules.HangerCount of the fits owned (`fits`,
+-- ownedFits', Config.Gear order), as many as the closet's own parts leave of Config.Rooms.ItemParts (fix 1: the closet never
+-- passes its part budget, however many fits; the closet panel still lists them all)
+local function dressClosets(room, folder, fits)
+	if not folder then return end
+	for _, m in ipairs(folder:GetChildren()) do
+		if m:IsA("Model") and m:GetAttribute("ItemId") == "closet" then
+			local part = closetPart(m)
+			if part and not part:FindFirstChild("ClosetPrompt") then
+				local cp = Build.Prompt(part, "ClosetPrompt", CLOSET_ACTION, CLOSET_OBJECT)
+				cp.KeyboardKeyCode = CLOSET_KEY; cp.GamepadKeyCode = CLOSET_PAD
+				onPrompt(part, "ClosetPrompt", function(p) openCloset(p, room, part) end)
+			end
+			local hung = m:FindFirstChild("Hangers")
+			local base = 0
+			for _, d in ipairs(m:GetDescendants()) do
+				if d:IsA("BasePart") and not (hung and d:IsDescendantOf(hung)) then base += 1 end
+			end
+			local max = Rules.HangerCount(#fits, base, Cfg.ItemParts, Items.HANGER_PARTS)
+			local shown = table.move(fits, 1, max, 1, {})
+			if not (hung and hung:IsA("Folder")) or m:GetAttribute("Hangers") ~= fitIds(shown) then Items.Hangers(m, shown, max) end
+		end
+	end
+end
+
 -- the hall's plates ----------------------------------------------------------------------------------------------------
+-- plate k (and its door's EnterPrompt) shows slot k now: free, or its owner with their door mode (owners[k].door: the mode
+-- the last state() read or cycleDoor wrote; the default until then), the words in PLATE_COLORS' colour (Task 14); and the
+-- owner's DoorPrompt on plot k's front door reads the same mode. Never yields
 local function plate(k)
 	local o = owners[k]
 	local num = string.format("%02d", k)
+	local mode = o and (o.door or Cfg.DoorDefault)
 	local pl = hall and hall:FindFirstChild("Plate_" .. num)
 	local gui = pl and pl:FindFirstChild("Text")
 	local label = gui and gui:FindFirstChild("Label")
-	if label then
-		label.Text = o and fill(Copy.PlateOwned, { player = o.name, slot = num, MODE = Copy.Modes[Cfg.DoorDefault] or "" })
+	if label and label:IsA("TextLabel") then
+		if plateFree[k] == nil then plateFree[k] = label.TextColor3 end
+		label.Text = o and fill(Copy.PlateOwned, { player = o.name, slot = num, MODE = Copy.Modes[mode] or "" })
 			or fill(Copy.PlateEmpty, { slot = num })
+		label.TextColor3 = (o and PLATE_COLORS[mode]) or plateFree[k]
 	end
+	local plot = plots[k]
+	local landing = plot and plot:FindFirstChild("Landing")
+	local front = landing and landing:FindFirstChild("FrontDoor")
+	local dp = front and front:FindFirstChild("DoorPrompt")
+	if o and dp and dp:IsA("ProximityPrompt") then dp.ActionText = fill(DOOR_ACTION, { MODE = Copy.Modes[mode] or "" }) end
 	local door = hallDoor(k)
 	local pp = door and door:FindFirstChild("EnterPrompt")
 	if pp then
@@ -512,6 +760,13 @@ local function state(p)
 		career.home = home
 		ctx.Data.MarkDirty(p)
 	end
+	-- the hall plate and the DoorPrompt follow the saved door (Task 14: a SetHome, a Reset, a Career Reset that wiped the home)
+	local k = slotOf[p]
+	local o = k and owners[k]
+	if o and o.player == p and o.door ~= home.door then
+		o.door = home.door
+		plate(k)
+	end
 	return { home = home, owned = owned, dropped = dropped, unbuilt = unbuilt, unlocked = unlocked, saved = true }
 end
 -- the hook's SetHome: `raw` through Repair, saved; returns a copy of what was kept (nil without a usable profile)
@@ -532,6 +787,53 @@ local function resetHome(p)
 	ctx.Data.MarkDirty(p)
 	forgetView(p)
 	return true
+end
+
+-- your door's mode (Task 14; see the header) ---------------------------------------------------------------------------
+-- owner o's door mode: a player's saved home.door, read through state() (repaired: a junk one reads as the default; a
+-- failed read is the default too); a fake owner's (the hook's Fill) is the one the hook's Door set, else the default
+doorMode = function(o)
+	if not o.player then return o.door or Cfg.DoorDefault end
+	local ok, st = pcall(state, o.player)
+	if not ok then report("door: " .. tostring(st)); return Cfg.DoorDefault end
+	return st.home.door
+end
+-- the owner's DoorPrompt on plot `plot`'s landing FrontDoor (made once; a rebuilt plot is a new one), stamped with the
+-- owner's id for RoomClient's gate. Before the plot is parented, so that gate sees the stamp as it streams in
+local function addDoorPrompt(plot, o)
+	local landing = plot:FindFirstChild("Landing")
+	local front = landing and landing:FindFirstChild("FrontDoor")
+	if not (front and front:IsA("BasePart")) then return nil end
+	local pp = front:FindFirstChild("DoorPrompt")
+	if not (pp and pp:IsA("ProximityPrompt")) then pp = Build.Prompt(front, "DoorPrompt", "", DOOR_OBJECT) end
+	pp.ActionText = fill(DOOR_ACTION, { MODE = Copy.Modes[o.door or Cfg.DoorDefault] or "" })
+	pp.KeyboardKeyCode = DOOR_KEY; pp.GamepadKeyCode = DOOR_PAD
+	local leave = front:FindFirstChild("LeavePrompt")
+	local base = (leave and leave:IsA("ProximityPrompt")) and leave.UIOffset or Vector2.zero
+	pp.UIOffset = base + Vector2.new(0, -Build.RACK_UI_GAP) -- stacked over the LeavePrompt, as DecoratePrompt over the exit
+	pp:SetAttribute("OwnerId", o.id)
+	return pp
+end
+-- the DoorPrompt pressed (or the hook's Door) by p for plot k: plot k's owner moves their door on one mode and saves it;
+-- anyone else's press does nothing, and so does the owner's within DOOR_COOLDOWN of their last cycle (R-T14 fix 1, M3: no
+-- toast, no write, no push; each cycle costs a Repair, a State and a plate change every client sees). Returns the new mode,
+-- or false
+cycleDoor = function(p, k)
+	local o = k and owners[k]
+	if not (o and o.player == p and slotOf[p] == k) then return false end
+	if lastDoor[p] and os.clock() - lastDoor[p] < DOOR_COOLDOWN then return false end
+	local st = state(p) -- the profile is cached by now: no wait between the read and the write
+	if not st.saved or owners[k] ~= o then return false end -- a profile that can't hold a home saves nothing
+	local mode = Rules.NextDoorMode(st.home.door, Cfg.DoorModes)
+	st.home.door = mode -- st.home is prof.career.home itself (state() hands back the profile's own table)
+	lastDoor[p] = os.clock()
+	ctx.Data.MarkDirty(p)
+	forgetView(p)
+	o.door = mode
+	plate(k)
+	toast(p, DOOR_TOAST[mode] or "")
+	pushState(p)
+	return mode
 end
 
 -- your speakers (Task 7) -------------------------------------------------------------------------------------------------
@@ -715,17 +1017,20 @@ local function stateFor(o)
 	return st
 end
 -- your things (Task 9): the room's Items folder shows kind's saved list (RoomEdit.Fit; st = state()'s answer; the entries
--- Repair keeps unbuilt stay out)
-local function fitRoom(room, kind, st)
+-- Repair keeps unbuilt stay out); then its closets are dressed for `fits` (ownedFits' rows; Task 12), never throwing
+local function fitRoom(room, kind, st, fits)
 	local skip = {}
 	for _, u in ipairs(st.unbuilt) do if u.kind == kind then skip[u.index] = true end end
-	return Edit.Fit(room, st.home.items[kind], skip, Catalog)
+	local folder = Edit.Fit(room, st.home.items[kind], skip, Catalog, Cfg) -- Cfg: the posters' words, colours and styles (Task 13)
+	local ok, err = pcall(dressClosets, room, folder, fits or {})
+	if not ok then report("closet: " .. tostring(err)) end
+	return folder
 end
 -- every room of plot `plot` (a Model) shows its saved items, or just `only` (a kind)
-local function fitPlot(plot, st, only)
+local function fitPlot(plot, st, only, fits)
 	for _, room in ipairs(plot:GetChildren()) do
 		local kind = room:GetAttribute("RoomKind")
-		if kind and (only == nil or only == kind) then fitRoom(room, kind, st) end
+		if kind and (only == nil or only == kind) then fitRoom(room, kind, st, fits) end
 	end
 end
 -- (re)builds plot k for its owner; an old plot goes only once the new one stands (same place, so nobody falls)
@@ -739,15 +1044,17 @@ local function build(k)
 	local tier = o.player and speakerTier(o.player) or 1 -- a fake owner (the hook's Fill) has the laptop's own
 	local rows, sig = {}, nil -- a fake owner has no career
 	if o.player then rows, sig = plaqueRows(o.player, plaqueSlots(owned)) end -- (the profile is loaded by now)
+	local fits = ownedFits(o.player) -- the closets' hangers (Task 12; a fake owner: none)
 	if buildGen[k] ~= gen or owners[k] ~= o then return nil end -- released or rebuilt meanwhile
 	local plot = Build.Plot(k, owned, Cfg, template, { id = o.id, name = o.name })
 	fitPlotSpeakers(plot, tier)
 	hangPlaques(plot, owned, rows) -- your walls (Task 11), before the plot goes into Workspace
 	if o.player then plaqueSig[o.player] = sig end
-	fitPlot(plot, st) -- each room's Items folder, built from the saved home, before the plot goes into Workspace
+	fitPlot(plot, st, nil, fits) -- each room's Items folder, built from the saved home, before the plot goes into Workspace
 	for _, room in ipairs(plot:GetChildren()) do
 		if room:GetAttribute("RoomKind") then addDecorate(room) end -- before hookPlot hooks it (Task 10)
 	end
+	addDoorPrompt(plot, o) -- the owner's door mode (Task 14; o.door: stateFor's read above noted it), before hookPlot hooks it
 	ctx.Interaction.Adopt(plot)
 	hookPlot(plot, k)
 	local old = plots[k]
@@ -755,6 +1062,7 @@ local function build(k)
 	plot.Parent = plotsFolder -- once, straight into Workspace: the added-tag signal hooks the room's Station
 	plots[k], kindsOf[k] = plot, owned
 	if old then old:Destroy() end
+	plate(k) -- the hall plate shows the mode this build read (Task 14)
 	if o.player then
 		rebuiltEv:Fire(o.player, k)
 		pushState(o.player) -- the edit bar's view follows the new plot (Task 10)
@@ -794,8 +1102,9 @@ local function syncItems(p, only)
 	if not (o and o.player == p and plot) then return false end
 	forgetView(p)
 	local st = state(p) -- may wait for the profile
+	local fits = ownedFits(p)
 	if not (slotOf[p] == k and plots[k] == plot and plot.Parent) then return false end
-	fitPlot(plot, st, only)
+	fitPlot(plot, st, only, fits) -- the closets rehang for the fits owned now (Task 12: this is the Gear listener's path too)
 	pushState(p) -- the edit bar's view follows (Task 10)
 	return true
 end
@@ -955,6 +1264,7 @@ local function onLeave(p)
 	woken[p], respawnHome[p], busy[p], slotOf[p], lastPlay[p] = nil, nil, nil, nil, nil
 	sent[p.UserId], counts[p.UserId], pushed[p.UserId] = nil, nil, nil
 	views[p], viewGen[p] = nil, nil
+	friendCache[p], friendAsks[p], lastDoor[p] = nil, nil, nil -- a check still in flight finishes uncached (the guest has gone)
 	Edit.Forget(p)
 	local gc = gateConns[p]
 	if gc then gc:Disconnect(); gateConns[p] = nil end
@@ -1008,10 +1318,31 @@ function M.Station(p, kind)
 	local room = k and roomOf(k, kind or "bedroom")
 	return room and Build.StationOf(room) or nil
 end
+-- where a delivery made at `inst` (a Station, the PC's screen or chair) plays its listen-back (Task 12; see the header):
+-- { spot, cam } in a room with a booth, false in a room without one, nil in the hub
+function M.Booth(inst)
+	if typeof(inst) ~= "Instance" then return nil end
+	local room = RoomScope.RoomOf(inst)
+	if not room then return nil end
+	local kind = room:GetAttribute("RoomKind")
+	local kc = type(kind) == "string" and Cfg.Kinds[kind] or nil
+	if not (kc and kc.booth) then return false end
+	local function anchor(name)
+		local a = room:FindFirstChild(name, true)
+		return (a and a:IsA("Attachment")) and a.WorldCFrame or nil
+	end
+	local spot, cam = anchor("BoothSpot"), anchor("BoothCam")
+	if not (spot and cam) then
+		report("booth: " .. room:GetFullName() .. " has no BoothSpot / BoothCam anchor")
+		return false
+	end
+	return { spot = spot, cam = cam }
+end
 -- placing your things (Task 9) ---------------------------------------------------------------------------------------------
--- Edit(p, action): action = { op = "place" | "move" | "remove", kind, index? (move, remove: the item's place in your saved list for
--- that room), id? (place), x?, z?, r? (place, move: the footprint's lowest cell after its turn, and the turn in quarter
--- turns 0..3; RoomRules' scheme) }. Every call takes a token from the player's bucket first (Config.Rooms.Edit; RoomEdit.Take):
+-- Edit(p, action): action = { op = "place" | "move" | "remove" | "poster", kind, index? (move, remove: the item's place in your saved
+-- list for that room), id? (place), x?, z?, r? (place, move: the footprint's lowest cell after its turn, and the turn in quarter
+-- turns 0..3; RoomRules' scheme), slot, w, c, s (poster, Task 13: a wall spot and a design, whole numbers; a poster already on
+-- that spot is redesigned in place, see the header) }. Every call takes a token from the player's bucket first (Config.Rooms.Edit; RoomEdit.Take):
 -- none left -> "busy". Then where you stand: outside any plot (the hub, the hall, the corridor, between places) -> "away"; in
 -- someone else's plot -> "owner"; your own plot, a room or the landing, goes on (a room you own may be edited from anywhere in
 -- your plot: the edit bar tells the server which room it means). The action is type-checked and copied (RoomEdit.Check:
@@ -1041,7 +1372,7 @@ function M.Edit(p, action)
 	forgetView(p)
 	local okFit, err = pcall(function()
 		local after = state(p) -- the saved list as Repair keeps it (it equals what Apply wrote, or a repaired form of it)
-		if room and room.Parent then fitRoom(room, a.kind, after) end
+		if room and room.Parent then fitRoom(room, a.kind, after, ownedFits(p)) end -- a placed closet is dressed (Task 12)
 	end)
 	if not okFit then report("edit refit (the edit is saved): " .. tostring(err)) end
 	pushState(p)
@@ -1219,6 +1550,8 @@ dispatch = function(cmd, userId, a, b)
 		return { slot = k, origin = { o.X, o.Y, o.Z }, rooms = table.clone(kindsOf[k] or {}) }
 	end
 	if cmd == "Reset" then
+		friendStub, friendCalls = nil, nil -- Task 14: the real friend check again, nothing cached
+		clearFriends()
 		resetHome(p) -- every test's fresh(): one test's saved items never reach the next
 		local k = claim(p)
 		return k ~= nil and build(k) ~= nil
@@ -1242,7 +1575,58 @@ dispatch = function(cmd, userId, a, b)
 	if cmd == "Decorate" then local k = here(p); return k ~= nil and decorate(p, k, a or "bedroom") end
 	if cmd == "Pushed" then local log = pushed[p.UserId] or {}; pushed[p.UserId] = nil; return log end
 	if cmd == "WakeUp" then return wakeUp(p, true) end
-	if cmd == "Enter" then return enterPlot(p, a, b == true) end
+	if cmd == "Enter" then -- b true or false answers the friend check; anything else (nil) runs it, as the EnterPrompt does
+		local asFriend = nil
+		if b == true or b == false then asFriend = b end
+		return enterPlot(p, a, asFriend)
+	end
+	-- Task 14: Door() runs the DoorPrompt's handler for the player's own slot (the new mode; false with no slot); Door(slot,
+	-- mode) sets a fake owner's (the hook's Fill) mode, for a test (the mode; false for a real owner's slot, a free one or a
+	-- junk mode; false too for the owner's press within DOOR_COOLDOWN of their last cycle). FriendCheck(spec | nil) (fix 1, I1:
+	-- no function crosses the BindableFunction, only a spec table, copied): the stub is built here, server-side, around a
+	-- fresh counter c = { calls, done } (so a late sleeper of an earlier stub never counts toward this one): { kind = "answer",
+	-- value = bool } answers at once; { kind = "error" } raises; { kind = "sleep", seconds = n (0 - 30), value = bool } waits n
+	-- s, then answers. calls counts the calls, done the ones that finished (returned or raised). nil puts the real check back.
+	-- Both clear the cache; answers "stub" or "real", false for anything else (nothing changed). FriendCalls: a copy of the
+	-- current stub's counter, { calls = 0, done = 0 } with no stub
+	if cmd == "Door" then
+		if a == nil then
+			local k = slotOf[p]
+			if not k then return false end
+			return cycleDoor(p, k)
+		end
+		local k = tonumber(a)
+		local o = k and owners[k]
+		if not (o and o.fake and type(b) == "string" and table.find(Cfg.DoorModes, b)) then return false end
+		o.door = b
+		plate(k)
+		return b
+	end
+	if cmd == "FriendCheck" then
+		local stub, c = nil, nil
+		if a ~= nil then
+			if type(a) ~= "table" then return false end
+			local counter = { calls = 0, done = 0 }
+			local v, secs = a.value, tonumber(a.seconds)
+			if a.kind == "answer" and type(v) == "boolean" then
+				stub = function() counter.calls += 1; counter.done += 1; return v end
+			elseif a.kind == "error" then
+				stub = function() counter.calls += 1; counter.done += 1; error("the hook's friend check stub, on purpose") end
+			elseif a.kind == "sleep" and type(v) == "boolean" and secs and secs == secs then
+				local pause = math.clamp(secs, 0, 30)
+				stub = function() counter.calls += 1; task.wait(pause); counter.done += 1; return v end
+			else
+				return false
+			end
+			c = counter
+		end
+		friendStub, friendCalls = stub, c
+		clearFriends()
+		return stub ~= nil and "stub" or "real"
+	end
+	if cmd == "FriendCalls" then
+		return friendCalls and table.clone(friendCalls) or { calls = 0, done = 0 }
+	end
 	if cmd == "Exit" then local k = here(p); return k ~= nil and exitRoom(p, k, a or "bedroom") end
 	if cmd == "GoIn" then local k = here(p); return k ~= nil and goRoom(p, k, a or "bedroom") end
 	if cmd == "Leave" then local k = here(p); return k ~= nil and leavePlot(p, k) end
@@ -1311,6 +1695,18 @@ dispatch = function(cmd, userId, a, b)
 	end
 	if cmd == "SpeakerTier" then return speakerTier(p) end
 	if cmd == "Fire" then return require(RS.OK.Systems.Reactions).Send(p, a) end
+	-- Task 12: Closet(kind) runs the ClosetPrompt's handler (openCloset, no reach check, as Decorate) for the closet in room
+	-- `kind` (default home) of here(p): { acted, toast?, payload? }, nil when that room has no closet; Booth(inst) is M.Booth
+	if cmd == "Closet" then
+		local k = here(p)
+		local room = k and roomOf(k, a or "home")
+		local items = room and room:FindFirstChild("Items")
+		for _, m in ipairs(items and items:GetChildren() or {}) do
+			if m:IsA("Model") and m:GetAttribute("ItemId") == "closet" then return openCloset(p, room, closetPart(m)) end
+		end
+		return nil
+	end
+	if cmd == "Booth" then return M.Booth(a) end
 	return nil
 end
 local function bump(p, key)
@@ -1371,7 +1767,7 @@ function M.Init(c)
 	if not (hall and roomsDoor) then report("Workspace.OK_Rooms (Hall, RoomsDoor) missing: run build/19_rooms.lua in Edit") end
 	for k = 1, Cfg.Slots do
 		local door = hallDoor(k)
-		onPrompt(door, "EnterPrompt", function(p) enterPlot(p, k, false) end)
+		onPrompt(door, "EnterPrompt", function(p) enterPlot(p, k, nil) end) -- nil: the friend check decides (Task 14)
 		plate(k)
 	end
 	onPrompt(hall and hall:FindFirstChild("HubDoor"), "HubPrompt", toCorridor)

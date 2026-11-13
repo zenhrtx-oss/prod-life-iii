@@ -179,7 +179,7 @@
   - `MayUse(inst)`, which returns `InteractionService.MayUse(player, inst)` (Task 6)
   - `Release`, `Claim`, `Fill(n)` (claims and builds stand-in plots for fake owners in n free slots), `Unfill`
   - `Edit(action)`, `Play(pattern, bpm)`, `Anchor(kind, name)` → CFrame, `InPlot`, `Guest(slot)` (a stand-in Model as a pretend guest in that plot; returns it)
-  - `FriendCheck(fn | nil)` (Task 14 stub)
+  - `FriendCheck(spec | nil)` (Task 14: a named stub built server-side in place of `IsFriendsWith`: `{ kind = "answer", value }`, `{ kind = "error" }` or `{ kind = "sleep", seconds, value }`; nil puts the real check back; clears the cache) and `FriendCalls` (a copy of that stub's own counter `{ calls, done }`)
 
 ## Rulings in this plan
 

@@ -19,6 +19,9 @@
 -- the flip-check cooldown. Its answers carry room = true, and DAW_Broadcast fires no BroadcastTried for them (that
 -- feeds Funnel step 6, an airing). DAW_Stop also ends your room play (Rooms.StopLocal). M._Broadcast and M._Stop are
 -- the two remotes' own handlers, for the Studio rooms hook's Play and Stop.
+-- Task 12: the OpenDAW payload's `booth` is Systems/Rooms.Booth(inst): { spot, cam } (CFrames) at a laptop in a room with
+-- a booth (home, real), false in a room without one (the bedroom), nil at the hub. The client plays a delivery's
+-- listen-back at that room's booth, shows the result at once, or cuts to the hub's booth (DAWClient's req.OnDeliver).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local Cfg = require(RS.OK.Modules.DAWConfig)
 local Check = require(RS.OK.Modules.BriefCheck)
@@ -161,9 +164,22 @@ function M.OpenFor(player, inst, seat, opts)
 	end
 	local room = RoomScope.RoomOf(inst)
 	local kind = room and room:GetAttribute("RoomKind") -- the room's kind; its OK_Room is the asset's own ("bedroom_starter")
+	-- where the listen-back plays (Task 12): Rooms.Booth's answer, required here (Rooms requires DAW on use too); a failure
+	-- leaves it nil (the client's room fallback still shows a room laptop's result at once), never false at the hub
+	local booth = nil
+	local mod = RS.OK.Systems:FindFirstChild("Rooms")
+	local okR, Rooms = false, nil
+	if mod then
+		okR, Rooms = pcall(require, mod)
+		if not okR then warn("[OK][ERR] DAW: require Rooms: " .. tostring(Rooms)) end -- R-T12 review, M4: never silent
+	end
+	if okR and type(Rooms) == "table" and Rooms.Booth then
+		local okB, b = pcall(Rooms.Booth, inst)
+		if okB then booth = b else warn("[OK][ERR] DAW: Rooms.Booth: " .. tostring(b)) end
+	end
 	RS.OK.Remotes.InteractionEvent:FireClient(player, "OpenDAW", { source = inst:GetFullName(), daw = prof.daw, seated = seated,
 		persistent = ctx.Data.Persistent == true, level = prof.level, station = inst:GetAttribute("StationName") or "STUDIO PC",
-		room = type(kind) == "string" and kind or nil, presets = type(opts) == "table" and opts.presets == true or nil })
+		room = type(kind) == "string" and kind or nil, presets = type(opts) == "table" and opts.presets == true or nil, booth = booth })
 	openedEv:Fire(player, inst)
 end
 

@@ -1,6 +1,10 @@
 -- Studio Sessions listen-back: the requesting artist appears in the vocal booth (client-only, only the producer
 -- who delivered sees it), turned towards the control-room window, nodding to the beat with their reaction overhead.
 -- Built from a few parts (no images); removed after a few seconds. Lives under the camera so it never replicates.
+-- Show(artist, stars, quote, seconds, spot?): with `spot` (a CFrame: a room's BoothSpot, the Your Rooms plan, Task 12) the
+-- artist stands on it, feet at its position, facing its horizontal LookVector (towards the room's BoothCam); without it,
+-- in the hub's vocal booth as before, turned towards the control-room window (-X). Returns the model, or nil when the
+-- hub booth isn't there.
 local RunService = game:GetService("RunService")
 local M = {}
 local current
@@ -13,23 +17,34 @@ function M.Hide()
 	end
 end
 
-function M.Show(artist, stars, quote, seconds)
+function M.Show(artist, stars, quote, seconds, spot)
 	M.Hide()
-	local s = workspace:FindFirstChild("OKStudio")
-	local booth = s and s:FindFirstChild("VocalBooth")
-	local mic = booth and booth:FindFirstChild("Mic")
-	if not mic then return nil end
-	local base = Vector3.new(mic.Position.X - 2.3, 0.1, mic.Position.Z) -- between the window and the mic
+	-- the body is laid out with its front along -X (offsets in the frame `at`, each part turned by `face`); at the hub `at`
+	-- is a plain position, in a room it is turned so that front looks along the spot's facing
 	local face = CFrame.Angles(0, math.rad(90), 0)                       -- turned towards the control room (-X)
+	local at
+	if typeof(spot) == "CFrame" then
+		local look = Vector3.new(spot.LookVector.X, 0, spot.LookVector.Z)
+		if look.Magnitude < 1e-3 then look = -Vector3.zAxis end
+		local pos = spot.Position + Vector3.new(0, 0.1, 0)
+		at = CFrame.lookAt(pos, pos + look.Unit) * CFrame.Angles(0, -math.rad(90), 0)
+	else
+		local s = workspace:FindFirstChild("OKStudio")
+		local booth = s and s:FindFirstChild("VocalBooth")
+		local mic = booth and booth:FindFirstChild("Mic")
+		if not mic then return nil end
+		at = CFrame.new(mic.Position.X - 2.3, 0.1, mic.Position.Z) -- between the window and the mic
+	end
 	local model = Instance.new("Model"); model.Name = "OK_BoothArtist"
 	model:SetAttribute("Artist", artist.name)
+	model:SetAttribute("InRoom", typeof(spot) == "CFrame")
 	local parts = {}
 	local function part(name, size, offset, color, shape)
 		local p = Instance.new("Part")
 		p.Name = name; p.Size = size; p.Anchored = true; p.CanCollide = false; p.CanQuery = false; p.CastShadow = false
 		p.Material = Enum.Material.SmoothPlastic; p.Color = color
 		if shape then p.Shape = shape end
-		p.CFrame = CFrame.new(base + offset) * face
+		p.CFrame = at * CFrame.new(offset) * face
 		p.Parent = model
 		table.insert(parts, { part = p, base = p.CFrame, nod = offset.Y > 2.1 })
 		return p

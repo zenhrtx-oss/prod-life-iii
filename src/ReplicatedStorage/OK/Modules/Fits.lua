@@ -11,6 +11,9 @@ M.PREFIX = "OK_Fit_"
 local GOLD = Color3.fromRGB(235, 185, 60)
 local LENS = Color3.fromRGB(14, 14, 18)
 local FRAME = Color3.fromRGB(30, 30, 34)
+-- each fit's own colour, by fit key (read only): the closet's hangers (Modules/RoomItems.Hangers, the Your Rooms plan,
+-- Task 12) and the closet panel's swatches (Modules/PanelUI) show a fit in the colour it is built in
+M.Colors = { cuban = GOLD, snapback = Theme.accent, shades = LENS }
 
 -- one part of a fit at world CFrame `cf`, welded to `anchor`; `props` first, so a Shape is set before the Size
 local function piece(model, anchor, name, size, cf, color, props)
