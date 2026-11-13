@@ -59,6 +59,8 @@ M.Copy = {
 	-- rack prompt beside the laptop
 	OwnerOnly = "{player}'s laptop. only they can use it.", -- 3.1
 	RackAction = "Open gear rack", RackObject = "Your laptop", -- 3.2, 3.3
+	-- §7 plaques: 7.1-7.3 are LifeRules.DiscoText's own lines (no new words); 7.4 is the weekly single's plate, {title} upper-cased
+	WeeklyPlate = "WEEKLY SINGLE · {title}", -- 7.4
 	-- §10 the door modes' labels (the plate's {MODE}; Task 14 cycles the mode, the default shows until then)
 	Modes = { open = "OPEN", friends = "FRIENDS ONLY", locked = "LOCKED" },
 	-- a stand-in's own prompts, as the bedroom asset's (bedroom_setup.lua: "Make a beat" / "Your laptop", "Leave" /

@@ -14,6 +14,16 @@
 --   LED (Neon material, not a light). Its PrimaryPart "Cabinet" is where a room play's sounds come from
 --   (StarterPlayerScripts/OK/RoomClient). Every part is anchored, never collides, touches or answers a raycast, and casts
 --   no shadow. The model carries Tier = tier and RoomItem = "speaker" (Systems/Rooms replaces only what it made).
+-- * Plaque(entry, text) -> Model?: one wall plaque for a RoomRules.Plaques row ({ kind = "hit" | "placement" | "trackone" |
+--   "weekly", entry = the source row }; only .kind is read): a coloured Frame (hits gold, placements and track ones silver,
+--   weekly singles blue) with a dark Board set into its front, and a SurfaceGui "Face" on the Board's Front face holding a
+--   TextLabel "Label" with `text`: two parts and one gui, no lights, meshes, scripts or tags. Its pivot is the centre of the
+--   Frame's back face and the front looks along -Z, so a caller PivotTo's it onto a Plaque_<n> Attachment's WorldCFrame (a
+--   wall anchor: the plate then hangs flush on the wall facing into the room). Every part is anchored, never collides,
+--   touches, answers a raycast or casts a shadow (a flat plate on a wall would only darken the wall behind it, and decorate
+--   mode must not catch it). The model is named "Plaque" and carries RoomItem = "plaque" and PlaqueKind = the kind (Systems/
+--   Rooms replaces only what it made). nil for a kind it doesn't know or text that is not a non-empty string. The Frame is
+--   PLAQUE_W x PLAQUE_H (1.8 x 1.1 studs), under the 2.2 studs between the bedroom's anchors.
 -- Sizes are studs at the hub's scale (about 0.25 m a stud: tier 2 about 18 x 26 x 21 cm, tier 3 about 24 x 38 x 26 cm),
 -- so a pair sits on the bedroom desk's Desk_Speaker_L / _R anchors either side of the laptop.
 local M = {}
@@ -26,6 +36,18 @@ local SPEAKERS = {
 		led = Color3.fromRGB(80, 170, 255), ledY = 1.38 },
 }
 M.SpeakerSpecs = SPEAKERS -- read only: the sizes, for a caller's checks
+
+-- plaques: the frame's colour and the ink the text is set in, per RoomRules.Plaques kind (a track one reads as a placement)
+local PLAQUES = {
+	hit = { frame = Color3.fromRGB(212, 168, 48), ink = Color3.fromRGB(255, 226, 130) },
+	placement = { frame = Color3.fromRGB(192, 194, 202), ink = Color3.fromRGB(238, 239, 244) },
+	trackone = { frame = Color3.fromRGB(192, 194, 202), ink = Color3.fromRGB(238, 239, 244) },
+	weekly = { frame = Color3.fromRGB(62, 120, 214), ink = Color3.fromRGB(176, 210, 255) },
+}
+M.PlaqueSpecs = PLAQUES -- read only: the colours, for a caller's checks
+M.PLAQUE_W, M.PLAQUE_H = 1.8, 1.1 -- studs, the frame's face
+local PLAQUE_FRAME, PLAQUE_BOARD = 0.08, 0.04 -- thickness of the frame and of the board set into its front
+local PLAQUE_INSET = 0.06 -- the frame's rim round the board
 
 local AXIS_Z = CFrame.Angles(0, math.pi / 2, 0) -- a Cylinder's axis is its X: turned onto Z, its round face looks along -Z
 
@@ -95,6 +117,48 @@ function M.Speakers(tier)
 			{ Material = Enum.Material.Neon })
 	end
 	m.PrimaryPart = cab
+	return m
+end
+
+function M.Plaque(entry, text)
+	local spec = type(entry) == "table" and PLAQUES[entry.kind] or nil
+	if not spec or type(text) ~= "string" or text == "" then return nil end
+	local w, h = M.PLAQUE_W, M.PLAQUE_H
+	local m = Instance.new("Model")
+	m.Name = "Plaque"
+	m:SetAttribute("RoomItem", "plaque")
+	m:SetAttribute("PlaqueKind", entry.kind)
+	part(m, "Frame", Vector3.new(w, h, PLAQUE_FRAME), CFrame.new(0, 0, -PLAQUE_FRAME / 2), spec.frame, { Material = Enum.Material.Metal })
+	local board = part(m, "Board", Vector3.new(w - 2 * PLAQUE_INSET, h - 2 * PLAQUE_INSET, PLAQUE_BOARD),
+		CFrame.new(0, 0, -PLAQUE_FRAME - PLAQUE_BOARD / 2), Color3.fromRGB(24, 24, 30))
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = "Face"
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 100
+	gui.LightInfluence = 0 -- the text reads the same in a dim room
+	gui.Brightness = 1.5
+	local label = Instance.new("TextLabel")
+	label.Name = "Label"
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Text = text
+	label.TextColor3 = spec.ink
+	label.Font = Enum.Font.GothamBold
+	label.TextScaled = true
+	label.TextWrapped = true
+	label.TextXAlignment = Enum.TextXAlignment.Center
+	label.TextYAlignment = Enum.TextYAlignment.Center
+	local pad = Instance.new("UIPadding")
+	pad.PaddingLeft, pad.PaddingRight, pad.PaddingTop, pad.PaddingBottom = UDim.new(0, 8), UDim.new(0, 8), UDim.new(0, 6), UDim.new(0, 6)
+	pad.Parent = label
+	local cap = Instance.new("UITextSizeConstraint") -- a short line stays a plate's size, not a poster's
+	cap.MaxTextSize = 26
+	cap.MinTextSize = 8
+	cap.Parent = label
+	label.Parent = gui
+	gui.Parent = board
+	m.WorldPivot = CFrame.new()
 	return m
 end
 

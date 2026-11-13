@@ -13,7 +13,9 @@
 --   CareerGates ("studio_two,sponsor_tv": owned rooms, plus sponsor_tv while its needs are met and it is switched on).
 -- * Life: Publish runs Systems/Life.Publish last (loud when Followers really rose, so only a real gain gets a tier banner),
 --   and State carries `life`, built from prof.life through LifeRules.View with the display names of the ids it holds (nil
---   if that fails: the Career tab never depends on it). A room bought through Unlock reports "hall".
+--   if that fails: the Career tab never depends on it). KnownNames(player) is that names table ({ visitors, artists,
+--   sponsors }; it throws on a content failure), shared with Systems/Rooms' plaques (R-T11). A room bought through Unlock
+--   reports "hall".
 -- * The cold spell (Wave 3, design 4.2): prof.career.cold = { since = career day, reason = "aura" | "quiet", news } or nil
 --   (warm), prof.career.rearm = true or nil (lazy sub-fields: schema v5 unchanged). Every rule is CareerRules.ColdStep on
 --   Config.WalkIns.Cold, run by M.ColdCheck(player, event): "check" after every Aura move through Add / Take and at
@@ -257,18 +259,23 @@ function M.SetSponsor(player, id)
 	changed(player)
 end
 
--- Career.State's `life`: the saved life for the client, with names for its ids in this player's roster. Only ids the
--- content knows get a name; anything else reads as LifeRules' fallback on the client, never as an id.
+-- the display names for the ids a life holds, in this player's roster: { visitors, artists, sponsors } (LifeRules' `names`).
+-- Only ids the content knows get a name; anything else reads as LifeRules' fallback, never as an id. Career.State's `life`
+-- and Systems/Rooms' plaques (R-T11) both read it, so the two never name a visitor differently. Throws on a content failure:
+-- a caller wraps it.
+function M.KnownNames(player)
+	local roster = lifeSys().Roster(player, (Config.WalkIns or {}).Roster or "parody")
+	local known = { visitors = {}, artists = {}, sponsors = {} }
+	local W = require(RS.OK.Data.WalkIns)
+	known.visitors = W.Names(roster)
+	for id in pairs(W.SponsorById) do known.sponsors[id] = W.SponsorName(id, roster) end
+	for _, a in ipairs(require(RS.OK.Data.Artists).Artists) do known.artists[a.id] = a.name end
+	return known
+end
+
+-- Career.State's `life`: the saved life for the client, with names for its ids in this player's roster (KnownNames)
 local function lifeView(player, prof)
-	local ok, view = pcall(function()
-		local roster = lifeSys().Roster(player, (Config.WalkIns or {}).Roster or "parody")
-		local known = { visitors = {}, artists = {}, sponsors = {} }
-		local W = require(RS.OK.Data.WalkIns)
-		known.visitors = W.Names(roster)
-		for id in pairs(W.SponsorById) do known.sponsors[id] = W.SponsorName(id, roster) end
-		for _, a in ipairs(require(RS.OK.Data.Artists).Artists) do known.artists[a.id] = a.name end
-		return LifeRules.View(prof.life, Config.Life, known)
-	end)
+	local ok, view = pcall(function() return LifeRules.View(prof.life, Config.Life, M.KnownNames(player)) end)
 	if not ok then report("life view: " .. tostring(view)); return nil end
 	return view
 end

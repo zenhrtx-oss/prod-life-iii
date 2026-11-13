@@ -98,6 +98,23 @@
 --   new room. The landing needs nothing more: RoomBuild.Landing is built from the owned kinds, so a door you now own is a
 --   working one (its RoomPrompt, its name sign and its Out marker) and the rest keep the locked sign; hookPlot hooks every
 --   RoomPrompt the new plot has, so the swap is the rebuild's (one writer: this module's single CareerGates listener).
+-- * Your walls show your career (Task 11). Each room Model holds a `Plaques` Folder (attribute RoomPlaques) with one
+--   RoomItems.Plaque model per hung plaque, RoomPlaque_<n> on the room's Plaque_<n> Attachment (found by name like every
+--   anchor: the bedroom's are the asset's own Sockets, the home and real stand-ins' come from Config; the models are named
+--   RoomPlaque_<n> so a recursive FindFirstChild("Plaque_<n>") can never meet one). One list for the whole plot,
+--   RoomRules.Plaques(prof.life.disco, prof.plaques, the slots of the rooms you own), hangs bedroom first, then home, then real:
+--   the hits newest first, then the placements and track ones, then the weekly singles (a bedroom's three slots hold your best
+--   three; unlocking a room only adds its slots after them, so nothing already hung moves). The words: a disco row is
+--   LifeRules.DiscoText with Career.KnownNames(p) (the very names Career.State's life uses; copy 7.1-7.3, no new words) and a
+--   weekly row is copy 7.4, Build.Copy.WeeklyPlate with the title upper-cased; a row that reads nothing (a weekly with no
+--   title) is dropped before the list is cut, so it leaves no gap. build(k) hangs them for the real owner before the plot goes
+--   into Workspace, so a rebuild (a gate, a Release and Claim) shows them again; and your Placements, Hits and Plaques
+--   attributes (Career.Publish sets the first two, Systems/Dailies the third) rebuild the standing plot's plaques once per
+--   change (task.defer: production adds the stat, which sets the attribute, before it pushes the disco row, so the read comes
+--   after both). A backstop in the 1 s presence loop compares a signature of the two lists (their lengths and newest rows) with
+--   what the last hang read and queues the same rebuild when they differ: it catches a disco row that lands after the attribute's
+--   read, a row with no stat move, and a weekly plaque at Dailies' 52 cap, where the attribute can't move. Plaques are not items: they sit outside Items, outside the limit, and write no part of prof.career.home, so
+--   no forgetView is needed. Studio hook: SetWeekly(list) (replaces prof.plaques, sets the Plaques attribute: a test's seam).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local RunService = game:GetService("RunService")
 local Config = require(RS.OK.Config)
@@ -129,6 +146,9 @@ local respawnHome = {} -- [player] = was the player inside their own plot when t
 local busy = {}       -- [player] = a door move under way (a mashed prompt moves once)
 local gateConns = {}  -- [player] = the connection on their CareerGates attribute
 local gearConns = {}  -- [player] = the connection on their Gear attribute (their speakers follow it)
+local plaqueConns = {} -- [player] = { the connections on their Placements, Hits and Plaques attributes } (Task 11)
+local plaqueDirty = {} -- [player] = true while a plaque rebuild is already queued, so one change burst rebuilds once
+local plaqueSig = {}   -- [player] = plaqueSignature of the lists their standing plot's plaques were last hung from
 local lastPlay = {}   -- [player] = os.clock() of their last room play that went on (Config.Rooms.PlayCooldown)
 local testGuests = {} -- [k] = { Model } (the hook's Guest)
 local sent = {}       -- Studio: [userId] = { toast text }
@@ -556,6 +576,134 @@ local function fitPlotSpeakers(plot, tier)
 	end
 end
 
+-- your plaques (Task 11) -------------------------------------------------------------------------------------------------
+local PLAQUE_FOLDER = "Plaques"
+-- how many plaques the rooms in `owned` hold (Config.Rooms.Kinds.<kind>.plaques each)
+local function plaqueSlots(owned)
+	local n = 0
+	for _, kind in ipairs(owned) do n += (Cfg.Kinds[kind] or {}).plaques or 0 end
+	return n
+end
+-- the names a plaque's {artist} is read from: Career's (a failure reads as no names: LifeRules' fallback, never an id)
+local function plaqueNames(p)
+	local ok, known = pcall(function() return ((ctx and ctx.Career) or require(RS.OK.Systems.Career)).KnownNames(p) end)
+	if ok and type(known) == "table" then return known end
+	report("plaque names: " .. tostring(known))
+	return {}
+end
+-- what the plaques are read from, as one string: the discography's and the weekly list's lengths and newest rows. Both lists are
+-- capped (DiscoMax, 52), so a count alone can stop moving while the newest row changes
+local function plaqueSignature(prof)
+	local life = type(prof.life) == "table" and prof.life or {}
+	local d = type(life.disco) == "table" and life.disco or {}
+	local w = type(prof.plaques) == "table" and prof.plaques or {}
+	local ld, lw = d[#d], w[#w]
+	if type(ld) ~= "table" then ld = {} end
+	if type(lw) ~= "table" then lw = {} end
+	return table.concat({ #d, tostring(ld.d), tostring(ld.kind), tostring(ld.v), tostring(ld.key), #w, tostring(lw.w), tostring(lw.t) }, "|")
+end
+-- the plaques p's career earns, at most `total`, in hang order: { { kind, text } }, and the signature of what they were read
+-- from (nil for a throwaway or unreadable profile, which gives none). Reads the profile (may wait for it to load: build()
+-- calls this before its generation check)
+local function plaqueRows(p, total)
+	local ok, rows, sig = pcall(function()
+		local prof = ctx.Data.GetProfile(p)
+		if type(prof) ~= "table" or prof._detached then return {} end
+		local life = type(prof.life) == "table" and prof.life or {}
+		local weekly = {}
+		for _, w in ipairs(type(prof.plaques) == "table" and prof.plaques or {}) do
+			if type(w) == "table" and type(w.t) == "string" and w.t ~= "" then table.insert(weekly, w) end
+		end
+		local names -- read once, and only when a discography row needs it
+		local out = {}
+		for _, row in ipairs(Rules.Plaques(life.disco, weekly, total)) do
+			local text
+			if row.kind == "weekly" then text = fill(Copy.WeeklyPlate, { title = string.upper(row.entry.t) })
+			else
+				names = names or plaqueNames(p)
+				text = LifeRules.DiscoText(row.entry, names)
+			end
+			if type(text) == "string" and text ~= "" then table.insert(out, { kind = row.kind, text = text }) end
+		end
+		return out, plaqueSignature(prof)
+	end)
+	if not ok then report("plaques: " .. tostring(rows)); return {}, nil end
+	return rows, sig
+end
+-- hangs `rows` ({ { kind, text } }, in order) in the rooms of `plot` that are in `owned` (ladder order): each room's Plaques
+-- folder is emptied, then filled from its Plaque_1..n anchors, the next row going to the next anchor; the rooms after the
+-- last row stay empty. A slot with no anchor is reported and skipped (its row goes to the next slot). Never yields
+local function hangPlaques(plot, owned, rows)
+	local at = 0
+	for _, kind in ipairs(owned) do
+		local room = plot:FindFirstChild(Build.RoomName(kind))
+		if room then
+			local folder = room:FindFirstChild(PLAQUE_FOLDER)
+			if not (folder and folder:IsA("Folder")) then
+				folder = Instance.new("Folder")
+				folder.Name = PLAQUE_FOLDER
+				folder:SetAttribute("RoomPlaques", true)
+				folder.Parent = room
+			end
+			folder:ClearAllChildren()
+			for slot = 1, (Cfg.Kinds[kind] or {}).plaques or 0 do
+				local row = rows[at + 1]
+				if not row then break end
+				local a = room:FindFirstChild("Plaque_" .. slot, true)
+				if a and a:IsA("Attachment") then
+					local m = Items.Plaque(row, row.text)
+					if m then
+						m.Name = "RoomPlaque_" .. slot
+						m:SetAttribute("Slot", slot)
+						m:PivotTo(a.WorldCFrame)
+						m.Parent = folder
+						at += 1
+					end
+				else
+					report("plaques: room " .. kind .. " has no Plaque_" .. slot .. " anchor")
+				end
+			end
+		end
+	end
+end
+-- the owner's Placements, Hits or Plaques changed: their standing plot's plaques are read and hung again. No plot yet: its
+-- build hangs them. May wait for the profile; a rebuild or a release meanwhile drops this one (the build hung its own)
+local function syncPlaques(p)
+	local k = slotOf[p]
+	local o = k and owners[k]
+	local plot = k and plots[k]
+	local owned = k and kindsOf[k]
+	if not (o and o.player == p and plot and owned) then return false end
+	local rows, sig = plaqueRows(p, plaqueSlots(owned))
+	if not (slotOf[p] == k and owners[k] == o and plots[k] == plot and kindsOf[k] == owned and plot.Parent) then return false end
+	hangPlaques(plot, owned, rows)
+	plaqueSig[p] = sig
+	return true
+end
+-- one rebuild per burst of changes, after the writer has finished (see the header)
+local function queuePlaques(p)
+	if plaqueDirty[p] then return end
+	plaqueDirty[p] = true
+	task.defer(function()
+		plaqueDirty[p] = nil
+		local ok, err = pcall(syncPlaques, p)
+		if not ok then report("plaques after a career change: " .. tostring(err)) end
+	end)
+end
+-- the backstop, run by the presence loop once a second for a player whose plot is built (its profile is cached by then, so this
+-- doesn't yield): if the lists the plaques hang from differ from what the last hang read, queue a rebuild. It catches what the
+-- attributes can't: a discography row that lands after the stat's attribute was already read (the deferred read can run between
+-- two writers that aren't one thread, as a test's two hook calls aren't), a row pushed with no stat move, and a weekly plaque at
+-- Dailies' 52 cap, where the count and so the attribute stay put. Up to a second of lag on those paths
+local function checkPlaqueSignature(p)
+	local k = slotOf[p]
+	local o = k and owners[k]
+	if not (o and o.player == p and plots[k] and plaqueSig[p] ~= nil) then return end
+	local prof = ctx.Data.GetProfile(p)
+	if type(prof) ~= "table" or prof._detached then return end
+	if plaqueSignature(prof) ~= plaqueSig[p] then queuePlaques(p) end
+end
+
 -- plots ------------------------------------------------------------------------------------------------------------------
 -- an owner's saved state (state()), ladder order owned: a fake owner from the hook's Fill has the bedroom and no items. Reading
 -- it repairs the saved home too, which may wait for the profile: build() calls this before its generation check
@@ -589,9 +737,13 @@ local function build(k)
 	local st = stateFor(o) -- may wait for the profile
 	local owned = st.owned
 	local tier = o.player and speakerTier(o.player) or 1 -- a fake owner (the hook's Fill) has the laptop's own
+	local rows, sig = {}, nil -- a fake owner has no career
+	if o.player then rows, sig = plaqueRows(o.player, plaqueSlots(owned)) end -- (the profile is loaded by now)
 	if buildGen[k] ~= gen or owners[k] ~= o then return nil end -- released or rebuilt meanwhile
 	local plot = Build.Plot(k, owned, Cfg, template, { id = o.id, name = o.name })
 	fitPlotSpeakers(plot, tier)
+	hangPlaques(plot, owned, rows) -- your walls (Task 11), before the plot goes into Workspace
+	if o.player then plaqueSig[o.player] = sig end
 	fitPlot(plot, st) -- each room's Items folder, built from the saved home, before the plot goes into Workspace
 	for _, room in ipairs(plot:GetChildren()) do
 		if room:GetAttribute("RoomKind") then addDecorate(room) end -- before hookPlot hooks it (Task 10)
@@ -709,6 +861,7 @@ local function releaseSlot(k, leaving)
 	buildGen[k] = (buildGen[k] or 0) + 1
 	if o.player then
 		slotOf[o.player] = nil
+		plaqueSig[o.player] = nil
 		forgetView(o.player)
 		if o.player.Parent then o.player:SetAttribute("PlotSlot", 0) end
 	end
@@ -780,6 +933,11 @@ local function onJoin(p)
 		ok, err = pcall(syncItems, p)
 		if not ok then report("items after a gear change: " .. tostring(err)) end
 	end)
+	local pq = {}
+	for _, attr in ipairs({ "Placements", "Hits", "Plaques" }) do
+		table.insert(pq, p:GetAttributeChangedSignal(attr):Connect(function() queuePlaques(p) end))
+	end
+	plaqueConns[p] = pq
 	if p.Character then onCharacter(p, p.Character) end
 	if k then
 		task.spawn(function()
@@ -802,6 +960,8 @@ local function onLeave(p)
 	if gc then gc:Disconnect(); gateConns[p] = nil end
 	local gr = gearConns[p]
 	if gr then gr:Disconnect(); gearConns[p] = nil end
+	for _, c in ipairs(plaqueConns[p] or {}) do c:Disconnect() end
+	plaqueConns[p], plaqueDirty[p], plaqueSig[p] = nil, nil, nil
 	local a = armed[p]
 	if a then a.conn:Disconnect(); armed[p] = nil end
 end
@@ -1134,6 +1294,21 @@ dispatch = function(cmd, userId, a, b)
 		counts[p.UserId] = nil
 		return { played = c.played or 0, tried = c.tried or 0, rebuilt = c.rebuilt or 0, views = c.views or 0 }
 	end
+	-- Task 11: SetWeekly(list) replaces prof.plaques (the weekly singles' plaques, { { w, t, a } }; nil = none) with a copy and
+	-- sets the Plaques attribute as Systems/Dailies does, so a test can seed, clear and put back the list (nothing else writes it
+	-- without a delivery). Returns a copy of what it saved, nil without a usable profile
+	if cmd == "SetWeekly" then
+		local prof = ctx.Data.GetProfile(p)
+		if type(prof) ~= "table" or prof._detached then return nil end
+		local list = {}
+		for _, w in ipairs(type(a) == "table" and a or {}) do
+			if type(w) == "table" then table.insert(list, { w = tonumber(w.w) or 0, t = tostring(w.t or ""), a = tostring(w.a or "") }) end
+		end
+		prof.plaques = list
+		ctx.Data.MarkDirty(p)
+		p:SetAttribute("Plaques", #list)
+		return deepCopy(list)
+	end
 	if cmd == "SpeakerTier" then return speakerTier(p) end
 	if cmd == "Fire" then return require(RS.OK.Systems.Reactions).Send(p, a) end
 	return nil
@@ -1163,6 +1338,12 @@ local function loop()
 		for _, p in ipairs(Players:GetPlayers()) do
 			local ok, err = pcall(presence, p)
 			if not ok then report("presence: " .. tostring(err)) end
+			if plaqueSig[p] ~= nil then -- the plaques' backstop (Task 11), in its own thread: one player's wait never stalls the rest
+				task.spawn(function()
+					local okP, errP = pcall(checkPlaqueSignature, p)
+					if not okP then report("plaque check: " .. tostring(errP)) end
+				end)
+			end
 		end
 	end
 end

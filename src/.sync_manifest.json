@@ -32,9 +32,9 @@
  "ReplicatedStorage/OK/Modules/PhoneUI": 1022469917,
  "ReplicatedStorage/OK/Modules/PianoRoll": 693495187,
  "ReplicatedStorage/OK/Modules/RequestUI": 1992827906,
- "ReplicatedStorage/OK/Modules/RoomBuild": 1877147699,
+ "ReplicatedStorage/OK/Modules/RoomBuild": 1095083855,
  "ReplicatedStorage/OK/Modules/RoomEdit": 113468385,
- "ReplicatedStorage/OK/Modules/RoomItems": 2049463660,
+ "ReplicatedStorage/OK/Modules/RoomItems": 1828827466,
  "ReplicatedStorage/OK/Modules/RoomRules": 1933637760,
  "ReplicatedStorage/OK/Modules/RoomScope": 456720436,
  "ReplicatedStorage/OK/Modules/RoomUI": 1366397780,
@@ -46,7 +46,7 @@
  "ReplicatedStorage/OK/Modules/WalkInRules": 429685968,
  "ReplicatedStorage/OK/Modules/WalkInUI": 778869305,
  "ReplicatedStorage/OK/Systems/BeatBattles": 1722123507,
- "ReplicatedStorage/OK/Systems/Career": 838925104,
+ "ReplicatedStorage/OK/Systems/Career": 440740342,
  "ReplicatedStorage/OK/Systems/Collab": 1842352261,
  "ReplicatedStorage/OK/Systems/Contracts": 2059139358,
  "ReplicatedStorage/OK/Systems/DAW": 1162101996,
@@ -61,7 +61,7 @@
  "ReplicatedStorage/OK/Systems/Profiles": 2121301163,
  "ReplicatedStorage/OK/Systems/README": 1871562837,
  "ReplicatedStorage/OK/Systems/Reactions": 920716978,
- "ReplicatedStorage/OK/Systems/Rooms": 1463321212,
+ "ReplicatedStorage/OK/Systems/Rooms": 837782184,
  "ReplicatedStorage/OK/Systems/Stations": 931419649,
  "ReplicatedStorage/OK/Systems/Tour": 230138574,
  "ReplicatedStorage/OK/Systems/Tycoon": 1735525539,
@@ -76,5 +76,5 @@
  "StarterPlayer/StarterPlayerScripts/OK/ClientMain": 747502132,
  "StarterPlayer/StarterPlayerScripts/OK/DAWClient": 378893151,
  "StarterPlayer/StarterPlayerScripts/OK/GatesClient": 1316369589,
- "StarterPlayer/StarterPlayerScripts/OK/RoomClient": 666581493
+ "StarterPlayer/StarterPlayerScripts/OK/RoomClient": 1023900122
 }
