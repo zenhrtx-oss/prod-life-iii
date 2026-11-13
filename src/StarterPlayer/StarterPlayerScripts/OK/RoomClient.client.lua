@@ -14,12 +14,653 @@
 -- play, part-way through, when there is one), and when the play ends, is stopped or is replaced (a new Token).
 -- State, for tests, on the Folder SoundService.OK_RoomListener: Playing, Plot, Token, Tier, Room, Step, Hits (the steps'
 -- hits, muted ones included), Made (sounds made) and LastParent (the full name of the last sound's parent).
+-- Task 10 (R-T7's review M9): at tier 2 and 3 the emitters fall back to the Station while the cabinets are missing; that
+-- fallback is never kept once a cabinet is there (a refit, or streaming, can bring them after the play started).
+--
+-- Decorate mode (Task 10; the bar is Modules/RoomUI, PlayerGui.OK_Room; the server is Systems/Rooms):
+-- * Only the owner sees a room's DecoratePrompt: this client turns off every DecoratePrompt under Workspace.OK_Plots whose
+--   room (the ancestor Model with RoomKind) has another OwnerId, as it streams in. That rule starts first, on its own, so
+--   nothing the edit bar waits on can hold it back.
+-- * In: the server's Room remote "decorate" { kind } (the owner pressed that room's DecoratePrompt). Not while the beat
+--   maker is open, and only for this player's own room (Plot_<PlotSlot>.Room_<kind>, OwnerId this player) once Room_Get has
+--   answered with that room and, after that wait, the same live character still stands in their own plot (InPlot =
+--   PlotSlot). Then, all in one pcall (a throw leaves at once, LeftBy "error"): the camera goes Scriptable, straight down over the room with its north at the top,
+--   high enough that the room's floor (Config.Rooms.Kinds[kind].size, half a stud each side) fits the screen between the top
+--   bar and the edit bar (refitted when the viewport changes or the bar's rows do); the room's parts whose bottom is
+--   CEILING_MIN studs or more above its floor (the ceiling, its lamp) are hidden locally (LocalTransparencyModifier 1); the
+--   controls are disabled (the ControlModule: PlayerScripts.PlayerModule's GetControls(), or StarterPlayer.PlayerModule's
+--   ControlModule in Roblox's newer layout; with no PlayerModule at all, the humanoid's WalkSpeed and jump at 0 on this
+--   client), so the character stays put; the touch controls and every ProximityPrompt (ProximityPromptService.Enabled)
+--   are off; the bar shows.
+-- * The bar browses this room's floor items that are open to you (State's unlocked; catalog order; a wall item, the poster,
+--   is Task 13's). ADD puts the shown item down as a ghost (a RoomItems.Build copy at transparency 0.5, with a footprint
+--   plate under it) on the first free cell (RoomRules.Fits on State's own grid, keep, limit and items), or the room's centre
+--   when none is free. A tap on the room: on a placed item (a raycast against the room's Items) picks it (its ghost on its own
+--   cell, the item itself dimmed); on the floor (the floor plane) moves the ghost so its footprint is centred under the tap;
+--   a drag keeps moving it. Keyboard: WASD / arrows move it a cell, R turns it, Enter places it, Delete removes a placed one,
+--   Backspace cancels (or leaves, with nothing picked). The ghost and its plate are red while the client's RoomRules.Fits
+--   refuses, run as the server's Edit runs it: a saved item that doesn't stand still holds its cells (Fits' `held`, R-T10
+--   fix 1), so the ghost is red over a faint ghost. ⟳ ROTATE turns it a quarter (its lowest cell stays); ✓ PLACE sends Room_Edit ("place" for a new item, "move" for
+--   a placed one), 🗑 REMOVE sends "remove"; ✕ CANCEL lets go. A refusal (the server's reason) shows its copy §6.3 sentence in
+--   the bar's hint line until the next action. An item saved but not standing (locked: RoomRules.Repair keeps it unbuilt)
+--   shows as a faint grey ghost at its cell. Ghosts, plates and faint ghosts live only on this client, in a Folder
+--   OK_DecoratePreview inside the room.
+-- * Out: DONE; a teleport or any move of 3 studs or more, InPlot changing, the room going (a rebuild); a death or a respawn;
+--   a throw while setting up.
+--   Each puts back the camera (Custom, on the humanoid), the controls, the touch controls, the prompts and the hidden parts,
+--   and destroys the preview.
+-- * The Room remote's "state" (the server's State after any change to your rooms) refreshes the view while decorating; after
+--   a Room_Edit that answers ok this client also asks Room_Get, so the view never waits on the push.
+-- Test attributes on OK_Room (RoomUI writes Rows and Layout): Editing, Kind, Item (the id the bar shows), Selected ("",
+-- "new:<id>" or "item:<index>"), Ghost ("x,z,r" of the ghost's lowest cell and turn, or ""), GhostOk, LastEdit ("" on the way
+-- in, "sending", then "ok" or the refusal: "error" for a failed call), LeftBy (why the last session ended: "done", "moved",
+-- "died", "respawn", "room", "error": a throw while setting up), ControlsOn (the ControlModule's own controlsEnabled, else its active controller's `enabled`,
+-- read back right after this client disabled or enabled it; nil when neither can be read; in a game with no PlayerModule,
+-- this client's own flag for the WalkSpeed / jump fallback. A test can't require the ControlModule itself: from its own VM
+-- that would be a second copy); Command = "next" | "prev" | "add" | "cell:x,z" | "pick:index" | "rotate" | "place" | "remove" |
+-- "cancel" | "done" | "tap:x,y" (a tap at that screen point, as a real tap's own path), cleared to "" once taken.
 local RS = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local SoundService = game:GetService("SoundService")
 
 local player = Players.LocalPlayer
 local OK = RS:WaitForChild("OK", 30)
+
+-- decorate mode (Task 10) ------------------------------------------------------------------------------------------------
+-- only the owner sees a room's DecoratePrompt: installed first, on its own (R-T10 fix 3, review minor 3), so nothing the
+-- edit bar waits on (the remotes, RoomUI.Build, the requires) can keep a visitor from seeing another owner's prompt
+task.spawn(function()
+	local function gate(d)
+		if not (d:IsA("ProximityPrompt") and d.Name == "DecoratePrompt") then return end
+		local a = d.Parent
+		while a and a ~= workspace and not (a:IsA("Model") and a:GetAttribute("RoomKind") ~= nil) do a = a.Parent end
+		if not (a and a ~= workspace and a:GetAttribute("OwnerId") == player.UserId) then d.Enabled = false end
+	end
+	local plotsF = workspace:WaitForChild("OK_Plots", 60)
+	if not plotsF then return end
+	plotsF.DescendantAdded:Connect(gate)
+	for _, d in ipairs(plotsF:GetDescendants()) do gate(d) end
+end)
+task.spawn(function()
+	local Remotes = OK and OK:WaitForChild("Remotes", 30)
+	local RoomEv = Remotes and Remotes:WaitForChild("Room", 30)
+	local RoomGet = Remotes and Remotes:WaitForChild("Room_Get", 30)
+	local RoomEditRF = Remotes and Remotes:WaitForChild("Room_Edit", 30)
+	if not (RoomEv and RoomGet and RoomEditRF) then
+		warn("[OK][ERR] decorate mode: Remotes.Room, Room_Get or Room_Edit missing (run build/19_rooms.lua in Edit)")
+		return
+	end
+	local RunService = game:GetService("RunService")
+	local UIS = game:GetService("UserInputService")
+	local CAS = game:GetService("ContextActionService")
+	local GuiService = game:GetService("GuiService")
+	local PPS = game:GetService("ProximityPromptService")
+	local RoomsCfg = require(OK.Config).Rooms
+	local Rules = require(OK.Modules.RoomRules)
+	local Catalog = require(OK.Data.RoomCatalog)
+	local Items = require(OK.Modules.RoomItems)
+	local RoomUI = require(OK.Modules.RoomUI)
+	local Theme = require(OK.Modules.UITheme)
+	local ui = RoomUI.Build(Theme)
+	local gui = ui.gui
+	local Copy = RoomUI.Copy
+	local CEILING_MIN = 7 -- studs above the floor: a part whose bottom is this high is hidden while decorating
+	local MOVED = 3       -- studs: the character moved this far (a teleport): decorate mode ends
+	local RED, GREEN = Color3.fromRGB(230, 60, 60), Color3.fromRGB(70, 200, 120)
+	local ACT = "OK_Decorate"
+
+	local function hum() local c = player.Character; return c and c:FindFirstChildOfClass("Humanoid") end
+	local function rootPart() local c = player.Character; return c and c:FindFirstChild("HumanoidRootPart") end
+	local function flat(v) return math.sqrt(v.X * v.X + v.Z * v.Z) end
+	local function asSet(list) local s = {}; for _, id in ipairs(type(list) == "table" and list or {}) do s[id] = true end; return s end
+	local function allowed(item, kind) return item.rooms == nil or table.find(item.rooms, kind) ~= nil end
+	local function isOpen(item, set) return item.unlock == nil or set[item.id] == true end
+	-- the player's controls, the ControlModule (nil when the game has none; looked for again on the next call). Two layouts
+	-- (R-T10 fix 2): the legacy PlayerScripts.PlayerModule, whose GetControls() answers it, and Roblox's newer
+	-- StarterPlayer.PlayerModule, whose ControlModule child is the live singleton (its parent's module has no GetControls).
+	-- Found with FindFirstChild only: a path that isn't there never appears, so nothing waits on it
+	local ctlCache
+	local function controls()
+		if ctlCache then return ctlCache end
+		local ok, c = pcall(function()
+			local ps = player:FindFirstChild("PlayerScripts")
+			local pm = ps and ps:FindFirstChild("PlayerModule")
+			if pm and pm:IsA("ModuleScript") then
+				local m = require(pm)
+				if type(m) == "table" and type(m.GetControls) == "function" then return m:GetControls() end
+			end
+			local sp = game:GetService("StarterPlayer"):FindFirstChild("PlayerModule")
+			local cm = sp and sp:FindFirstChild("ControlModule")
+			if cm and cm:IsA("ModuleScript") then
+				local m = require(cm)
+				if type(m) == "table" and type(m.Disable) == "function" and type(m.Enable) == "function" then return m end
+			end
+			return nil
+		end)
+		if ok and type(c) == "table" then ctlCache = c end
+		return ctlCache
+	end
+	-- whether the controls are on, as the ControlModule reads itself: its controlsEnabled (Disable / Enable set it; the
+	-- active controller's own `enabled` doesn't move with them in the newer layout), else the active controller's
+	-- `enabled`; nil when neither can be read. The gui's ControlsOn
+	local function controlsState()
+		local ctl = ctlCache
+		if not ctl then return nil end
+		local ok, v = pcall(function()
+			if type(ctl.controlsEnabled) == "boolean" then return ctl.controlsEnabled end
+			local c = type(ctl.GetActiveController) == "function" and ctl:GetActiveController() or ctl.activeController
+			if type(c) == "table" and type(c.enabled) == "boolean" then return c.enabled end
+			return nil
+		end)
+		if ok then return v end
+		return nil
+	end
+	-- the movement lock: the ControlModule off; in a game with no PlayerModule at all, the humanoid's own WalkSpeed,
+	-- JumpPower and JumpHeight at 0 on this client (put back as they were), with ControlsOn from this client's own flag
+	local function lock(e, h)
+		local ctl = controls()
+		if ctl then
+			pcall(function() ctl:Disable() end)
+			gui:SetAttribute("ControlsOn", controlsState())
+			return
+		end
+		e.frozen = { hum = h, ws = h.WalkSpeed, jp = h.JumpPower, jh = h.JumpHeight }
+		h.WalkSpeed, h.JumpPower, h.JumpHeight = 0, 0, 0
+		gui:SetAttribute("ControlsOn", false)
+	end
+	local function unlock(e)
+		local f = e.frozen
+		if f then
+			e.frozen = nil
+			if f.hum.Parent then f.hum.WalkSpeed, f.hum.JumpPower, f.hum.JumpHeight = f.ws, f.jp, f.jh end
+			gui:SetAttribute("ControlsOn", true)
+			return
+		end
+		local ctl = controls()
+		if ctl then pcall(function() ctl:Enable() end) end
+		gui:SetAttribute("ControlsOn", controlsState())
+	end
+	-- this player's own room of `kind` on this client
+	local function myRoom(kind)
+		local k = player:GetAttribute("PlotSlot")
+		local plots = workspace:FindFirstChild("OK_Plots")
+		local pm = plots and type(k) == "number" and k > 0 and plots:FindFirstChild(string.format("Plot_%02d", k)) or nil
+		local room = pm and pm:FindFirstChild("Room_" .. tostring(kind))
+		return (room and room:IsA("Model") and room:GetAttribute("OwnerId") == player.UserId) and room or nil
+	end
+	local function fetch()
+		local ok, v = pcall(function() return RoomGet:InvokeServer() end)
+		return (ok and type(v) == "table" and type(v.rooms) == "table") and v or nil
+	end
+
+	-- the session: { kind, room, pivot, view (State), rv (view.rooms[kind]), set (unlocked), list (browse ids), browse, sel = nil |
+	-- { id, index? (a placed item), x, z, r }, busy, msg (a refusal's sentence on show), at (where the character stood),
+	-- folder (OK_DecoratePreview), ghost, plate, faint, hidden / dimmed ({ [part] = its LocalTransparencyModifier before }),
+	-- conns, saved, rows }
+	local ed = nil
+	local leave -- (why)
+	local setup -- (session, humanoid, view): enter()'s part that turns things off and on, run in a pcall
+
+	local function kindCfg() local rv = ed.rv; return { limit = rv.limit, grid = rv.grid, keep = rv.keep, posters = rv.slots } end
+	-- the client's Fits, as the server's Edit runs it: the saved items that don't stand (locked) still hold their cells
+	local function fits(id, x, z, r, index)
+		return Rules.Fits(ed.rv.items, { id = id, x = x, z = z, r = r }, kindCfg(), Catalog, ed.set, ed.kind, index, RoomsCfg, ed.held)
+	end
+	local function footprint(item, r)
+		local w, d = item.size[1], item.size[2]
+		if r % 2 == 1 then w, d = d, w end
+		return w, d
+	end
+	-- the first lowest cell where `id` (turned r) fits now, scanning State's grid areas in order; else the room's centre
+	local function firstCell(id, r)
+		local seen = {}
+		for _, a in ipairs(ed.rv.grid or {}) do
+			for cz = math.floor(math.min(a[2], a[4])), math.ceil(math.max(a[2], a[4])) do
+				for cx = math.floor(math.min(a[1], a[3])), math.ceil(math.max(a[1], a[3])) do
+					local key = cx .. ":" .. cz
+					if not seen[key] then
+						seen[key] = true
+						if fits(id, cx, cz, r, nil) then return cx, cz end
+					end
+				end
+			end
+		end
+		local w, d = footprint(Catalog.ById[id], r)
+		return math.floor(-w / 2 + 0.5), math.floor(-d / 2 + 0.5)
+	end
+	local function previewFolder()
+		if ed.folder and ed.folder.Parent then return ed.folder end
+		local f = Instance.new("Folder")
+		f.Name = "OK_DecoratePreview"; f.Archivable = false
+		f.Parent = ed.room
+		ed.folder = f
+		return f
+	end
+	-- a see-through RoomItems.Build copy that no tap, touch, collision or shadow ever meets
+	local function ghostModel(id, transparency)
+		local m = Items.Build(id, Catalog)
+		if not m then return nil end
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("BasePart") then
+				d.Transparency = math.max(d.Transparency, transparency)
+				d.CanQuery, d.CanCollide, d.CanTouch, d.CastShadow = false, false, false, false
+				d:SetAttribute("BaseColor", d.Color)
+			end
+		end
+		return m
+	end
+	-- an item's origin at the footprint whose lowest cell is (x, z), turned r (as RoomEdit.Fit stands the real one)
+	local function cellCF(item, x, z, r)
+		local cx, cz = Rules.Centre(item, { x = x, z = z, r = r })
+		if not cx then return nil end
+		return ed.pivot * CFrame.new(cx, 0, cz) * CFrame.Angles(0, r * math.pi / 2, 0)
+	end
+	local function clearGhost()
+		if ed.ghost then ed.ghost:Destroy(); ed.ghost = nil end
+		if ed.plate then ed.plate:Destroy(); ed.plate = nil end
+	end
+	local function showGhost()
+		local s = ed.sel
+		local item = s and Catalog.ById[s.id]
+		if not item then
+			clearGhost()
+			gui:SetAttribute("Ghost", ""); gui:SetAttribute("GhostOk", false)
+			return
+		end
+		if not (ed.ghost and ed.ghost.Parent and ed.ghost:GetAttribute("ItemId") == s.id) then
+			clearGhost()
+			ed.ghost = ghostModel(s.id, 0.5)
+			if ed.ghost then ed.ghost.Name = "Ghost"; ed.ghost.Parent = previewFolder() end
+			local plate = Instance.new("Part")
+			plate.Name = "Footprint"; plate.Anchored = true; plate.Material = Enum.Material.SmoothPlastic; plate.Transparency = 0.45
+			plate.CanCollide, plate.CanQuery, plate.CanTouch, plate.CastShadow = false, false, false, false
+			plate.TopSurface, plate.BottomSurface = Enum.SurfaceType.Smooth, Enum.SurfaceType.Smooth
+			plate.Parent = previewFolder()
+			ed.plate = plate
+		end
+		local ok = fits(s.id, s.x, s.z, s.r, s.index) == true
+		local cf = cellCF(item, s.x, s.z, s.r)
+		local w, d = footprint(item, s.r)
+		if cf then
+			if ed.ghost then ed.ghost:PivotTo(cf + ed.pivot.UpVector * 0.02) end
+			ed.plate.Size = Vector3.new(math.max(0.2, w - 0.08), 0.06, math.max(0.2, d - 0.08))
+			ed.plate.CFrame = ed.pivot * CFrame.new(s.x + w / 2, 0.04, s.z + d / 2)
+		end
+		ed.plate.Color = ok and GREEN or RED
+		if ed.ghost then
+			for _, p in ipairs(ed.ghost:GetDescendants()) do
+				if p:IsA("BasePart") then p.Color = ok and (p:GetAttribute("BaseColor") or p.Color) or RED end
+			end
+		end
+		gui:SetAttribute("Ghost", string.format("%d,%d,%d", s.x, s.z, s.r))
+		gui:SetAttribute("GhostOk", ok)
+	end
+	-- the saved items that don't stand (locked: Repair keeps them unbuilt), as faint grey ghosts
+	local function showUnbuilt()
+		for _, m in ipairs(ed.faint or {}) do m:Destroy() end
+		ed.faint = {}
+		for i, e in ipairs(ed.rv.items) do
+			local it = type(e) == "table" and Catalog.ById[e.id] or nil
+			if it and it.kind == "floor" and not isOpen(it, ed.set) then
+				local m = ghostModel(e.id, 0.8)
+				local cf = m and cellCF(it, e.x, e.z, e.r or 0)
+				if m and cf then
+					for _, p in ipairs(m:GetDescendants()) do if p:IsA("BasePart") then p.Color = Theme.muted end end
+					m.Name = "Unbuilt_" .. i
+					m:PivotTo(cf)
+					m.Parent = previewFolder()
+					table.insert(ed.faint, m)
+				elseif m then
+					m:Destroy()
+				end
+			end
+		end
+	end
+	-- the placed item at `index` (its model in the room's Items), dimmed while it is picked
+	local function undim()
+		for part, v in pairs(ed.dimmed) do if part.Parent then part.LocalTransparencyModifier = v end end
+		ed.dimmed = {}
+	end
+	local function dim(index)
+		undim()
+		local f = ed.room:FindFirstChild("Items")
+		for _, m in ipairs(f and f:GetChildren() or {}) do
+			if m:IsA("Model") and m:GetAttribute("Index") == index then
+				for _, p in ipairs(m:GetDescendants()) do
+					if p:IsA("BasePart") then ed.dimmed[p] = p.LocalTransparencyModifier; p.LocalTransparencyModifier = 0.7 end
+				end
+			end
+		end
+	end
+
+	-- the camera: straight down over the room, north at the top, the floor between the top bar and the edit bar
+	local function fitCamera()
+		if not ed then return end
+		local cam = workspace.CurrentCamera
+		local V = cam.ViewportSize
+		if V.X <= 0 or V.Y <= 0 then return end
+		local size = (RoomsCfg.Kinds[ed.kind] or {}).size or { 12, 12 }
+		local f = (V.Y / 2) / math.tan(math.rad(cam.FieldOfView) / 2)
+		local top = GuiService:GetGuiInset().Y + 12
+		local bottom = math.max(top + 80, V.Y - ui.Reserved() - 12)
+		local W, D = size[1] + 1, size[2] + 1
+		local h = math.max(f * W / math.max(80, V.X - 24), f * D / (bottom - top))
+		local oy = (top + bottom) / 2 - V.Y / 2 -- px: the free band's centre off the screen's centre (up is negative)
+		local south = ed.pivot:VectorToWorldSpace(Vector3.zAxis)
+		local ground = ed.pivot.Position - south * (oy * h / f)
+		cam.CameraType = Enum.CameraType.Scriptable
+		cam.CFrame = CFrame.lookAt(ground + ed.pivot.UpVector * h, ground, ed.pivot.LookVector)
+		cam.Focus = CFrame.new(ground)
+	end
+	-- the room's parts at ceiling height go see-through on this client (the camera looks down through them)
+	local function hideTop()
+		local floorY = ed.pivot.Position.Y
+		local items = ed.room:FindFirstChild("Items")
+		for _, d in ipairs(ed.room:GetDescendants()) do
+			if d:IsA("BasePart") and not (items and d:IsDescendantOf(items)) then
+				local cf, s = d.CFrame, d.Size
+				local halfY = (math.abs(cf.RightVector.Y) * s.X + math.abs(cf.UpVector.Y) * s.Y + math.abs(cf.LookVector.Y) * s.Z) / 2
+				if d.Position.Y - halfY - floorY >= CEILING_MIN then
+					ed.hidden[d] = d.LocalTransparencyModifier
+					d.LocalTransparencyModifier = 1
+				end
+			end
+		end
+	end
+
+	local function paint()
+		if not ed then return end
+		local s, rv = ed.sel, ed.rv
+		local id = s and s.id or ed.list[ed.browse]
+		local item = id and Catalog.ById[id]
+		local hint = ed.msg or (s == nil and Copy.HintPick) or (s.index and Copy.HintItem) or Copy.HintNew
+		ui.Paint({ mode = s == nil and "none" or (s.index and "item" or "new"), name = item and item.name or "",
+			used = tonumber(rv.used) or 0, limit = tonumber(rv.limit) or 0, canAdd = #ed.list > 0, canBrowse = #ed.list > 1,
+			ok = s == nil or gui:GetAttribute("GhostOk") == true, hint = hint })
+		gui:SetAttribute("Item", ed.list[ed.browse] or "")
+		gui:SetAttribute("Selected", s == nil and "" or (s.index and ("item:" .. s.index) or ("new:" .. s.id)))
+		local rows = gui:GetAttribute("Rows")
+		if rows ~= ed.rows then ed.rows = rows; fitCamera() end
+	end
+	-- the server's State (Room_Get's answer, or the Room remote's "state")
+	local function applyView(view)
+		if not ed then return end
+		local rv = type(view) == "table" and type(view.rooms) == "table" and view.rooms[ed.kind] or nil
+		if type(rv) ~= "table" then leave("room"); return end
+		rv.items = type(rv.items) == "table" and rv.items or {}
+		ed.view, ed.rv = view, rv
+		ed.set = asSet(view.unlocked)
+		local unbuilt = {} -- the saved floor items that don't stand (locked: Repair keeps them unbuilt)
+		for i, e in ipairs(rv.items) do
+			local it = type(e) == "table" and Catalog.ById[e.id] or nil
+			if it and it.kind == "floor" and not isOpen(it, ed.set) then table.insert(unbuilt, i) end
+		end
+		ed.held = Rules.UnbuiltCells(rv.items, unbuilt, Catalog)
+		local shown = ed.list[ed.browse]
+		ed.list = {}
+		for _, it in ipairs(Catalog.Items) do
+			if it.kind == "floor" and allowed(it, ed.kind) and ed.set[it.id] then table.insert(ed.list, it.id) end
+		end
+		ed.browse = table.find(ed.list, shown) or math.clamp(ed.browse, 1, math.max(1, #ed.list))
+		local s = ed.sel
+		if s and s.index then
+			local e = rv.items[s.index]
+			if type(e) == "table" and e.id == s.id then dim(s.index) else ed.sel = nil; undim() end
+		end
+		showUnbuilt()
+		showGhost()
+		paint()
+	end
+	local function choose(s)
+		ed.sel = s
+		ed.msg = nil
+		if s and s.index then dim(s.index) else undim() end
+		showGhost()
+		paint()
+	end
+	local function pick(index)
+		local e = ed.rv.items[index]
+		local it = type(e) == "table" and Catalog.ById[e.id] or nil
+		if not (it and it.kind == "floor" and isOpen(it, ed.set) and allowed(it, ed.kind)) then return end
+		choose({ id = e.id, index = index, x = e.x, z = e.z, r = e.r or 0 })
+	end
+	local function moveGhost(x, z)
+		if not ed.sel then return end
+		ed.sel.x, ed.sel.z = x, z
+		ed.msg = nil
+		showGhost()
+		paint()
+	end
+	-- the floor cell under a screen point (the floor plane, room-local y 0), as the picked item's lowest cell
+	local function floorAt(pos)
+		local s = ed.sel
+		if not s then return end
+		local ray = workspace.CurrentCamera:ScreenPointToRay(pos.X, pos.Y)
+		local up = ed.pivot.UpVector
+		local denom = ray.Direction:Dot(up)
+		if math.abs(denom) < 1e-4 then return end
+		local t = (ed.pivot.Position - ray.Origin):Dot(up) / denom
+		if t <= 0 then return end
+		local lp = ed.pivot:PointToObjectSpace(ray.Origin + ray.Direction * t)
+		local w, d = footprint(Catalog.ById[s.id], s.r)
+		moveGhost(math.floor(lp.X - w / 2 + 0.5), math.floor(lp.Z - d / 2 + 0.5))
+	end
+	-- a tap: on a placed item it picks it; on the floor it moves the ghost
+	local function tap(pos)
+		if not ed or ed.busy then return end
+		local items = ed.room:FindFirstChild("Items")
+		if items then
+			local ray = workspace.CurrentCamera:ScreenPointToRay(pos.X, pos.Y)
+			local params = RaycastParams.new()
+			params.FilterType = Enum.RaycastFilterType.Include
+			params.FilterDescendantsInstances = { items }
+			local hit = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+			local m = hit and hit.Instance
+			while m and m.Parent ~= items do m = m.Parent end
+			local index = m and m:GetAttribute("Index")
+			if type(index) == "number" then
+				if not (ed.sel and ed.sel.index == index) then pick(index) end
+				return
+			end
+		end
+		floorAt(pos)
+	end
+	local function send(action)
+		if ed.busy then return end
+		local my = ed
+		my.busy = true
+		gui:SetAttribute("LastEdit", "sending")
+		local ok, res = pcall(function() return RoomEditRF:InvokeServer(action) end)
+		if ed ~= my then return end -- left meanwhile
+		my.busy = false
+		local reason = (ok and type(res) == "table") and (res.ok == true and "ok" or tostring(res.reason)) or "error"
+		if reason == "ok" then
+			my.msg = nil
+			choose(nil)
+			local v = fetch()
+			if ed ~= my then return end
+			if v then applyView(v) end
+		else
+			my.msg = RoomUI.Sentence(reason)
+			paint()
+		end
+		gui:SetAttribute("LastEdit", reason)
+	end
+	local function command(c)
+		if not ed then return end
+		if c == "done" then leave("done"); return end
+		if c == "cancel" then choose(nil); return end
+		if ed.busy then return end
+		if c == "next" or c == "prev" then
+			if ed.sel or #ed.list == 0 then return end
+			ed.browse = (ed.browse - 1 + (c == "next" and 1 or -1)) % #ed.list + 1
+			ed.msg = nil
+			paint()
+			return
+		end
+		if c == "add" then
+			local id = ed.list[ed.browse]
+			if ed.sel or not id then return end
+			local x, z = firstCell(id, 0)
+			choose({ id = id, x = x, z = z, r = 0 })
+			return
+		end
+		if c == "rotate" then
+			if ed.sel then ed.sel.r = (ed.sel.r + 1) % 4; ed.msg = nil; showGhost(); paint() end
+			return
+		end
+		if c == "place" then
+			local s = ed.sel
+			if not s then return end
+			if s.index then send({ op = "move", kind = ed.kind, index = s.index, x = s.x, z = s.z, r = s.r })
+			else send({ op = "place", kind = ed.kind, id = s.id, x = s.x, z = s.z, r = s.r }) end
+			return
+		end
+		if c == "remove" then
+			local s = ed.sel
+			if s and s.index then send({ op = "remove", kind = ed.kind, index = s.index }) end
+			return
+		end
+		local cx, cz = string.match(c, "^cell:(%-?%d+),(%-?%d+)$")
+		if cx then moveGhost(tonumber(cx), tonumber(cz)); return end
+		local pi = string.match(c, "^pick:(%d+)$")
+		if pi then pick(tonumber(pi)); return end
+		local tx, ty = string.match(c, "^tap:(%-?[%d%.]+),(%-?[%d%.]+)$")
+		if tx then tap(Vector2.new(tonumber(tx), tonumber(ty))) end
+	end
+	gui:GetAttributeChangedSignal("Command"):Connect(function()
+		local c = gui:GetAttribute("Command")
+		if type(c) ~= "string" or c == "" then return end
+		gui:SetAttribute("Command", "")
+		task.spawn(command, c) -- a place or a remove waits on the server
+	end)
+
+	-- keyboard: a cell at a time, a turn, place, remove, cancel / leave (the bar's own Command seam)
+	local KEYS = {
+		[Enum.KeyCode.W] = { 0, -1 }, [Enum.KeyCode.Up] = { 0, -1 }, [Enum.KeyCode.S] = { 0, 1 }, [Enum.KeyCode.Down] = { 0, 1 },
+		[Enum.KeyCode.A] = { -1, 0 }, [Enum.KeyCode.Left] = { -1, 0 }, [Enum.KeyCode.D] = { 1, 0 }, [Enum.KeyCode.Right] = { 1, 0 },
+	}
+	local function keyAction(_, st, input)
+		if st ~= Enum.UserInputState.Begin or not ed then return Enum.ContextActionResult.Pass end
+		local k = input.KeyCode
+		local step = KEYS[k]
+		if step then
+			if ed.sel and not ed.busy then moveGhost(ed.sel.x + step[1], ed.sel.z + step[2]) end
+		elseif k == Enum.KeyCode.R or k == Enum.KeyCode.ButtonY then gui:SetAttribute("Command", "rotate")
+		elseif k == Enum.KeyCode.Return or k == Enum.KeyCode.KeypadEnter then gui:SetAttribute("Command", "place")
+		elseif k == Enum.KeyCode.Delete then gui:SetAttribute("Command", "remove")
+		elseif k == Enum.KeyCode.Backspace or k == Enum.KeyCode.ButtonB then gui:SetAttribute("Command", ed.sel and "cancel" or "done")
+		end
+		return Enum.ContextActionResult.Sink
+	end
+
+	-- taps and drags on the room (never the ones that began on a gui)
+	local held = nil
+	UIS.InputBegan:Connect(function(input, processed)
+		if not ed or processed then return end
+		local t = input.UserInputType
+		if t == Enum.UserInputType.MouseButton1 or t == Enum.UserInputType.Touch then
+			held = input
+			tap(Vector2.new(input.Position.X, input.Position.Y))
+		end
+	end)
+	UIS.InputChanged:Connect(function(input)
+		if not (ed and ed.sel and held and not ed.busy) then return end
+		local t = input.UserInputType
+		if (t == Enum.UserInputType.Touch and input == held) or (t == Enum.UserInputType.MouseMovement and held.UserInputType == Enum.UserInputType.MouseButton1) then
+			floorAt(Vector2.new(input.Position.X, input.Position.Y))
+		end
+	end)
+	UIS.InputEnded:Connect(function(input)
+		if held and (input == held or input.UserInputType == Enum.UserInputType.MouseButton1) then held = nil end
+	end)
+
+	local function enter(kind)
+		if ed then return end
+		local room = myRoom(kind)
+		local h, r = hum(), rootPart()
+		if not (room and h and h.Health > 0 and r) then return end
+		local dawGui = player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("OK_DAW")
+		local daw = dawGui and dawGui:FindFirstChild("DAW")
+		if daw and daw.Visible then return end -- the beat maker owns the screen
+		local view = fetch()
+		if ed or not (view and type(view.rooms[kind]) == "table") or not room:IsDescendantOf(workspace) then return end
+		-- fetch() yielded: still alive, still this character, still in your own plot (a door may have moved you meanwhile)
+		r = rootPart()
+		local slot = player:GetAttribute("PlotSlot")
+		if not (r and hum() == h and h.Health > 0 and type(slot) == "number" and slot > 0 and player:GetAttribute("InPlot") == slot) then return end
+		ed = { kind = kind, room = room, pivot = room:GetPivot(), at = r.Position, browse = 1, list = {}, faint = {},
+			hidden = {}, dimmed = {}, conns = {}, saved = { pps = PPS.Enabled, touch = GuiService.TouchControlsEnabled } }
+		local my = ed
+		-- the setup in one pcall (R-T10 fix 3, review minor 2): a throw anywhere in it leaves at once ("error"), so nothing is
+		-- ever left off with no bar and no way out
+		local okSetup, err = pcall(setup, my, h, view)
+		if not okSetup then
+			warn("[OK][ERR] decorate mode: " .. tostring(err))
+			if ed == my then leave("error") end
+		end
+	end
+	setup = function(my, h, view)
+		local kind = my.kind
+		PPS.Enabled = false
+		pcall(function() GuiService.TouchControlsEnabled = false end)
+		lock(my, h)
+		h:Move(Vector3.zero)
+		hideTop()
+		gui:SetAttribute("Kind", kind)
+		gui:SetAttribute("LastEdit", "")
+		ui.Show(true)
+		applyView(view)
+		if ed ~= my then return end
+		fitCamera()
+		local cam = workspace.CurrentCamera
+		table.insert(my.conns, RunService.Heartbeat:Connect(function()
+			if not ed then return end
+			local rr = rootPart()
+			if not rr or flat(rr.Position - ed.at) >= MOVED then leave("moved")
+			elseif not ed.room:IsDescendantOf(workspace) then leave("room") end
+		end))
+		table.insert(my.conns, h.Died:Connect(function() leave("died") end))
+		table.insert(my.conns, player.CharacterAdded:Connect(function() leave("respawn") end))
+		table.insert(my.conns, player:GetAttributeChangedSignal("InPlot"):Connect(function() leave("moved") end))
+		table.insert(my.conns, cam:GetPropertyChangedSignal("ViewportSize"):Connect(fitCamera))
+		CAS:BindActionAtPriority(ACT, keyAction, false, Enum.ContextActionPriority.High.Value + 60, Enum.KeyCode.W, Enum.KeyCode.A,
+			Enum.KeyCode.S, Enum.KeyCode.D, Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right, Enum.KeyCode.R,
+			Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.Delete, Enum.KeyCode.Backspace, Enum.KeyCode.ButtonY,
+			Enum.KeyCode.ButtonB)
+		gui:SetAttribute("Editing", true)
+	end
+	leave = function(why)
+		local e = ed
+		if not e then return end
+		ed = nil
+		for _, c in ipairs(e.conns) do c:Disconnect() end
+		CAS:UnbindAction(ACT)
+		for part, v in pairs(e.hidden) do if part.Parent then part.LocalTransparencyModifier = v end end
+		for part, v in pairs(e.dimmed) do if part.Parent then part.LocalTransparencyModifier = v end end
+		if e.folder then e.folder:Destroy() end
+		ui.Show(false)
+		local cam = workspace.CurrentCamera
+		cam.CameraType = Enum.CameraType.Custom
+		local h = hum()
+		if h then cam.CameraSubject = h end
+		unlock(e)
+		PPS.Enabled = e.saved.pps
+		pcall(function() GuiService.TouchControlsEnabled = e.saved.touch end)
+		for k, v in pairs({ Editing = false, Kind = "", Item = "", Selected = "", Ghost = "", GhostOk = false }) do gui:SetAttribute(k, v) end
+		gui:SetAttribute("LeftBy", tostring(why))
+	end
+
+	RoomEv.OnClientEvent:Connect(function(kind, payload)
+		if kind == "decorate" and type(payload) == "table" and type(payload.kind) == "string" then
+			task.spawn(enter, payload.kind)
+		elseif kind == "state" and ed and type(payload) == "table" then
+			applyView(payload)
+		end
+	end)
+	task.spawn(controls) -- found once, before the first press
+end)
+
 local playing = OK and OK:WaitForChild("RoomPlaying", 30)
 local samples = OK and OK:WaitForChild("Samples", 30)
 if not (playing and samples) then
@@ -62,8 +703,9 @@ end
 state:SetAttribute("Playing", false)
 state:SetAttribute("Made", 0)
 
--- the play this client is on: its plot, Token, tier and room kind, and the parts its sounds come from
-local cur = { plot = 0, token = nil, tier = 1, room = "bedroom", emit = nil }
+-- the play this client is on: its plot, Token, tier and room kind, the parts its sounds come from, and whether those are
+-- the Station standing in for missing cabinets (tier 2 and 3)
+local cur = { plot = 0, token = nil, tier = 1, room = "bedroom", emit = nil, emitFallback = false }
 local made = 0
 
 local function plotName(k) return string.format("Plot_%02d", k) end
@@ -84,21 +726,28 @@ local function cabinet(room, side)
 	return (c and c:IsA("BasePart")) and c or nil
 end
 local function live(part) return part ~= nil and part:IsDescendantOf(workspace) end
--- { left, right }: kept while both parts stay in Workspace, looked up again once one has gone (a speaker refit, streaming)
+-- { left, right }: kept while both parts stay in Workspace, looked up again once one has gone (a speaker refit, streaming),
+-- and, while the Station stands in for missing cabinets, as soon as a cabinet is there (R-T7's review M9)
 local function emitters()
 	local e = cur.emit
-	if e and live(e[1]) and live(e[2]) then return e end
-	cur.emit = nil
+	if e and live(e[1]) and live(e[2]) then
+		if not cur.emitFallback then return e end
+		local room = roomModel()
+		if not (room and (cabinet(room, "L") or cabinet(room, "R"))) then return e end
+	end
+	cur.emit, cur.emitFallback = nil, false
 	local room = roomModel()
 	if not room then return nil end
 	local L, R
 	if cur.tier >= 2 then L, R = cabinet(room, "L"), cabinet(room, "R") end
+	local fallback = false
 	if not (L or R) then
 		local st = stationOf(room)
 		L, R = st, st
+		fallback = cur.tier >= 2
 	end
 	if not (L or R) then return nil end
-	cur.emit = { L or R, R or L }
+	cur.emit, cur.emitFallback = { L or R, R or L }, fallback
 	return cur.emit
 end
 

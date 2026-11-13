@@ -16,7 +16,9 @@
 --   at: a stale view) or one of RoomRules.Fits' ("unknown" for an id, "locked", "room", "bounds", "overlap", "limit",
 --   "max", "rot", "slot", "design"). A move leaves the item out of its own overlap check (ignoreIndex), so a rotation in
 --   place is a move to the same cell with a new r. A remove closes the list (no hole) and drops an emptied list, as
---   Repair would. Entries are built from named fields only: { id, x, z, r }.
+--   Repair would. Entries are built from named fields only: { id, x, z, r }. unbuilt (optional, last; R-T10 fix 1, the 11-12
+--   unbuilt-cells ruling) = Repair's `unbuilt` list: that room's entries kept unbuilt (locked) still hold their cells, so
+--   a place or a move onto them is "overlap" (RoomRules.UnbuiltCells into Fits' `held`); removing one stays allowed.
 -- * Fit(room, list, skip, catalog): makes the room's `Items` Folder (created once, attribute RoomItemsFolder) show
 --   `list` (that room's saved entries): one RoomItems.Build model per built floor entry, named Item_<index>, attributes ItemId,
 --   Index (its place in the saved list) and Sig (id:x:z:r), at Rules.Centre of its footprint turned r quarter turns about
@@ -81,16 +83,22 @@ local function copyEntry(e)
 	return { id = e.id, x = e.x, z = e.z, r = e.r }
 end
 
-function E.Apply(home, a, owned, unlocked, cfg, catalog)
+function E.Apply(home, a, owned, unlocked, cfg, catalog, unbuilt)
 	local kc = cfg.Kinds[a.kind]
 	local mine = false
 	for _, kind in ipairs(owned) do if kind == a.kind then mine = true; break end end
 	if not (kc and mine) then return refuse("room") end
 	local items = home.items
 	local list = items[a.kind]
+	-- the indexes of this room's entries Repair keeps unbuilt: their cells stay taken
+	local idx = {}
+	for _, u in ipairs(type(unbuilt) == "table" and unbuilt or {}) do
+		if type(u) == "table" and u.kind == a.kind then table.insert(idx, u.index) end
+	end
 	if a.op == "place" then
 		local entry = { id = a.id, x = a.x, z = a.z, r = a.r or 0 }
-		local ok, why = Rules.Fits(list or {}, entry, kc, catalog, unlocked, a.kind, nil, cfg)
+		local held = Rules.UnbuiltCells(list, idx, catalog)
+		local ok, why = Rules.Fits(list or {}, entry, kc, catalog, unlocked, a.kind, nil, cfg, held)
 		if not ok then return refuse(why) end
 		if not list then
 			list = {}
@@ -103,7 +111,8 @@ function E.Apply(home, a, owned, unlocked, cfg, catalog)
 	if type(old) ~= "table" then return refuse("unknown") end
 	if a.op == "move" then
 		local entry = { id = old.id, x = a.x, z = a.z, r = a.r ~= nil and a.r or old.r or 0 }
-		local ok, why = Rules.Fits(list, entry, kc, catalog, unlocked, a.kind, a.index, cfg)
+		local held = Rules.UnbuiltCells(list, idx, catalog, a.index)
+		local ok, why = Rules.Fits(list, entry, kc, catalog, unlocked, a.kind, a.index, cfg, held)
 		if not ok then return refuse(why) end
 		list[a.index] = entry
 		return { ok = true, op = "move", kind = a.kind, index = a.index, item = copyEntry(entry) }

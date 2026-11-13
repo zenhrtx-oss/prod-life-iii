@@ -22,8 +22,9 @@
 --     cell is refused "overlap" and one beside it is free; moved to the same cell at r 1 the footprint is 1 x 2: the plant that
 --     was free is now "overlap" and the cell it covered is open, the model's parts lie inside the new 1 x 2 footprint and its
 --     front faces -X.
--- (5) refusals, each leaving Home and the models as they were: overlap, bounds (far off the grid), unknown id, locked
---     (floor_lamp), a closet and a poster in the bedroom ("room"), a bad turn (5, 1.5, -1: "rot"), a room you don't own
+-- (5) refusals, each leaving Home and the models as they were: overlap, bounds (far off the grid; x NaN, inf or 1e300:
+--     Task 9's review M6), unknown id, locked (floor_lamp), a closet and a poster in the bedroom ("room"), a bad turn (5,
+--     1.5, -1, 4, NaN, inf: "rot"), a room you don't own
 --     (home, attic: "room"), a stale move or remove index ("unknown"), and junk ("invalid": not a table, an unknown op, a
 --     string or missing coordinate, a number id or kind, a fractional or missing index). The 7th item is "limit" (6 in the
 --     bedroom) and the room's Items hold no more than limit x ItemParts parts.
@@ -37,7 +38,10 @@
 -- (9) your plot only: Edit from the hub -> "away" (State.inside nil); from another player's landing (Fill(1), Enter(2) as a
 --     friend) -> "owner"; from your own landing -> goes through (and a room you own is edited from anywhere in your plot).
 -- (10) a gear item saved while its gear is not owned (SetHome with a tape machine, after ResetGear) is kept and unbuilt (State
---     items 1, used 0, no model); GrantGear stands it within 3 s, ResetGear takes it down again.
+--     items 1, used 0, no model). It still holds its cells (R-T10 fix 1, the 11-12 unbuilt-cells ruling): a plant on either
+--     of them is refused "overlap" and nothing changes; a plant beside it goes in, and moving that plant onto it is
+--     "overlap" too; the plant is taken away. GrantGear stands it within 3 s, ResetGear takes it down again, and then
+--     removing it while it is unbuilt is allowed (the save is empty).
 -- (11) the home studio: bought for real (Career Set at the gate's needs and its price, Unlock home_studio); a closet placed
 --     in home from the bedroom (a room you own is edited from anywhere in your plot) is ok and a second is "max"; a keyboard
 --     stand (open once you own home) goes in; State's home row reads limit 16 and slots 4; every room's Items hold at most
@@ -412,11 +416,13 @@ local function run()
 	refused({ op = "place", kind = "bedroom", id = "plant", x = q[1], z = q[2] }, "overlap", "5 overlap")
 	refused({ op = "place", kind = "bedroom", id = "plant", x = 1000, z = 1000 }, "bounds", "5 bounds (off the grid)")
 	refused({ op = "place", kind = "bedroom", id = "plant", x = 0 / 0, z = 0 }, "bounds", "5 bounds (not a number)")
+	refused({ op = "place", kind = "bedroom", id = "plant", x = math.huge, z = 0 }, "bounds", "5 bounds (x inf)")
+	refused({ op = "place", kind = "bedroom", id = "plant", x = 1e300, z = 0 }, "bounds", "5 bounds (x 1e300)")
 	refused({ op = "place", kind = "bedroom", id = "sofa_9000", x = q[1] + 1, z = q[2] }, "unknown", "5 unknown id")
 	refused({ op = "place", kind = "bedroom", id = "floor_lamp", x = cells5[2][1], z = cells5[2][2] }, "locked", "5 locked (floor_lamp needs a fame tier)")
 	refused({ op = "place", kind = "bedroom", id = "closet", x = cells5[2][1], z = cells5[2][2] }, "room", "5 a closet in the bedroom")
 	refused({ op = "place", kind = "bedroom", id = "poster", x = cells5[2][1], z = cells5[2][2] }, "room", "5 a poster in the bedroom")
-	for _, bad in ipairs({ 5, 1.5, -1, 4 }) do
+	for _, bad in ipairs({ 5, 1.5, -1, 4, 0 / 0, math.huge }) do
 		refused({ op = "place", kind = "bedroom", id = "plant", x = cells5[2][1], z = cells5[2][2], r = bad }, "rot", "5 turn " .. tostring(bad))
 	end
 	refused({ op = "place", kind = "home", id = "plant", x = 0, z = 0 }, "room", "5 a room you don't own (home)")
@@ -451,7 +457,7 @@ local function run()
 	refused({ op = "place", kind = "bedroom", id = "plant", x = cells5[lim + 1][1], z = cells5[lim + 1][2] }, "limit", "5 the " .. (lim + 1) .. "th item")
 	refused({ op = "place", kind = "bedroom", id = "rug", x = cells5[lim + 1][1], z = cells5[lim + 1][2] }, "limit", "5 the " .. (lim + 1) .. "th item (a rug)")
 	checkRoom("bedroom", "5 full")
-	table.insert(out, string.format("5 refusals: overlap, bounds (off the grid, NaN), unknown id, locked, closet and poster in the bedroom 'room', bad turns 'rot', home and attic 'room', stale indexes 'unknown', 11 kinds of junk and no action 'invalid'; the %dth item 'limit'; each left Home and the models unchanged; %d parts <= %d", lim + 1, partCount("bedroom"), lim * Cfg.ItemParts))
+	table.insert(out, string.format("5 refusals: overlap, bounds (off the grid; x NaN, inf, 1e300), unknown id, locked, closet and poster in the bedroom 'room', bad turns (5, 1.5, -1, 4, NaN, inf) 'rot', home and attic 'room', stale indexes 'unknown', 11 kinds of junk and no action 'invalid'; the %dth item 'limit'; each left Home and the models unchanged; %d parts <= %d", lim + 1, partCount("bedroom"), lim * Cfg.ItemParts))
 
 	-- 6. remove
 	local keep = modelsOf("bedroom")
@@ -560,6 +566,19 @@ local function run()
 	local s10 = state()
 	assert(#s10.rooms.bedroom.items == 1 and s10.rooms.bedroom.used == 0 and #modelsOf("bedroom") == 0, "10: while locked State reads items " .. #s10.rooms.bedroom.items
 		.. ", used " .. s10.rooms.bedroom.used .. ", " .. #modelsOf("bedroom") .. " models; want 1, 0, 0 (kept in the save, not built, not counted)")
+	-- R-T10 fix 1: the unbuilt tape machine still holds its cells (bx, bz) and (bx + 1, bz)
+	refused({ op = "place", kind = "bedroom", id = "plant", x = bx, z = bz }, "overlap", "10 a plant on the unbuilt tape machine's first cell")
+	refused({ op = "place", kind = "bedroom", id = "plant", x = bx + 1, z = bz }, "overlap", "10 a plant on its second cell")
+	local beside
+	for _, c in ipairs(scan("bedroom", "plant")) do
+		if not inBlock(c, bx, bz, 2, 1) then beside = c; break end
+	end
+	assert(beside, "premise: no free cell for a plant beside the unbuilt tape machine")
+	ok(edit({ op = "place", kind = "bedroom", id = "plant", x = beside[1], z = beside[2] }), "10 a plant beside the unbuilt tape machine")
+	refused({ op = "move", kind = "bedroom", index = 2, x = bx, z = bz }, "overlap", "10 the plant moved onto the unbuilt tape machine")
+	ok(edit({ op = "remove", kind = "bedroom", index = 2 }), "10 the plant taken away")
+	assert(#modelsOf("bedroom") == 0 and #(savedList("bedroom") or {}) == 1, "10: after the plant came and went the bedroom holds " .. #modelsOf("bedroom")
+		.. " models and " .. #(savedList("bedroom") or {}) .. " saved items, want 0 and 1 (the unbuilt tape machine)")
 	assert(test:Invoke("GrantGear", uid, "kit_tape") == true, "10: GrantGear(kit_tape) failed")
 	assert(waitFor(function() return #modelsOf("bedroom") == 1 end, 3), "10: the saved tape machine did not stand within 3 s of GrantGear(kit_tape) (the Gear listener)")
 	checkRoom("bedroom", "10 gear arrived")
@@ -567,7 +586,9 @@ local function run()
 	assert(test:Invoke("ResetGear", uid) == true, "10: ResetGear failed")
 	assert(waitFor(function() return #modelsOf("bedroom") == 0 end, 3), "10: the tape machine still stands 3 s after ResetGear")
 	assert(#(savedList("bedroom") or {}) == 1, "10: losing the gear deleted the saved item")
-	table.insert(out, "10 gear later: a tape machine saved while kit_tape is not owned is kept and unbuilt (State items 1, used 0); GrantGear stands it within 3 s, ResetGear takes it down, the save keeps it")
+	ok(edit({ op = "remove", kind = "bedroom", index = 1 }), "10 remove the unbuilt tape machine")
+	assert(savedList("bedroom") == nil and #modelsOf("bedroom") == 0, "10: after removing the unbuilt tape machine Home's bedroom reads " .. show(savedList("bedroom")) .. ", want none")
+	table.insert(out, "10 gear later: a tape machine saved while kit_tape is not owned is kept and unbuilt (State items 1, used 0) and holds its cells (a plant on either 'overlap', a plant beside it ok, moved onto it 'overlap'); GrantGear stands it within 3 s, ResetGear takes it down, the save keeps it; removing it while unbuilt is allowed")
 
 	-- 11. the home studio
 	clearHome("11")

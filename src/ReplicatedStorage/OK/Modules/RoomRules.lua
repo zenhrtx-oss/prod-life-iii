@@ -152,7 +152,10 @@ end
 -- slot and doesn't count; ignoreIndex (moving or redesigning items[ignoreIndex]) leaves that entry out of every check.
 -- rooms = Config.Rooms (an argument past the plan's list: kindCfg has no poster words, colours or styles); without it
 -- every wall item fails "design", so a caller that forgets it fails loudly.
-function R.Fits(items, entry, kindCfg, catalog, unlocked, kind, ignoreIndex, rooms)
+-- held (R-T10 fix 1, the 11-12 unbuilt-cells ruling; optional, last) = more cells { { cx, cz }, ... } that count as taken
+-- for a floor item ("overlap"): the cells of the room's entries Repair keeps unbuilt (UnbuiltCells), so a placement never
+-- lands on an item that comes back once you own its gear again. They don't count toward the limit. Without it, as before.
+function R.Fits(items, entry, kindCfg, catalog, unlocked, kind, ignoreIndex, rooms, held)
 	if type(entry) ~= "table" or type(entry.id) ~= "string" then return false, "unknown" end
 	local byId = type(catalog) == "table" and tbl(catalog.ById) or {}
 	local item = byId[entry.id]
@@ -192,10 +195,33 @@ function R.Fits(items, entry, kindCfg, catalog, unlocked, kind, ignoreIndex, roo
 	for _, o in ipairs(others) do
 		for _, c in ipairs(R.Cells(o.item, o.e)) do taken[c[1] .. ":" .. c[2]] = true end
 	end
+	for _, c in ipairs(tbl(held) or {}) do
+		if type(c) == "table" and isInt(c[1]) and isInt(c[2]) then taken[c[1] .. ":" .. c[2]] = true end
+	end
 	for _, c in ipairs(cells) do
 		if taken[c[1] .. ":" .. c[2]] then return false, "overlap" end
 	end
 	return true
+end
+
+-- the cells of the floor entries items[i] for every i in `indexes` (a list of indexes, or a set { [i] = true }), Fits'
+-- `held`: Repair's unbuilt entries of one room (its `unbuilt` rows of that kind give the indexes). Unknown ids, wall items
+-- and junk give no cell; skip (optional) is an index left out (an item being moved)
+function R.UnbuiltCells(items, indexes, catalog, skip)
+	local out = {}
+	local byId = type(catalog) == "table" and tbl(catalog.ById) or {}
+	local list = tbl(items) or {}
+	local seen = {}
+	for k, v in pairs(tbl(indexes) or {}) do
+		local i = (type(k) == "number" and v == true) and k or v
+		if isInt(i) and i ~= skip and not seen[i] then
+			seen[i] = true
+			local e = list[i]
+			local item = type(e) == "table" and byId[e.id] or nil
+			for _, c in ipairs(R.Cells(item, e)) do table.insert(out, c) end
+		end
+	end
+	return out
 end
 
 -- the save's repair on load ----------------------------------------------------------------------------------------

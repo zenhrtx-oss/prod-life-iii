@@ -58,6 +58,21 @@
 --   or a change of your Gear attribute (an item saved while its gear read as unowned stands once the gear is, and goes
 --   when it isn't), your plot's Items follow your saved home again; the plot is not rebuilt and Rebuilt does not fire.
 --   Studio hook: Edit(action) and State (the remotes' own handlers, for the hook's player).
+--   Task 9's review, folded into Task 10: a refit that throws after a saved edit is reported and the edit still answers ok
+--   (M2); an unusable profile (a failed load, a detached one) answers "error", not "away" (M3).
+-- * Decorate mode (Task 10; StarterPlayerScripts/OK/RoomClient and Modules/RoomUI are the client). Every room of a plot
+--   gets an untagged DecoratePrompt ("Decorate" / "Your room", copy 6.1, 6.2) on its door part beside the ExitPrompt, so
+--   near Entrance: R / DPadDown (the door's own prompt is E), its UI stacked Build.RACK_UI_GAP px above the ExitPrompt's
+--   (they share the door part, as the rack's prompt sits over the laptop's). A fake owner's rooms get one too; every client
+--   turns off each DecoratePrompt it doesn't own (RoomClient), so only the owner sees theirs. A press by the plot's owner
+--   (within reach, as every Rooms prompt) sends the Room remote's "decorate" { kind } to them, and their client goes into
+--   decorate mode; anyone else's press does nothing. The Room remote also carries "state" (State(p)'s answer) to the owner
+--   whenever their rooms change: after a saved Edit, after their Items follow a SetHome or a Gear change, and after every
+--   (re)build of their plot. Room_Get (M1 of Task 9's review) answers from a per-player cache of State, VIEW_SECONDS old at
+--   most, dropped whenever the rooms change (a saved Edit, SetHome, Reset, a Gear change's refit, a (re)build, a Decorate
+--   press); only `inside` is read fresh on every call (it moves as you walk). Studio hook: Decorate(kind) (the prompt's
+--   handler, for the plot the player stands in), Pushed (the Room remote's messages to the player since the last read:
+--   { kind, payload }), and Counts' `views` (Room_Get's fresh computes since the last read).
 -- * Each room's laptop and its RackSpot (RoomBuild.RackSpot, Task 6) are tagged and are their owner's only
 --   (InteractionService's owner rule reads the room Model's OwnerId).
 -- * Your room's speakers (Task 7). The tier is RoomRules.SpeakerTier over the Config.Rooms.Speakers gear you own (read
@@ -118,8 +133,12 @@ local lastPlay = {}   -- [player] = os.clock() of their last room play that went
 local testGuests = {} -- [k] = { Model } (the hook's Guest)
 local sent = {}       -- Studio: [userId] = { toast text }
 local armed = {}      -- Studio: [player] = the hook's OnOpen entry
-local counts = {}     -- Studio: [userId] = { played = n, tried = n } since the hook's last Counts
-local template, plotsFolder, hall, roomsDoor
+local counts = {}     -- Studio: [userId] = { played = n, tried = n, rebuilt = n, views = n } since the hook's last Counts
+local pushed = {}     -- Studio: [userId] = { { kind, payload } } the Room remote sent the player since the hook's last Pushed
+local views = setmetatable({}, { __mode = "k" })   -- [player] = { t = os.clock(), v = State's answer } (Room_Get's cache)
+local viewGen = setmetatable({}, { __mode = "k" }) -- [player] = bumped by every drop of that cache
+local VIEW_SECONDS = 2 -- Room_Get's cache lives at most this long (a Life unlock, a first or a fame tier, drops nothing)
+local template, plotsFolder, hall, roomsDoor, roomEvent
 local dispatch -- the hook's command runner (OnOpen runs one later)
 
 local function report(msg) warn("[OK][ERR] rooms: " .. tostring(msg)) end
@@ -285,6 +304,76 @@ local function toCorridor(p) return move(p, corridor(), hall and hall:FindFirstC
 -- the corridor's RoomsDoor: into the hall
 local function toHall(p) return move(p, hallSpawn(), roomsDoor) end
 
+-- decorate mode (Task 10) ----------------------------------------------------------------------------------------------
+local DECORATE_ACTION, DECORATE_OBJECT = "Decorate", "Your room" -- copy 6.1, 6.2
+-- a room's DecoratePrompt on its door part (see the header); nil for a room with no door part
+local function addDecorate(room)
+	local door = Build.DoorOf(room)
+	if not door then return nil end
+	local have = door:FindFirstChild("DecoratePrompt")
+	if have then return have end
+	local pp = Build.Prompt(door, "DecoratePrompt", DECORATE_ACTION, DECORATE_OBJECT)
+	pp.KeyboardKeyCode = Enum.KeyCode.R; pp.GamepadKeyCode = Enum.KeyCode.DPadDown
+	local exit = door:FindFirstChild("ExitPrompt")
+	local base = (exit and exit:IsA("ProximityPrompt")) and exit.UIOffset or Vector2.zero
+	pp.UIOffset = base + Vector2.new(0, -Build.RACK_UI_GAP)
+	return pp
+end
+-- the Room remote to p: "decorate" { kind } or "state" (State's answer); logged in Studio for the hook's Pushed
+local function push(p, kind, payload)
+	if RunService:IsStudio() then
+		local log = pushed[p.UserId] or {}
+		pushed[p.UserId] = log
+		table.insert(log, { kind = kind, payload = payload })
+		while #log > 40 do table.remove(log, 1) end
+	end
+	if not (roomEvent and p.Parent) then return false end
+	local ok, err = pcall(function() roomEvent:FireClient(p, kind, payload) end)
+	if not ok then report("Room " .. tostring(kind) .. ": " .. tostring(err)) end
+	return ok
+end
+-- the kind of the room of your own plot you stand in (nil on the landing, in another plot or outside): State's `inside`
+local function insideOf(p)
+	local place = M.PlaceOf(p)
+	if type(place) == "table" and place.slot ~= nil and place.slot == slotOf[p] and place.kind ~= "landing" then return place.kind end
+	return nil
+end
+-- Room_Get's cache (Task 9's review M1): State's answer for p, from the cache while it is under VIEW_SECONDS old and nothing
+-- has dropped it (fresh = true always computes); `inside` is read now either way. Returns the view and whether it was cached.
+-- FOR EVERY FUTURE WRITER of prof.career.home (R-T10 fix 3, review minor 8; Task 12's closet, Task 13's posters, Task 14's
+-- door mode): call forgetView(p) after the write, so Room_Get can't answer the old home for up to VIEW_SECONDS, and
+-- pushState(p) when the owner's open edit bar should see it (Edit, SetHome, Reset, syncItems and build do both today).
+-- A change Rooms is never told of drops nothing and pushes nothing: a Life-only unlock (a first, a fame tier) reaches
+-- Room_Get within VIEW_SECONDS, but an edit bar already open never hears of it (no push) until its next Room_Get (after an
+-- edit) or the next push (any change above, or decorate mode entered again).
+local function forgetView(p) views[p] = nil; viewGen[p] = (viewGen[p] or 0) + 1 end
+local function viewFor(p, fresh)
+	local c = views[p]
+	if not fresh and c and os.clock() - c.t < VIEW_SECONDS then
+		local v = table.clone(c.v)
+		v.inside = insideOf(p)
+		return v, true
+	end
+	local gen = viewGen[p]
+	local v = M.State(p) -- may wait for the profile: a drop meanwhile keeps this answer out of the cache
+	if viewGen[p] == gen then views[p] = { t = os.clock(), v = v } end
+	return v, false
+end
+-- the owner's rooms changed: the cache goes and their client gets the new State (never throws)
+local function pushState(p)
+	if not (p and p.Parent) then return end
+	forgetView(p)
+	local ok, err = pcall(function() push(p, "state", (viewFor(p, true))) end)
+	if not ok then report("Room state: " .. tostring(err)) end
+end
+-- a room's DecoratePrompt pressed (or the hook's Decorate): plot k's owner goes into decorate mode for that room on their
+-- client; anyone else's press does nothing (their client never shows the prompt)
+local function decorate(p, k, kind)
+	if slotOf[p] == nil or slotOf[p] ~= k or not roomOf(k, kind) then return false end
+	forgetView(p) -- the client asks Room_Get next: a fresh answer
+	return push(p, "decorate", { kind = kind })
+end
+
 -- untagged prompts: a press from out of reach does nothing; a throw is reported, never a bare stack
 local function near(p, part)
 	local r = rootOf(p)
@@ -310,7 +399,11 @@ local function hookPlot(plot, k)
 	end
 	for _, room in ipairs(plot:GetChildren()) do
 		local kind = room:GetAttribute("RoomKind")
-		if kind then onPrompt(Build.DoorOf(room), "ExitPrompt", function(p) exitRoom(p, k, kind) end) end
+		if kind then
+			local door = Build.DoorOf(room)
+			onPrompt(door, "ExitPrompt", function(p) exitRoom(p, k, kind) end)
+			onPrompt(door, "DecoratePrompt", function(p) decorate(p, k, kind) end)
+		end
 	end
 end
 
@@ -408,6 +501,7 @@ local function setHome(p, raw)
 	local home = repairedFor(p, prof, raw)
 	prof.career.home = home
 	ctx.Data.MarkDirty(p)
+	forgetView(p)
 	return deepCopy(home)
 end
 -- the hook's Reset: the home back to its defaults
@@ -416,6 +510,7 @@ local function resetHome(p)
 	if not usable(prof) then return false end
 	prof.career.home = defaultHome()
 	ctx.Data.MarkDirty(p)
+	forgetView(p)
 	return true
 end
 
@@ -498,6 +593,9 @@ local function build(k)
 	local plot = Build.Plot(k, owned, Cfg, template, { id = o.id, name = o.name })
 	fitPlotSpeakers(plot, tier)
 	fitPlot(plot, st) -- each room's Items folder, built from the saved home, before the plot goes into Workspace
+	for _, room in ipairs(plot:GetChildren()) do
+		if room:GetAttribute("RoomKind") then addDecorate(room) end -- before hookPlot hooks it (Task 10)
+	end
 	ctx.Interaction.Adopt(plot)
 	hookPlot(plot, k)
 	local old = plots[k]
@@ -505,7 +603,10 @@ local function build(k)
 	plot.Parent = plotsFolder -- once, straight into Workspace: the added-tag signal hooks the room's Station
 	plots[k], kindsOf[k] = plot, owned
 	if old then old:Destroy() end
-	if o.player then rebuiltEv:Fire(o.player, k) end
+	if o.player then
+		rebuiltEv:Fire(o.player, k)
+		pushState(o.player) -- the edit bar's view follows the new plot (Task 10)
+	end
 	return plot
 end
 -- the owner's owned rooms may have moved (their CareerGates attribute changed): rebuild their plot once if the set differs from
@@ -539,9 +640,11 @@ local function syncItems(p, only)
 	local o = k and owners[k]
 	local plot = k and plots[k]
 	if not (o and o.player == p and plot) then return false end
+	forgetView(p)
 	local st = state(p) -- may wait for the profile
 	if not (slotOf[p] == k and plots[k] == plot and plot.Parent) then return false end
 	fitPlot(plot, st, only)
+	pushState(p) -- the edit bar's view follows (Task 10)
 	return true
 end
 
@@ -606,6 +709,7 @@ local function releaseSlot(k, leaving)
 	buildGen[k] = (buildGen[k] or 0) + 1
 	if o.player then
 		slotOf[o.player] = nil
+		forgetView(o.player)
 		if o.player.Parent then o.player:SetAttribute("PlotSlot", 0) end
 	end
 	if plot then plot:Destroy() end
@@ -691,7 +795,8 @@ local function onLeave(p)
 		if not ok then report("release: " .. tostring(err)) end
 	end
 	woken[p], respawnHome[p], busy[p], slotOf[p], lastPlay[p] = nil, nil, nil, nil, nil
-	sent[p.UserId], counts[p.UserId] = nil, nil
+	sent[p.UserId], counts[p.UserId], pushed[p.UserId] = nil, nil, nil
+	views[p], viewGen[p] = nil, nil
 	Edit.Forget(p)
 	local gc = gateConns[p]
 	if gc then gc:Disconnect(); gateConns[p] = nil end
@@ -752,9 +857,11 @@ end
 -- your plot: the edit bar tells the server which room it means). The action is type-checked and copied (RoomEdit.Check:
 -- "invalid"), `kind` must be a room you own ("room"), then RoomRules.Fits decides with the live Unlocked (its reasons come
 -- through as they are: "unknown", "locked", "room", "bounds", "overlap", "limit", "max", "rot", "slot", "design"; a stale index
--- is "unknown"). Only a passing action changes anything: the saved home (prof.career.home) is changed, marked for saving, and
--- that room's Items folder follows (RoomEdit.Fit rebuilds only the models that changed). Returns { ok = true, op, kind, index,
--- item? } or { ok = false, reason }. It never throws on a client's input.
+-- is "unknown"; the cells of an entry Repair keeps unbuilt, a locked one, are "overlap": R-T10 fix 1). A profile that can't hold a home (a failed load, a detached one) is "error" (Task 9's review M3). Only a
+-- passing action changes anything: the saved home (prof.career.home) is changed, marked for saving, and that room's Items
+-- folder follows (RoomEdit.Fit rebuilds only the models that changed; a refit that throws is reported and the saved edit
+-- still answers ok, M2), and the owner's client gets the new State (the Room remote's "state", Task 10). Returns { ok = true,
+-- op, kind, index, item? } or { ok = false, reason }. It never throws on a client's input.
 function M.Edit(p, action)
 	if not Edit.Take(p, Cfg.Edit) then return { ok = false, reason = "busy" } end
 	local place = M.PlaceOf(p)
@@ -764,14 +871,20 @@ function M.Edit(p, action)
 	local a, why = Edit.Check(action)
 	if not a then return { ok = false, reason = why } end
 	local st = state(p) -- may wait for the profile
+	if not st.saved then return { ok = false, reason = "error" } end
 	local plot = plots[k]
-	if not (st.saved and slotOf[p] == k and plot and plot.Parent) then return { ok = false, reason = "away" } end
+	if not (slotOf[p] == k and plot and plot.Parent) then return { ok = false, reason = "away" } end
 	local room = plot:FindFirstChild(Build.RoomName(a.kind))
-	local res = Edit.Apply(st.home, a, st.owned, st.unlocked, Cfg, Catalog)
+	local res = Edit.Apply(st.home, a, st.owned, st.unlocked, Cfg, Catalog, st.unbuilt) -- unbuilt entries hold their cells (R-T10 fix 1)
 	if not res.ok then return res end
 	ctx.Data.MarkDirty(p)
-	local after = state(p) -- the saved list as Repair keeps it (it equals what Apply wrote, or a repaired form of it)
-	if room and room.Parent then fitRoom(room, a.kind, after) end
+	forgetView(p)
+	local okFit, err = pcall(function()
+		local after = state(p) -- the saved list as Repair keeps it (it equals what Apply wrote, or a repaired form of it)
+		if room and room.Parent then fitRoom(room, a.kind, after) end
+	end)
+	if not okFit then report("edit refit (the edit is saved): " .. tostring(err)) end
+	pushState(p)
 	return res
 end
 -- State(p): the edit bar's whole view of your rooms: { rooms = { [kind] = { limit, used (what counts toward the limit: the
@@ -796,16 +909,21 @@ function M.State(p)
 	local ids = {}
 	for id, on in pairs(st.unlocked) do if on == true then table.insert(ids, id) end end
 	table.sort(ids)
-	local inside
-	local place = M.PlaceOf(p)
-	if type(place) == "table" and place.slot ~= nil and place.slot == slotOf[p] and place.kind ~= "landing" then inside = place.kind end
-	return { rooms = rooms, unlocked = ids, door = st.home.door, inside = inside }
+	return { rooms = rooms, unlocked = ids, door = st.home.door, inside = insideOf(p) }
 end
 -- the remotes' own handlers (Room_Get, Room_Edit: bound in Init; the hook's Edit and State run the same functions): a throw is
--- reported and answered, never passed to the client's InvokeServer
+-- reported and answered, never passed to the client's InvokeServer. Room_Get answers from the cache (viewFor; Task 9's review
+-- M1: it is unthrottled, so a client calling it often costs one State a VIEW_SECONDS, not a Repair a call)
 local function roomGet(player)
-	local ok, res = pcall(M.State, player)
-	if ok then return res end
+	local ok, res, cached = pcall(viewFor, player)
+	if ok then
+		if not cached and RunService:IsStudio() then
+			local c = counts[player.UserId] or {}
+			counts[player.UserId] = c
+			c.views = (c.views or 0) + 1
+		end
+		return res
+	end
 	report("Room_Get: " .. tostring(res))
 	return nil
 end
@@ -955,7 +1073,14 @@ dispatch = function(cmd, userId, a, b)
 		return kept
 	end
 	if cmd == "Edit" then return roomEdit(p, a) end -- the Room_Edit remote's own handler (Task 9)
-	if cmd == "State" then return roomGet(p) end -- the Room_Get remote's (Task 9)
+	if cmd == "State" then return roomGet(p) end -- the Room_Get remote's (Task 9; its cache, Task 10)
+	-- Task 10: Decorate(kind) runs the DecoratePrompt's handler, decorate(p, k, kind), for room `kind` (default the bedroom)
+	-- with k = here(p): the plot the player stands in, or their own slot when they stand in no plot at all (the hub, the hall).
+	-- So it answers false in someone else's plot, for a room the plot lacks, or with no slot; true (and pushes "decorate")
+	-- for the owner, inside their plot or outside every plot. Pushed: the Room remote's messages to the player since the last
+	-- read, { { kind, payload } }
+	if cmd == "Decorate" then local k = here(p); return k ~= nil and decorate(p, k, a or "bedroom") end
+	if cmd == "Pushed" then local log = pushed[p.UserId] or {}; pushed[p.UserId] = nil; return log end
 	if cmd == "WakeUp" then return wakeUp(p, true) end
 	if cmd == "Enter" then return enterPlot(p, a, b == true) end
 	if cmd == "Exit" then local k = here(p); return k ~= nil and exitRoom(p, k, a or "bedroom") end
@@ -1007,7 +1132,7 @@ dispatch = function(cmd, userId, a, b)
 	if cmd == "Counts" then
 		local c = counts[p.UserId] or {}
 		counts[p.UserId] = nil
-		return { played = c.played or 0, tried = c.tried or 0, rebuilt = c.rebuilt or 0 }
+		return { played = c.played or 0, tried = c.tried or 0, rebuilt = c.rebuilt or 0, views = c.views or 0 }
 	end
 	if cmd == "SpeakerTier" then return speakerTier(p) end
 	if cmd == "Fire" then return require(RS.OK.Systems.Reactions).Send(p, a) end
@@ -1078,6 +1203,8 @@ function M.Init(c)
 	else
 		report("Remotes.Room_Get / Room_Edit missing: run build/19_rooms.lua in Edit")
 	end
+	local ev = remotes and remotes:FindFirstChild("Room")
+	if ev and ev:IsA("RemoteEvent") then roomEvent = ev else report("Remotes.Room missing: run build/19_rooms.lua in Edit") end
 	Players.PlayerAdded:Connect(onJoin)
 	Players.PlayerRemoving:Connect(onLeave)
 	for _, p in ipairs(Players:GetPlayers()) do onJoin(p) end
