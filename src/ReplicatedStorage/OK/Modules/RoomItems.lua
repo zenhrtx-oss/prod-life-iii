@@ -3,6 +3,11 @@
 -- scripts. Every model comes back unparented with its pivot at the origin, on the surface it stands on (a floor or a
 -- desk top) at its footprint's centre, its front facing -Z: a caller PivotTo's it onto an anchor (an Attachment's
 -- WorldCFrame, whose LookVector is the way the item faces).
+-- * Build(id, catalog) -> Model?: a placed item (Data/RoomCatalog) from its recipe, one Part per recipe part (a WedgePart
+--   for "Wedge"), named as the recipe names it, SmoothPlastic or Neon. Every part is anchored and never collides or
+--   touches, but it does answer a raycast (CanQuery true: a tap in decorate mode selects it); a part whose longest side
+--   is under SMALL studs casts no shadow. The model is named for the id and carries the attribute ItemId; its pivot is
+--   the origin (WorldPivot at 0, 0, 0, no PrimaryPart). nil for an id the catalog doesn't know. No lights, no scripts.
 -- * Speakers(tier) -> Model?: one desk speaker for a Config.Rooms.Speakers tier; nil for tier 1 (the laptop's own
 --   speakers) and for an unknown tier. Tier 2 (spk_monitors, "Desk monitors") is a small black cabinet with a woofer and
 --   a tweeter; tier 3 (spk_studio, "Studio monitors") is bigger, with a metal ring round the woofer and a blue power
@@ -24,8 +29,8 @@ M.SpeakerSpecs = SPEAKERS -- read only: the sizes, for a caller's checks
 
 local AXIS_Z = CFrame.Angles(0, math.pi / 2, 0) -- a Cylinder's axis is its X: turned onto Z, its round face looks along -Z
 
-local function part(model, name, size, cf, color, props)
-	local p = Instance.new("Part")
+local function part(model, name, size, cf, color, props, class)
+	local p = Instance.new(class or "Part")
 	p.Name = name
 	p.Size = size
 	p.CFrame = cf
@@ -48,6 +53,28 @@ local function disc(model, name, dia, y, s, t, out, color, props)
 	local p = part(model, name, Vector3.new(t, dia, dia), CFrame.new(0, y, z) * AXIS_Z, color, props)
 	p.Shape = Enum.PartType.Cylinder
 	return p
+end
+
+local SHAPES = { Ball = Enum.PartType.Ball, Cylinder = Enum.PartType.Cylinder }
+M.SMALL = 1.5 -- studs: a part whose longest side is under this casts no shadow
+
+function M.Build(id, catalog)
+	local item = type(catalog) == "table" and type(catalog.ById) == "table" and catalog.ById[id] or nil
+	if type(item) ~= "table" or type(item.parts) ~= "table" then return nil end
+	local m = Instance.new("Model")
+	m.Name = tostring(item.id)
+	m:SetAttribute("ItemId", item.id)
+	for _, e in ipairs(item.parts) do
+		local size = Vector3.new(e.s[1], e.s[2], e.s[3])
+		local p = part(m, e.n, size, CFrame.new(table.unpack(e.cf)), Color3.fromRGB(e.c[1], e.c[2], e.c[3]), {
+			Material = e.m == "Neon" and Enum.Material.Neon or Enum.Material.SmoothPlastic,
+			CanQuery = true,
+			CastShadow = math.max(size.X, size.Y, size.Z) >= M.SMALL,
+		}, e.sh == "Wedge" and "WedgePart" or "Part")
+		if SHAPES[e.sh] then p.Shape = SHAPES[e.sh] end
+	end
+	m.WorldPivot = CFrame.new()
+	return m
 end
 
 function M.Speakers(tier)

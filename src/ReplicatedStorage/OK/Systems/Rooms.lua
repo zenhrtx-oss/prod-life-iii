@@ -37,18 +37,27 @@
 --   viewer: a client line, not built yet.
 -- * API: PlotOf(p), Owner(k), BoxesFor(p) (your rooms' world boxes, RoomRules.Box, each with .kind), PlaceOf(p) ("hub",
 --   { slot, kind } with kind a room kind or "landing", or nil), Anchor(p, kind, name) -> CFrame?, Station(p, kind?) ->
---   BasePart?, the event Rebuilt (player, k).
+--   BasePart?, Edit(p, action) and State(p) (Task 9), the event Rebuilt (player, k).
 -- * Studio-only hook ServerScriptService.OK._StudioRoomsHook (Studio and running): hook:Invoke(cmd, userId, a, b). Plot,
 --   Reset (the home back to its defaults, claim if needed and rebuild), WakeUp, Enter(slot, asFriend), Exit(kind), GoIn(kind), Leave, HubDoor, RoomsDoor
 --   (each the real handler of its prompt), Respawn (LoadCharacter, then the respawn rule past the hold), Release, Claim
 --   (nil when no slot is free; the full toast is the wake-up's), Fill(n) / Unfill (stand-in plots for fake owners), Anchor(kind, name),
 --   InPlot, PlaceOf, Home (a copy of the saved home, repaired), SetHome(home) (a copy, through Repair, saved; returns what it
---   kept; no rebuild), Guest(slot) (a stand-in Model in that plot, moved like a guest on Release), Station(kind?),
+--   kept; the plot's Items folders follow it, the plot itself isn't rebuilt), Guest(slot) (a stand-in Model in that plot, moved like a guest on Release), Station(kind?),
 --   RunStation(kind?) (InteractionService._RunHandler("Station") on it: { acted, toast }), Sent (the toasts sent this
 --   player since the last read), OnOpen(cmd, a) (the next time this player's beat maker opens at a laptop in a plot,
 --   run hook command cmd(a) 2 s later: a client test's server-side move; disarmed after 30 s). Task 6: MayUse(inst)
 --   (InteractionService.MayUse(player, inst): ok, ownerName?), StationOf (DAW.StationOf: { inst, room }), Run(kind, inst)
 --   (InteractionService._RunHandler(kind) on inst: { acted, toast }; the RackSpot's GearRack, say).
+-- * Placing your things (Task 9). Each room Model holds an `Items` Folder (attribute RoomItemsFolder; made by build(k) for every
+--   room, before the plot goes into Workspace, so it streams with the Atomic room) with one RoomItems.Build model per built
+--   floor item of the saved home (Modules/RoomEdit.Fit: Item_<index>, attributes ItemId, Index, Sig; placed at the footprint's
+--   centre, turned r quarter turns). Edit(p, action) and State(p) are the entry points, bound to the remotes Room_Edit and
+--   Room_Get in Init (the remotes are made by build/19_rooms.lua; their handlers are the local roomEdit / roomGet, which
+--   pcall them); the token bucket, the action check and the Fits step live in Modules/RoomEdit, see M.Edit. After a SetHome,
+--   or a change of your Gear attribute (an item saved while its gear read as unowned stands once the gear is, and goes
+--   when it isn't), your plot's Items follow your saved home again; the plot is not rebuilt and Rebuilt does not fire.
+--   Studio hook: Edit(action) and State (the remotes' own handlers, for the hook's player).
 -- * Each room's laptop and its RackSpot (RoomBuild.RackSpot, Task 6) are tagged and are their owner's only
 --   (InteractionService's owner rule reads the room Model's OwnerId).
 -- * Your room's speakers (Task 7). The tier is RoomRules.SpeakerTier over the Config.Rooms.Speakers gear you own (read
@@ -83,6 +92,7 @@ local WalkInRules = require(RS.OK.Modules.WalkInRules)
 local LifeRules = require(RS.OK.Modules.LifeRules)
 local Catalog = require(RS.OK.Data.RoomCatalog)
 local Items = require(RS.OK.Modules.RoomItems)
+local Edit = require(RS.OK.Modules.RoomEdit)
 local Copy = Build.Copy
 
 local M = { Enabled = true, Version = 1 }
@@ -369,26 +379,27 @@ local function repairedFor(p, prof, raw)
 	local owned = Rules.Owned(prof.career.gates, Cfg.Kinds)
 	local unlocked = Rules.Unlocked(Catalog, haveFor(p, prof, owned), Config.Life.Tiers)
 	local home, dropped, unbuilt = Rules.Repair(raw, owned, Cfg, Catalog, unlocked)
-	return home, dropped, unbuilt, owned
+	return home, dropped, unbuilt, owned, unlocked
 end
 -- p's saved home, defaulted and repaired, and written back when that changed it (the profile's own table stays when
 -- nothing did, so a held reference stays good). Returns { home = the saved table, owned = the kinds owned in ladder order,
--- dropped, unbuilt = Repair's lists }. A throwaway profile gets the defaults and nothing is written. Yields while the
--- profile loads. Anything dropped is dropped quietly: nothing here is reported.
+-- dropped, unbuilt = Repair's lists, unlocked = RoomRules.Unlocked's set (Task 9: what Edit checks against), saved = true when
+-- the profile is a real one }. A throwaway profile gets the defaults and nothing is written. Yields while the profile loads.
+-- Anything dropped is dropped quietly: nothing here is reported.
 local function state(p)
 	local prof = ctx.Data.GetProfile(p)
 	if not usable(prof) then
-		return { home = defaultHome(), owned = Rules.Owned(nil, Cfg.Kinds), dropped = {}, unbuilt = {} }
+		return { home = defaultHome(), owned = Rules.Owned(nil, Cfg.Kinds), dropped = {}, unbuilt = {}, unlocked = {}, saved = false }
 	end
 	local career = prof.career
-	local home, dropped, unbuilt, owned = repairedFor(p, prof, career.home)
+	local home, dropped, unbuilt, owned, unlocked = repairedFor(p, prof, career.home)
 	if sameTree(career.home, home) then
 		home = career.home
 	else
 		career.home = home
 		ctx.Data.MarkDirty(p)
 	end
-	return { home = home, owned = owned, dropped = dropped, unbuilt = unbuilt }
+	return { home = home, owned = owned, dropped = dropped, unbuilt = unbuilt, unlocked = unlocked, saved = true }
 end
 -- the hook's SetHome: `raw` through Repair, saved; returns a copy of what was kept (nil without a usable profile)
 local function setHome(p, raw)
@@ -451,14 +462,28 @@ local function fitPlotSpeakers(plot, tier)
 end
 
 -- plots ------------------------------------------------------------------------------------------------------------------
--- the kinds an owner has, ladder order (a fake owner from the hook's Fill: the bedroom). Reading it repairs the saved home too
--- (state), which may wait for the profile: build() calls this before its generation check
-local function ownedFor(o)
-	local bedroom = Rules.Owned(nil, Cfg.Kinds)
-	if not o.player then return bedroom end
+-- an owner's saved state (state()), ladder order owned: a fake owner from the hook's Fill has the bedroom and no items. Reading
+-- it repairs the saved home too, which may wait for the profile: build() calls this before its generation check
+local function stateFor(o)
+	local blank = { home = defaultHome(), owned = Rules.Owned(nil, Cfg.Kinds), dropped = {}, unbuilt = {}, unlocked = {}, saved = false }
+	if not o.player then return blank end
 	local ok, st = pcall(state, o.player)
-	if not ok then report("home: " .. tostring(st)); return bedroom end
-	return st.owned
+	if not ok then report("home: " .. tostring(st)); return blank end
+	return st
+end
+-- your things (Task 9): the room's Items folder shows kind's saved list (RoomEdit.Fit; st = state()'s answer; the entries
+-- Repair keeps unbuilt stay out)
+local function fitRoom(room, kind, st)
+	local skip = {}
+	for _, u in ipairs(st.unbuilt) do if u.kind == kind then skip[u.index] = true end end
+	return Edit.Fit(room, st.home.items[kind], skip, Catalog)
+end
+-- every room of plot `plot` (a Model) shows its saved items, or just `only` (a kind)
+local function fitPlot(plot, st, only)
+	for _, room in ipairs(plot:GetChildren()) do
+		local kind = room:GetAttribute("RoomKind")
+		if kind and (only == nil or only == kind) then fitRoom(room, kind, st) end
+	end
 end
 -- (re)builds plot k for its owner; an old plot goes only once the new one stands (same place, so nobody falls)
 local function build(k)
@@ -466,11 +491,13 @@ local function build(k)
 	if not o then return nil end
 	buildGen[k] = (buildGen[k] or 0) + 1
 	local gen = buildGen[k]
-	local owned = ownedFor(o) -- may wait for the profile
+	local st = stateFor(o) -- may wait for the profile
+	local owned = st.owned
 	local tier = o.player and speakerTier(o.player) or 1 -- a fake owner (the hook's Fill) has the laptop's own
 	if buildGen[k] ~= gen or owners[k] ~= o then return nil end -- released or rebuilt meanwhile
 	local plot = Build.Plot(k, owned, Cfg, template, { id = o.id, name = o.name })
 	fitPlotSpeakers(plot, tier)
+	fitPlot(plot, st) -- each room's Items folder, built from the saved home, before the plot goes into Workspace
 	ctx.Interaction.Adopt(plot)
 	hookPlot(plot, k)
 	local old = plots[k]
@@ -503,6 +530,18 @@ local function syncSpeakers(p)
 	local plot = plots[k]
 	if not (plot and plot.Parent and slotOf[p] == k) then return false end
 	fitPlotSpeakers(plot, tier)
+	return true
+end
+-- p's standing plot shows their saved items again (Task 9: after a SetHome, and when their Gear changes: a gear item saved
+-- while its gear read as not owned stands once the gear is, and goes when it isn't); `only` = one kind. False without a plot
+local function syncItems(p, only)
+	local k = slotOf[p]
+	local o = k and owners[k]
+	local plot = k and plots[k]
+	if not (o and o.player == p and plot) then return false end
+	local st = state(p) -- may wait for the profile
+	if not (slotOf[p] == k and plots[k] == plot and plot.Parent) then return false end
+	fitPlot(plot, st, only)
 	return true
 end
 
@@ -634,6 +673,8 @@ local function onJoin(p)
 	gearConns[p] = p:GetAttributeChangedSignal("Gear"):Connect(function()
 		local ok, err = pcall(syncSpeakers, p)
 		if not ok then report("speakers after a gear change: " .. tostring(err)) end
+		ok, err = pcall(syncItems, p)
+		if not ok then report("items after a gear change: " .. tostring(err)) end
 	end)
 	if p.Character then onCharacter(p, p.Character) end
 	if k then
@@ -651,6 +692,7 @@ local function onLeave(p)
 	end
 	woken[p], respawnHome[p], busy[p], slotOf[p], lastPlay[p] = nil, nil, nil, nil, nil
 	sent[p.UserId], counts[p.UserId] = nil, nil
+	Edit.Forget(p)
 	local gc = gateConns[p]
 	if gc then gc:Disconnect(); gateConns[p] = nil end
 	local gr = gearConns[p]
@@ -700,6 +742,78 @@ function M.Station(p, kind)
 	local k = slotOf[p]
 	local room = k and roomOf(k, kind or "bedroom")
 	return room and Build.StationOf(room) or nil
+end
+-- placing your things (Task 9) ---------------------------------------------------------------------------------------------
+-- Edit(p, action): action = { op = "place" | "move" | "remove", kind, index? (move, remove: the item's place in your saved list for
+-- that room), id? (place), x?, z?, r? (place, move: the footprint's lowest cell after its turn, and the turn in quarter
+-- turns 0..3; RoomRules' scheme) }. Every call takes a token from the player's bucket first (Config.Rooms.Edit; RoomEdit.Take):
+-- none left -> "busy". Then where you stand: outside any plot (the hub, the hall, the corridor, between places) -> "away"; in
+-- someone else's plot -> "owner"; your own plot, a room or the landing, goes on (a room you own may be edited from anywhere in
+-- your plot: the edit bar tells the server which room it means). The action is type-checked and copied (RoomEdit.Check:
+-- "invalid"), `kind` must be a room you own ("room"), then RoomRules.Fits decides with the live Unlocked (its reasons come
+-- through as they are: "unknown", "locked", "room", "bounds", "overlap", "limit", "max", "rot", "slot", "design"; a stale index
+-- is "unknown"). Only a passing action changes anything: the saved home (prof.career.home) is changed, marked for saving, and
+-- that room's Items folder follows (RoomEdit.Fit rebuilds only the models that changed). Returns { ok = true, op, kind, index,
+-- item? } or { ok = false, reason }. It never throws on a client's input.
+function M.Edit(p, action)
+	if not Edit.Take(p, Cfg.Edit) then return { ok = false, reason = "busy" } end
+	local place = M.PlaceOf(p)
+	if type(place) ~= "table" then return { ok = false, reason = "away" } end
+	local k = slotOf[p]
+	if k == nil or place.slot ~= k then return { ok = false, reason = "owner" } end
+	local a, why = Edit.Check(action)
+	if not a then return { ok = false, reason = why } end
+	local st = state(p) -- may wait for the profile
+	local plot = plots[k]
+	if not (st.saved and slotOf[p] == k and plot and plot.Parent) then return { ok = false, reason = "away" } end
+	local room = plot:FindFirstChild(Build.RoomName(a.kind))
+	local res = Edit.Apply(st.home, a, st.owned, st.unlocked, Cfg, Catalog)
+	if not res.ok then return res end
+	ctx.Data.MarkDirty(p)
+	local after = state(p) -- the saved list as Repair keeps it (it equals what Apply wrote, or a repaired form of it)
+	if room and room.Parent then fitRoom(room, a.kind, after) end
+	return res
+end
+-- State(p): the edit bar's whole view of your rooms: { rooms = { [kind] = { limit, used (what counts toward the limit: the
+-- entries that are built, posters included), items (a copy of your saved list, in order: an index here is the index Edit
+-- takes; entries whose gear you don't own are in it but unbuilt), grid, keep (the free floor and the keep-out areas, room-local
+-- { x0, z0, x1, z1 }: what RoomRules.Fits reads on the client), slots (the room's poster slots) } for each room you own },
+-- unlocked = { catalog ids open to you, sorted }, door = your door mode, inside = the kind of the room you stand in (nil on the
+-- landing, in another plot or outside) }.
+function M.State(p)
+	local st = state(p)
+	local rooms = {}
+	for _, kind in ipairs(st.owned) do
+		local kc = Cfg.Kinds[kind]
+		if kc then
+			local list = st.home.items[kind] or {}
+			local unbuilt = 0
+			for _, u in ipairs(st.unbuilt) do if u.kind == kind then unbuilt += 1 end end
+			rooms[kind] = { limit = kc.limit, used = #list - unbuilt, items = deepCopy(list), grid = deepCopy(kc.grid),
+				keep = deepCopy(kc.keep or {}), slots = kc.posters or 0 }
+		end
+	end
+	local ids = {}
+	for id, on in pairs(st.unlocked) do if on == true then table.insert(ids, id) end end
+	table.sort(ids)
+	local inside
+	local place = M.PlaceOf(p)
+	if type(place) == "table" and place.slot ~= nil and place.slot == slotOf[p] and place.kind ~= "landing" then inside = place.kind end
+	return { rooms = rooms, unlocked = ids, door = st.home.door, inside = inside }
+end
+-- the remotes' own handlers (Room_Get, Room_Edit: bound in Init; the hook's Edit and State run the same functions): a throw is
+-- reported and answered, never passed to the client's InvokeServer
+local function roomGet(player)
+	local ok, res = pcall(M.State, player)
+	if ok then return res end
+	report("Room_Get: " .. tostring(res))
+	return nil
+end
+local function roomEdit(player, action)
+	local ok, res = pcall(M.Edit, player, action)
+	if ok then return res end
+	report("Room_Edit: " .. tostring(res))
+	return { ok = false, reason = "error" }
 end
 -- ON SPEAKERS at your own room's laptop (Systems/DAW's room branch, which checked the beat, kit and voice first): the beat
 -- plays on that room's speakers. `room` is the laptop's room Model (or a kind; default the bedroom). Returns { ok = true,
@@ -832,7 +946,16 @@ dispatch = function(cmd, userId, a, b)
 		return k ~= nil and build(k) ~= nil
 	end
 	if cmd == "Home" then local st = state(p); return deepCopy(st.home) end
-	if cmd == "SetHome" then return setHome(p, a) end
+	if cmd == "SetHome" then
+		local kept = setHome(p, a)
+		if kept ~= nil then
+			local ok, err = pcall(syncItems, p) -- the plot's items follow the repaired home (Task 9)
+			if not ok then report("SetHome items: " .. tostring(err)) end
+		end
+		return kept
+	end
+	if cmd == "Edit" then return roomEdit(p, a) end -- the Room_Edit remote's own handler (Task 9)
+	if cmd == "State" then return roomGet(p) end -- the Room_Get remote's (Task 9)
 	if cmd == "WakeUp" then return wakeUp(p, true) end
 	if cmd == "Enter" then return enterPlot(p, a, b == true) end
 	if cmd == "Exit" then local k = here(p); return k ~= nil and exitRoom(p, k, a or "bedroom") end
@@ -947,6 +1070,14 @@ function M.Init(c)
 	end
 	onPrompt(hall and hall:FindFirstChild("HubDoor"), "HubPrompt", toCorridor)
 	onPrompt(roomsDoor, "RoomsPrompt", toHall)
+	local remotes = RS.OK:FindFirstChild("Remotes")
+	local get, edit = remotes and remotes:FindFirstChild("Room_Get"), remotes and remotes:FindFirstChild("Room_Edit")
+	if get and get:IsA("RemoteFunction") and edit and edit:IsA("RemoteFunction") then
+		get.OnServerInvoke = roomGet
+		edit.OnServerInvoke = roomEdit
+	else
+		report("Remotes.Room_Get / Room_Edit missing: run build/19_rooms.lua in Edit")
+	end
 	Players.PlayerAdded:Connect(onJoin)
 	Players.PlayerRemoving:Connect(onLeave)
 	for _, p in ipairs(Players:GetPlayers()) do onJoin(p) end
