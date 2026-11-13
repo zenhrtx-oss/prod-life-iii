@@ -1,12 +1,19 @@
 # People and Progression Implementation Plan
 
+> **Revised 11-12 ~21:30 for the approved endless-play design** (`specs/2026-11-12-endless-play-design.md` §4.4, §8):
+> - **Task 4 (the hometown pool) is SUPERSEDED.** Do not run it. Roles and generated people replace it in `plans/2026-11-12-endless-2-story-web.md`, which also owns `BindOutcome` and `W.Roles`.
+> - **Task 0 §6 is dropped.**
+> - **Task 3's set of people is an argument,** so generated ids survive the repair.
+> - **Task 5's `homekid2` case is removed.**
+> - **Run order:** the rooms plan's R-T8..R-T16, then this plan without Task 4, then the endless plans 1, 2 and 3.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Implementers write files and run CLI specs only; the controller is the only Studio client.
 
 **Goal:** A career that reads like one.
 - Titles from BEDROOM PRODUCER up, not INTERN.
 - Nobody goes cold from low Aura in their first week.
 - The people you've met, on your phone with a 7-step bond and an honest memory line.
-- A hometown kid who can be a different kid each time.
+- ~~A hometown kid who can be a different kid each time.~~ (Moved to endless plan 2: roles and generated people.)
 - Big names who wait for your home studio and FAMOUS.
 - Early money kept by local cards, all proven by a pacing run that reports every number.
 
@@ -15,7 +22,7 @@
   - `CareerRules.ColdStep` gains the grace rule.
   - `WalkInRules` gains the met record, the role bind (`@hometown`), the star entry rule and the star stage.
   - `Modules/ContactRules` (new, pure) builds the CONTACTS rows and owns their copy.
-  - `Data/WalkIns` gains `People`, `Roles`, two pool kids and their entries.
+  - `Data/WalkIns` gains `People` (`Roles` and the pool moved to endless plan 2).
   - `CareerSim` models room unlocks, the first monitors, the solo producer, early income and the gate, so `spec/pacing_spec.lua` guards every target.
 - **Server:**
   - WalkIns writes `met` and binds roles.
@@ -54,7 +61,7 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
 - **Saves:** schema stays **v5**.
   - New fields are lazily defaulted and repaired in WalkIns' `state()`: `prof.walkins.met`.
   - t41's 6 walkins keys after a bare load stay 6.
-  - Old saves keep everything: `homekid` stays the first pool kid, and a queued follow-up is never removed.
+  - Old saves keep everything: `homekid` stays the written first `@hometown` (endless plan 2), and a queued follow-up is never removed.
 - **Content:**
   - New cards and lines come from Task 0's file and go on its approval list.
   - Rules: CAPS headlines, lowercase bubbles, names only through `{name:<id>}`.
@@ -75,7 +82,7 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
    - The kid's arc continues as `homekid`.
    - The stored star pick is re-picked (`Revalidate`), and nothing leaves the queue.
 
-   Test: t133a (the legacy kid) and t135a (the stored pick).
+   Test: t135a (the stored pick). The legacy kid's case moved to endless plan 2 with the roles.
 2. **The stage in either order, and the high-water mark.** FAMOUS before the home studio, or the home studio before FAMOUS: the gate opens exactly when both hold. A player whose Followers fall back under 20,000 keeps access, because `prof.life.tier` is the high-water mark. Test: `walkin_rules_spec` (StarsOpen) and t135a.
 3. **CONTACTS with nobody in it.**
    - A brand-new player sees §5's honest empty line.
@@ -89,7 +96,7 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
    - A profile already cold "aura" on day 3 (saved before the rule) stays cold until a FIRE or a 3-star delivery.
 
    Test: `career_rules_spec` and t131a.
-5. **The role draw when every kid is known.** With every pool kid already in `rel`, the draw is uniform among all of them. One kid's arc never reads another kid's flags. Test: `walkin_rules_spec` (BindOutcome) and `walkins_data_spec` (pool parity).
+5. ~~The role draw when every kid is known.~~ Moved to endless plan 2 with Task 4.
 
 ---
 
@@ -98,17 +105,17 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
 - **Titles** (Task 1): `Config.Ranks = { "BEDROOM PRODUCER", "BEATMAKER", "LOCAL PRODUCER", "PRODUCER", "RISING PRODUCER", "IN DEMAND", "HITMAKER", "HEAD PRODUCER", "EXEC PRODUCER", "STUDIO LEGEND" }`. `Config.Unlocks[4]` = "Rank up: PRODUCER" and `[6]` = "Rank up: IN DEMAND". `[8]` and `[10]` keep their text.
 - **Grace** (Task 2): `Config.WalkIns.Cold = { aura = -50, quietDays = 3, rearmAura = -25, dailyMax = 2, graceDays = 7 }`. ColdStep enters "aura" only when `careerDay > (cfg.graceDays or 0)`. Quiet entry, exits and rearm are unchanged.
 - **The met record** (Task 3): `prof.walkins.met = { [personId] = career day first met }`.
-  - Only ids in `W.People` are kept.
+  - Only ids in the player's set of people are kept: `W.PeopleSet` today. Endless plan 2 adds the player's generated ids, so the set is always passed in as an argument (`peopleSet`), never read from `W.PeopleSet` inside the rule or the repair.
   - It is written at a walk-in arrival and at any phone open (DM or NEWS) whose item's visitor is a person.
   - It is never written by `Seed`, `Pick` or `seen`.
   - **Met means** `met[id] ~= nil or rel[id] ~= nil`. The `rel` half is the old-save rule, and it also covers a kid you worked with through two_sessions.
-- **People and roles** (Task 4):
-  - `W.People = { "rival", "mom", "navx", "blogger", "homekid", "homekid2", "homekid3" }` and `W.PeopleSet`.
-  - `W.Roles = { hometown = { "homekid", "homekid2", "homekid3" } }`, and `W.Deck.roles = W.Roles`.
+- **People and roles** (Task 4, SUPERSEDED; endless plan 2 owns roles. Only `W.People` and `W.PeopleSet` below are built, in Task 3, without the pool kids):
+  - `W.People = { "rival", "mom", "navx", "blogger", "homekid" }` and `W.PeopleSet` (built in Task 3; no pool kids).
+  - ~~`W.Roles = { hometown = { "homekid", "homekid2", "homekid3" } }`~~ — endless plan 2 defines `W.Roles`.
   - The token `"@hometown"` may appear only in an outcome's `rel.who` and as `"@hometown"` inside a `plant.id` (`"payback_@hometown"`).
   - The sponsor's rep (`rel.rep`) is deal standing, not a person.
 - **WalkInRules (pure), new:**
-  - `MarkMet(met, id, day, people) -> bool`: true when it wrote; keeps the first day; refuses non-people.
+  - `MarkMet(met, id, day, peopleSet) -> bool`: true when it wrote; keeps the first day; refuses ids not in `peopleSet`.
   - `IsMet(walkins, id) -> bool`.
   - `BindOutcome(outcome, roles, rel, rng) -> outcome, boundId?`:
     - With no `@` token, it returns the same table and draws nothing.
@@ -158,7 +165,7 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
     Plus `JustMet` and the empty state.
   - §4 Next steps: "at your door", "a message is waiting", "nothing right now".
   - §5 The CONTACTS header and the deal row ("YOUR DEAL · {sponsor}").
-  - §6 The pool: `homekid2` and `homekid3`.
+  - ~~§6 The pool: `homekid2` and `homekid3`.~~ DROPPED (endless plan 2 replaces the pool with roles and generated people).
     - For each: parody and fiction names (web-checked), style, colour, sig, and recipe notes for `VisitorLooks` (kid proportions).
     - Each kid's four entries (`payback_<id>`, `<id>_show`, `<id>_album`, `<id>_forgot`) in their own voice. The numbers, gates and choices are kid 1's; only `tag`, `line`, `text`, `headline` and `note` change.
   - §7 Eight local cards for week 1, using the existing local cast (blockkid, rapper, cousin, neighbor, host, landlord), so there are no new looks.
@@ -221,10 +228,10 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
 ### Task 3: The met record (§4.12)
 
 **Files:**
-- Modify: `Modules/WalkInRules.lua` (`MarkMet`, `IsMet`); `Data/WalkIns.lua` (`W.People`, `W.PeopleSet`: the five people today, with the pool kids added in Task 4).
+- Modify: `Modules/WalkInRules.lua` (`MarkMet`, `IsMet`); `Data/WalkIns.lua` (`W.People`, `W.PeopleSet`: the five people today; endless plan 2 adds generated people per player, not to this list).
 - Modify: `Systems/WalkIns.lua`:
-  - `state()` (:212-233) repairs `st.met`: a table holding only people ids with number values
-  - `onArrive` (:675) calls `MarkMet(st.met, rec.item.visitor, careerDay(p), Content.PeopleSet)` after the count
+  - `state()` (:212-233) repairs `st.met`: a table holding only ids in `peopleFor(st)` with number values. `peopleFor(st)` is a local function that returns `Content.PeopleSet` now; endless plan 2 widens it to include the player's generated people
+  - `onArrive` (:675) calls `MarkMet(st.met, rec.item.visitor, careerDay(p), peopleFor(st))` after the count
   - the hooks `Met`, `SetMet` and `Peek`
 - Modify: `Systems/Phone.lua` `open` (:233-264): the same `MarkMet` after the count, through `WalkIns.State(p)`.
 - Modify: `spec/walkin_rules_spec.lua`.
@@ -253,7 +260,9 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
 - [ ] **Step 4:** Specs PASS. Controller: sync `Modules/WalkInRules`, `Data/WalkIns`, `Systems/WalkIns` and `Systems/Phone`; `--edit t41_` and `--play t132a t43 t51 t79` → PASS.
 - [ ] **Step 5: Commit** `P-T3: the people you've actually met are remembered`.
 
-### Task 4: The hometown pool (D1)
+### Task 4: The hometown pool (D1) — SUPERSEDED, do not run
+
+> Replaced by `plans/2026-11-12-endless-2-story-web.md` (roles + generated people, spec §4.4). This text is kept only as a record. The ledger marks this task "Task 4: superseded (endless plan 2)".
 
 **Files:**
 - Modify: `Data/WalkIns.lua`:
@@ -332,7 +341,7 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
     - a DM from the blogger (`trending`) → a blogger row with `JustMet`, which survives a JSON round trip of `prof.walkins`
     - with mom's DM popped and unopened → mom's `next == "message"`
     - signing a sponsor (`rep_energy` "Sign it") doesn't change any person's bond
-    - **D1:** `homekid` with `blew_up` → a row whose memory line is kid 1's `blew_up` line; `homekid2` (no rel, no met) → no row
+    - **D1:** `homekid` with `blew_up` → a row whose memory line is kid 1's `blew_up` line
     - marker `T134A PLAY OK`
   - **t134b:**
     - at the three viewports: the icon with no pop waiting opens CONTACTS
@@ -489,13 +498,13 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
   - `starsDay`
   - phone Aura
   - cold counts
-  - the arc reach, including the pool families
+  - the arc reach
   - the local cards added, and the home studio price chosen
 - [ ] **Step 1:** `sh tools/spec.sh` → every spec PASSES. Paste the printed lines into the report.
 - [ ] **Step 2:** The full Studio suite with no failures (one rerun per flake), `walkins_pause_off`, guard green.
 - [ ] **Step 3:** A whole-branch final review on the most capable model against this plan and the spec. One fix dispatch, then a scoped re-review.
 - [ ] **Step 4:**
-  - README "People and progression" (titles, grace, met, the pool, contacts, the gate, the tests t130–t135)
+  - README "People and progression" (titles, grace, met, contacts, the gate, the tests t130–t132 and t134–t135; the pool is endless plan 2's)
   - the tracker (Now, Needs you: the copy approval list and any numbers brought back; Done log)
   - snapshot `v43_people`; export
 - [ ] **Step 5: Commit** `P-T10: pacing report and integration`.
@@ -506,7 +515,7 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
 
 - **No rooms needed:** Tasks 0–5 need nothing from the rooms plan and can run before it, or between its tasks.
   - Task 4 waits for Wave 3's 5d to be committed (VisitorLooks, `visitor_looks_spec`). The PhoneUI, Phone and WalkIns lines cited here are from 5d's working copy on disk, 11-12.
-  - Task 5 needs Tasks 3 and 4.
+  - Task 5 needs Task 3 (Task 4 is superseded).
 - **Pacing in order:** Task 6 needs the rooms plan's Task 4 (`home_studio`, `real_studio`) and Task 7 (`spk_monitors`). Tasks 7 and 8 need 6. The early baseline is pinned **before** the gate.
 - **The gate:** Task 9 needs the rooms plan's Task 4, plus Tasks 6, 7 and 8. It reads home-studio ownership as `prof.career.gates.home_studio` through `Career.Get`, never through the Rooms system.
 - **The last task:** Task 10 is last.
