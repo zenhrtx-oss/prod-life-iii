@@ -400,6 +400,7 @@ Line numbers are from 11-12; the pre-flight scan re-reads them.
   4. sends nothing to the client
 
   It never errors into its caller: it runs in a pcall that reports.
+  **The D11 guard:** a trigger never plants a follow-up whose visitor is a mainstream star (kind `artist`) while `StarsOpen` is false. Its plant is dropped quietly, so planting can't get around the big-name gate. The sim does the same, and `walkins_data_spec` flags any trigger whose plant names a star's follow-up without `needs`.
 - Modify the event sources (each a one-line `pcall` call into `Systems/Web.Event`):
   - `Systems/Life.lua` `Event` (:146), which forwards every Life event kind as its own name
   - `Systems/Life.lua` `Tick` (:167): `"day"`
@@ -426,6 +427,7 @@ Line numbers are from 11-12; the pre-flight scan re-reads them.
     - `chance = 0` never plants
     - `who = "$event"` takes `fields.who`
     - `Fire` turns a queued `on = "fire"` entry into `at = count + 1` and returns 1
+    - the D11 guard: a test trigger planting a `navx` follow-up plants nothing while `StarsOpen` is false, and plants it once open
   - **t151a:**
     - with the test trigger (`on = "delivery3"`, `who = "@local_artist"`, `day = { 2, 2 }`), a 3-star delivery through the Contracts hook queues the test follow-up with a bound `who` and `day = today + 2`
     - Life `AdvanceDay` twice, then `Spawn()`, brings it with that person
