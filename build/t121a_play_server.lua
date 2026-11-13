@@ -17,7 +17,9 @@
 -- (3) Start answers "dayone" and sends it at once; Get returns that payload: source "dayone", header DAY ONE, walk SKIP,
 --     card day1_dayone with three choices, the line carrying "$400" (JUNO's j1 pay), choice 2 "$450", no "{" in any text,
 --     visitor.id "juno" in her Data/Artists colour as { r, g, b }; DayOneBusy true; WalkIns SetRemaining(0) + Poke
---     answers false (no visit).
+--     answers false (no visit). (3b, final review minor 2) The live loop's tick under DayOneBusy: SetRemaining(2), the
+--     WalkIns loop let run for 3 s (Pause(false): WalkInsPaused false, so the join path is still held), then paused again:
+--     the timer is still 2 (it doesn't count down while Day One holds), no visit, DayOneBusy still true.
 -- (4) Choose(1) on that card at the bedroom's Spawn (the laptop within DAWConfig.CloseDistance, checked): Sent holds
 --     "leave" and "opendaw" (at the room laptop); DAW.Opened fired once; Contracts' active request is j1; the tour's open
 --     and take steps are got.
@@ -33,8 +35,9 @@
 -- (6d) Fix round 1, the real pick path: Start; the DayOne hook's Pick (Contracts.Pick, Session_Pick's own handler) on
 --      the first offered brief by another artist than JUNO: ok, that brief active, the tour's take got; card 1 leaves
 --      within 2 s (the same "leave" as an expiry's, its token); ChooseToken on it, 1 and 2, answer "stale"; the active
---      brief is still the picked one, d1.haggle nil, no returnAt; DayOneBusy stays true until Age(HoldMax) + Tick, then
---      false, and nothing more is sent.
+--      brief is still the picked one, d1.haggle nil, no returnAt; DayOneBusy stays true past Age(HoldMax) + Tick (the
+--      request is taken and not delivered: the first beat holds the first visitor until HoldTakenMax, the final fix's
+--      ruling a), then Age(HoldTakenMax - HoldMax) + Tick: false, and nothing more is sent.
 -- (7) Teleported to the landing's front door (PlaceOf <slot>/landing; the laptop more than 14 studs away and no beat-
 --     making spot in reach, checked); Start; Choose(1): j1 active, no "opendaw", the toast far.
 -- (8) Start; Choose(0) (SKIP): the tour done and skipped, XP unchanged, DayOneBusy false, the chain ended, the walk-in
@@ -49,15 +52,20 @@
 --      returned card leaves, DayOneBusy false, the tour not done; SetRemaining(0) + Poke starts a visit.
 -- (13) The real auto-start: the hold lifted (WalkInsPaused nil) for at most 3 s; Joined answers "waiting" and "dayone"
 --      is sent within 3 s (the player in their bedroom: FirstCard later); the hold back at once (the cleanup too).
+-- Before anything else the test hook's ProfileMark notes the profile (money, XP and level, gear, the gate logs, the tour,
+-- the hints, the sessions; final review minor 4: case 2's TourAdvance x5 and the cleanup's restoreTour each pay the real
+-- tour XP), and the cleanup's last step, ProfileRestore, puts it back exactly, on success or failure.
 -- On any error, and after success: the hold on, the DayOne Reset, unseated in the lounge (the beat maker closes there),
 -- the rooms Reset, WalkIns, phone, Career and Life reset, no hint seen, ResetSessions, ResetTour and the noted steps done
--- again, Quiet off, then a final DayOne Reset (ruling F6) and DayOneBusy nil; the error is rethrown after.
+-- again, Quiet off, then a final DayOne Reset (ruling F6), ProfileRestore and the career hook's Publish, and DayOneBusy
+-- nil; the error is rethrown after.
 local RS, Players, SSS = game:GetService("ReplicatedStorage"), game:GetService("Players"), game:GetService("ServerScriptService")
 local p = Players:GetPlayers()[1]; assert(p, "no player")
 local uid = p.UserId
 local SOK = SSS.OK
 local RED = " (before the D1-T2 sync of Systems/DayOne, Systems/Tour, Systems/WalkIns and the rest: the expected red)"
 local RED1 = " (before the D1-T2 fix1 sync of Systems/DayOne: the expected red)"
+local RED7 = " (before the D1-T7 final fix sync of Modules/DayOneRules, Systems/DayOne and OK/Config: the expected red)"
 local d1 = SOK:WaitForChild("_StudioDayOneHook", 5); assert(d1, "no _StudioDayOneHook (is Systems/DayOne synced and started?)" .. RED)
 local rooms = SOK:WaitForChild("_StudioRoomsHook", 5); assert(rooms, "no _StudioRoomsHook (is Systems/Rooms synced and started?)")
 local wi = SOK:WaitForChild("_StudioWalkInHook", 5); assert(wi, "no _StudioWalkInHook (did WalkIns.Init run?)")
@@ -208,6 +216,8 @@ local function between(label)
 end
 
 local function run()
+	local mk = test:Invoke("ProfileMark", uid) -- first, before anything changes (minor 4)
+	assert(mk == true, "the test hook's ProfileMark answered " .. tostring(mk) .. ", want true (sync ServerScriptService/OK/Main: D1-T3 fix 1)")
 	tourBefore = tourNow()
 	assert(wi:Invoke("Pause", uid, true) == true, "Pause(true) failed")
 	fresh("start")
@@ -280,7 +290,23 @@ local function run()
 	assert(wi:Invoke("SetRemaining", uid, 0) == true, "3: SetRemaining(0) failed")
 	local poke3 = wi:Invoke("Poke", uid)
 	assert(poke3 == false and wi:Invoke("Pending", uid) == nil, "3: with card 1 open a Poke answered " .. tostring(poke3) .. ", want false and no visit (WalkIns' schedule refuses while DayOneBusy)")
-	table.insert(out, string.format("3 Start: dayone sent and Get returns it (DAY ONE, SKIP, 3 choices, %s / %s, juno %s, no '{'); DayOneBusy true; Poke refused",
+	-- 3b (final review minor 2): the live loop's tick holds the timer while DayOneBusy (the loop runs unpaused for 3 s)
+	assert(wi:Invoke("SetRemaining", uid, 2) == true, "3b: SetRemaining(2) failed")
+	local rem3, ok3, err3
+	ok3, err3 = pcall(function()
+		assert(wi:Invoke("Pause", uid, false) == true, "3b: Pause(false) failed")
+		task.wait(3)
+		rem3 = wi:Invoke("GetRemaining", uid)
+	end)
+	wi:Invoke("Pause", uid, true) -- back on whatever happened (the join path stayed held: WalkInsPaused was false, not nil)
+	if not ok3 then error(err3, 0) end
+	assert(rem3 == 2, "3b: after 3 s of the live loop with card 1 open the walk-in timer is " .. tostring(rem3)
+		.. ", want 2 (WalkIns' tick doesn't count down while DayOneBusy)")
+	assert(wi:Invoke("Pending", uid) == nil and busy() == true, "3b: after the live loop a visit is in flight ("
+		.. tostring(wi:Invoke("Pending", uid) ~= nil) .. ") or DayOneBusy is " .. tostring(busy()) .. "; want no visit and true")
+	assert(wi:Invoke("SetRemaining", uid, 1e6) == true, "3b: SetRemaining(1e6) failed")
+	assert(call("Open") ~= nil, "3b: card 1 closed during the live loop, want it still open for case 4")
+	table.insert(out, string.format("3 Start: dayone sent and Get returns it (DAY ONE, SKIP, 3 choices, %s / %s, juno %s, no '{'); DayOneBusy true; Poke refused; 3b the live loop 3 s: timer still 2",
 		VARS.pay, VARS.ask, table.concat(want, ",")))
 
 	-- 4. "Make it now" at the bedroom's Spawn (case 3's card)
@@ -428,13 +454,16 @@ local function run()
 	assert(s6d.d1 == nil or s6d.d1.haggle == nil, "6d: d1.haggle is " .. tostring(s6d.d1 and s6d.d1.haggle) .. ", want nil")
 	assert(s6d.returnAt == nil and s6d.card == nil and s6d.pending == nil, "6d: after the pick the chain holds card " .. tostring(s6d.card and s6d.card.id)
 		.. ", pending " .. tostring(s6d.pending and s6d.pending.id) .. ", returnAt " .. tostring(s6d.returnAt) .. "; want none of them")
-	assert(busy() == true, "6d: DayOneBusy is " .. tostring(busy()) .. " right after the pick, want true until HoldMax from the chain's start")
+	assert(busy() == true, "6d: DayOneBusy is " .. tostring(busy()) .. " right after the pick, want true")
 	assert(call("Age", C.HoldMax) == true and call("Tick") == true, "6d: Age or Tick failed")
-	assert(busy() == false, "6d: DayOneBusy is " .. tostring(busy()) .. " HoldMax after the chain's start, want false")
+	assert(busy() == true, "6d: DayOneBusy is " .. tostring(busy()) .. " HoldMax after the chain's start with " .. pk.id
+		.. " taken and not delivered, want true (the first beat holds the first visitor until HoldTakenMax: ruling a)" .. RED7)
+	assert(call("Age", C.HoldTakenMax - C.HoldMax) == true and call("Tick") == true, "6d: Age or Tick failed")
+	assert(busy() == false, "6d: DayOneBusy is " .. tostring(busy()) .. " HoldTakenMax after the chain's start, want false")
 	local l6f = sent("6d")
-	assert(#l6f == 0, "6d: HoldMax later the loop sent " .. kinds(l6f) .. ", want nothing")
+	assert(#l6f == 0, "6d: HoldTakenMax later the loop sent " .. kinds(l6f) .. ", want nothing")
 	table.insert(out, "6d " .. pk.id .. " (" .. pb.artist .. ") taken at the picker: card 1 left, choices on it stale, " .. pk.id
-		.. " kept, d1.haggle nil, DayOneBusy false at HoldMax")
+		.. " kept, d1.haggle nil, DayOneBusy still true at HoldMax (making the beat), false at HoldTakenMax")
 
 	-- 7. "Make it now" from the landing: far
 	between("7")
@@ -585,8 +614,13 @@ pcall(function()
 	ph:Invoke("Quiet", uid, false)
 end)
 task.wait(0.3) -- the restore's late handlers run (no chain: nothing)
-pcall(function() d1:Invoke("Reset", uid) end) -- last (F6)
+pcall(function() d1:Invoke("Reset", uid) end) -- the last Day One step (F6)
+-- the profile as ProfileMark noted it: money, XP and level, gear, gate logs, tour, hints, sessions (minor 4)
+local restored
+pcall(function() restored = test:Invoke("ProfileRestore", uid) end)
+pcall(function() career:Invoke("Publish", uid) end) -- Career_Get's cached Money dropped, the career attributes sent again
 local busyLeft = p:GetAttribute("DayOneBusy")
 if not ok then error(msg, 0) end
 assert(busyLeft == nil, "cleanup: DayOneBusy is " .. tostring(busyLeft) .. " after the final DayOne Reset, want nil")
+assert(restored == true, "cleanup: the test hook's ProfileRestore answered " .. tostring(restored) .. ", want true")
 return msg

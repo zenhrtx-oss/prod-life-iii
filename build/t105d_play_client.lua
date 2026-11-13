@@ -5,7 +5,8 @@
 -- (2) Anything left open (the beat maker, the panel) is closed first, and checked closed.
 -- (3) At the stand spot, pressing the laptop's prompt (InputHoldBegin / End) sends the owner toast "Test Owner 7's laptop.
 --     only they can use it." (copy §3.1, the whole name) and no OpenDAW, and the beat maker stays shut for 1 s more.
---     The toast label (OK_UI.Toast) reads it, read one frame after it lands, within its 2.5 s: it wraps (TextWrapped), the
+--     The toast label (OK_Toast.Toast, PanelUI's toast gui since the Day One final fix: toasts queue, so it may wait up to
+--     6 s for an earlier toast's turn) reads it, read one frame after it shows, within its 2.5 s: it wraps (TextWrapped), the
 --     text fits (TextFits, its bounds inside the label) in two lines at most, and the label fits a 667x375 phone less this
 --     gui's insets (its width inside the phone's, its height plus its 24 px bottom margin inside the phone's). The toast
 --     ignores ForceViewport (it is laid out against the real window), so its size, not its position, is what is checked.
@@ -26,7 +27,8 @@ local cam = workspace.CurrentCamera
 local pg = player:WaitForChild("PlayerGui", 10)
 local ui = pg and pg:WaitForChild("OK_UI", 10); assert(ui, "no OK_UI")
 local panel = ui:WaitForChild("Panel", 5); assert(panel, "no Panel")
-local toast = ui:WaitForChild("Toast", 5); assert(toast, "no Toast label in OK_UI (PanelUI)")
+local toastGui = pg:WaitForChild("OK_Toast", 5); assert(toastGui, "no PlayerGui.OK_Toast (PanelUI's toast gui)")
+local toast = toastGui:WaitForChild("Toast", 5); assert(toast, "no Toast label in OK_Toast (PanelUI)")
 local dawGui = pg:WaitForChild("OK_DAW", 10)
 local daw = dawGui and dawGui:WaitForChild("DAW", 10)
 assert(daw, "no beat maker gui (PlayerGui.OK_DAW.DAW)")
@@ -117,11 +119,11 @@ local function run()
 	local told = press(sp, function() return since("Toast", t3, TOAST) > 0 end, 1.5)
 	assert(told, "pressing someone else's laptop sent no '" .. TOAST .. "' toast; toasts: " .. toastsSince(t3) .. RED)
 	-- the label, one frame after the text lands (AutomaticSize grows it), within its 2.5 s
-	assert(waitFor(function() return toast.Text == TOAST and toast.Visible end, 1), "the toast label reads '" .. toast.Text .. "' (visible "
+	assert(waitFor(function() return toast.Text == TOAST and toast.Visible end, 6), "the toast label reads '" .. toast.Text .. "' (visible "
 		.. tostring(toast.Visible) .. "), want '" .. TOAST .. "'")
 	task.wait()
 	task.wait()
-	local inset = cam.ViewportSize - ui.AbsoluteSize
+	local inset = cam.ViewportSize - toastGui.AbsoluteSize
 	inset = Vector2.new(math.max(0, inset.X), math.max(0, inset.Y))
 	local box = PHONE - inset
 	local size, bounds = toast.AbsoluteSize, toast.TextBounds

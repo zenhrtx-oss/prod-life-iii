@@ -1,14 +1,14 @@
 -- Server, during play (the Day One plan, Task 5: coach marks and the first delivery in your bedroom), after t124b played
--- the whole first minute from the client (Make it now, BOUNCE made yours and delivered at the bedroom laptop for 3 stars,
--- On my speakers, Save it). The server's side of it, then the tail of t124a-c: it puts back what they staged, so the files
+-- the whole first minute from the client (Haggle with t124a's good roll, so JUNO said yes and the beat maker opened as for
+-- Make it now; BOUNCE made yours and delivered at the bedroom laptop for 3 stars, On my speakers, Save it). The server's side of it, then the tail of t124a-c: it puts back what they staged, so the files
 -- after it (t12_, then t17b, whose first check wants the hub PC outlined; preflight F7) find the player in the lounge with
 -- the tour and the profile as t124a found them. One Play session runs the whole sorted list, so this runs even when t124b
 -- failed; its checks then fail, and the put-back still runs in full.
 -- Checks (the hold stays on, so the timer card 3 armed hasn't counted down):
--- (1) the tour done, not skipped; d1 unpaid with no haggle (Make it now: the DayOne hook's State, d1 nil or paid false);
---     the money exactly t124a's note (_T124Money) + the starter brief's 3-star pay (reward.cred x 1.5: $600; t124a
---     cleared today's Delivery counts, and card 2's room play, the tour's reward and Save it pay no money); DayOneBusy
---     false and the chain ended.
+-- (1) the tour done, not skipped; d1's haggle "good" and paid (the D1-T7 final fix: t124b haggles; the DayOne hook's
+--     State); the money exactly t124a's note (_T124Money) + the starter brief's 3-star pay (reward.cred x 1.5: $600; t124a
+--     cleared today's Delivery counts) + Config.DayOne.HaggleBonus once (card 2's room play, the tour's reward and Save it
+--     pay no money); DayOneBusy false and the chain ended.
 -- (2) the walk-in timer within Config.DayOne.VisitAfter (WalkIns.ArmFirst at the chain's end); in the bedroom
 --     (PlaceOf <slot>/bedroom) a Poke starts a visit whose Data/WalkIns card has first = true.
 -- The put-back, every step tried whatever failed before it (t123e's order): the hold on; the DayOne Reset (no chain sees
@@ -104,17 +104,18 @@ local function run()
 	local s = call("State")
 	assert(type(s) == "table", "the DayOne hook's State answered " .. tostring(s) .. ", want a table")
 	local d = s.d1
-	assert(not (d and d.paid) and not (d and d.haggle), "d1 is paid " .. tostring(d and d.paid) .. ", haggle " .. tostring(d and d.haggle)
-		.. "; want unpaid with no haggle (Make it now)")
-	local want = noted + pay
+	assert(d and d.haggle == "good" and d.paid == true, "d1 is paid " .. tostring(d and d.paid) .. ", haggle " .. tostring(d and d.haggle)
+		.. "; want haggle good and paid (t124b's Haggle on t124a's roll 0.1, then the first delivery)")
+	local want = noted + pay + C.HaggleBonus
 	waitFor(function() return money() == want end, 2)
 	local got = money()
-	assert(got == want, string.format("money is %s, want %s (t124a's %s + %s, %s's 3-star pay; %+d off)", Format.Money(got), Format.Money(want),
-		Format.Money(noted), Format.Money(pay), STARTER.id, got - want))
+	assert(got == want, string.format("money is %s, want %s (t124a's %s + %s, %s's 3-star pay, + %s, the haggle's bonus once; %+d off)", Format.Money(got),
+		Format.Money(want), Format.Money(noted), Format.Money(pay), STARTER.id, Format.Money(C.HaggleBonus), got - want))
 	assert(waitFor(function() return p:GetAttribute("DayOneBusy") == false end, 2), "DayOneBusy is " .. tostring(p:GetAttribute("DayOneBusy")) .. " after the tour, want false")
 	assert(not s.running and s.card == nil and s.pending == nil, "the chain still runs after the tour (card " .. tostring(s.card and s.card.id) .. ", pending "
 		.. tostring(s.pending and s.pending.id) .. ")")
-	table.insert(out, string.format("1 the tour done; d1 unpaid, no haggle; money %s = %s + %s; DayOneBusy false, the chain ended", Format.Money(got), Format.Money(noted), Format.Money(pay)))
+	table.insert(out, string.format("1 the tour done; d1 haggle good, paid; money %s = %s + %s + %s; DayOneBusy false, the chain ended", Format.Money(got),
+		Format.Money(noted), Format.Money(pay), Format.Money(C.HaggleBonus)))
 
 	-- 2. the first visitor
 	local rem = wi:Invoke("GetRemaining", uid)

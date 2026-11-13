@@ -1588,5 +1588,56 @@ do
 	ok("starter_host is still a CYPHER home", table.find(cypherHomes, "starter_host") ~= nil)
 end
 
+-- room words (Day One Task 6, copy doc section 8) -------------------------------------------------------------------
+-- A walk-in visits the player wherever they are: the hub's rooms or their own bedroom. "Lounge" is a hub-only word, so
+-- nothing a room visit can show says it (any case: "THE LOUNGE", "LOUNGE MASCOT"): no walk-in card or walk-in follow-up
+-- (`source ~= "phone"`) in its tag, line, choice texts or outcome headlines, texts, lines and notes; no visitor's `style`;
+-- no waiting-visitor or note-card line. Phone cards are out of scope: the phone is a hub thing, and mishap_keys' "lounge
+-- couch" is a phone outcome the rooms plan's R-T8 rewrites (rooms copy 5.5 and 5.6)
+do
+	local ROOM_WORDS = { "lounge" }
+	local seen, bad = 0, {}
+	local function scan(where, text)
+		if type(text) ~= "string" then return end
+		seen += 1
+		local lower = string.lower(text)
+		for _, word in ipairs(ROOM_WORDS) do
+			if string.find(lower, word, 1, true) then table.insert(bad, string.format("%s says '%s' (%q)", where, word, text)) end
+		end
+	end
+	local function scanOutcome(where, o)
+		if type(o) ~= "table" then return end
+		for _, k in ipairs({ "headline", "text", "line", "note" }) do scan(where .. "." .. k, o[k]) end
+	end
+	local function scanItem(where, item)
+		scan(where .. ".tag", item.tag)
+		scan(where .. ".line", item.line)
+		for i, c in ipairs(item.choices or {}) do
+			scan(where .. " choice " .. i .. ".text", c.text)
+			eachOutcome(c, function(o, k) scanOutcome(where .. " choice " .. i .. "." .. k, o) end)
+		end
+		if type(item.resolve) == "table" then
+			for _, k in ipairs(OUTCOME_KEYS) do scanOutcome(where .. ".resolve." .. k, item.resolve[k]) end
+		end
+	end
+	local scanned = {}
+	for _, card in ipairs(W.Cards) do
+		if card.source ~= "phone" then scanItem("card " .. card.id, card); scanned[card.id] = true end
+	end
+	for id, f in pairs(W.FollowupById) do
+		if f.source ~= "phone" then scanItem("follow-up " .. id, f); scanned[id] = true end
+	end
+	for _, v in ipairs(W.Visitors) do scan("visitor " .. v.id .. ".style", v.style) end
+	for _, list in ipairs({ "WaitLines", "NoteLines" }) do
+		for i, line in ipairs(W[list] or {}) do scan("W." .. list .. "[" .. i .. "]", line) end
+	end
+	ok("ROOM_WORDS scanned the walk-in text (scanned " .. seen .. " strings)", seen > 300)
+	ok("ROOM_WORDS reaches weird_pigeon", scanned.weird_pigeon == true)
+	ok("ROOM_WORDS reaches mom_food", scanned.mom_food == true)
+	ok("ROOM_WORDS leaves phone cards alone (mishap_keys is a phone card)", W.CardById.mishap_keys ~= nil and W.CardById.mishap_keys.source == "phone" and not scanned.mishap_keys)
+	table.sort(bad)
+	ok("no walk-in text says a hub-only room word (" .. #bad .. "): " .. table.concat(bad, "; "), #bad == 0)
+end
+
 if #fails > 0 then error(#fails .. " walkins data case(s) failed: " .. table.concat(fails, "; ")) end
 print("SPEC OK: walkins data")

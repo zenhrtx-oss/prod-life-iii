@@ -53,6 +53,18 @@
 --     Choose(2) (good, j1 taken); the pill's SKIP (the test hook's TourSkip: Tour.Skip, the Tour_Skip remote's handler):
 --     the tour done and skipped, the chain ended; deliver j1Beat(): money + the reply's cred + HaggleBonus, d1.paid, nothing
 --     sent. Once: ResetSessions (the tour and d1 kept), j1 again a first delivery: money + the reply's cred only.
+-- (12, run before 9) The phone path (the D1-T7 final fix, review Important 1): Start; Choose(1) (Make it now: j1 taken,
+--     the beat maker at the laptop). (a) Age(HoldMax), Tick: DayOneBusy still true (the request taken, not delivered: the
+--     first beat holds the first visitor), and SetRemaining(0) + Poke starts no visit; Age(HoldTakenMax - HoldMax), Tick:
+--     false, and a Poke starts one (an abandoned beat still meets him); that visit Expire'd. (b) WalkIns Spawn
+--     (weird_pigeon: a critter, its card arrives at once) and, once the client's own deferral report has landed (0.5 s),
+--     SetDeferred(false) (his card on screen: Pending's deferred false); deliver j1Beat(): "speakers" queued;
+--     Age(AfterDeliver), Tick: nothing sent, card 2 still queued (one card at a time). SetDeferred(true) (his card hidden
+--     under the beat maker: deferred true); Tick: card 2 sent (now = true) over the deferred visit, which stays in flight
+--     with the same token. Choose(2) (Keep it private); SetDeferred(true) again (the client brought his card back under
+--     the beat maker); Age(AfterSpeakers), Tick: card 3 sent the same way; Choose(2)
+--     (Save it): the tour done, the chain ended, and the walk-in timer as it was (ArmFirst leaves it: a visit is in
+--     flight); the visit Expire'd.
 -- (9) A hub delivery, then no plot: Start; Choose(1) far from every beat-making spot (the entry corridor, CORRIDOR: the
 --     lounge spot (24, 3, 0) is ~10 studs from the lounge bar's laptop, inside DAWConfig.CloseDistance, so Make it now
 --     would open there; checked): the toast farHub, j1 taken; deliver at the studio PC (t106a's PC_SPOT): no card 2
@@ -70,6 +82,7 @@ local p = Players:GetPlayers()[1]; assert(p, "no player")
 local uid = p.UserId
 local SOK = SSS.OK
 local RED = " (before the D1-T3 sync of Systems/DayOne, Systems/Contracts, Systems/Gear and Systems/Tour: the expected red)"
+local RED7 = " (before the D1-T7 final fix sync of Modules/DayOneRules, Systems/DayOne, OK/Config and Systems/WalkIns: the expected red)"
 local d1 = SOK:WaitForChild("_StudioDayOneHook", 5); assert(d1, "no _StudioDayOneHook (is Systems/DayOne synced and started?)")
 local rooms = SOK:WaitForChild("_StudioRoomsHook", 5); assert(rooms, "no _StudioRoomsHook (is Systems/Rooms synced and started?)")
 local wi = SOK:WaitForChild("_StudioWalkInHook", 5); assert(wi, "no _StudioWalkInHook (did WalkIns.Init run?)")
@@ -647,6 +660,70 @@ local function run()
 	moneyIs(m11b + r11b.cred, "11 again (d1.paid: the delivery's cred " .. r11b.cred .. " only, no second bonus)")
 	table.insert(out, string.format("11 haggle good, SKIP (tour done + skipped), then j1: +%s (cred %d + bonus %d), d1.paid; j1 first again: +%s, no second bonus",
 		Format.Money(r11.cred + C.HaggleBonus), r11.cred, C.HaggleBonus, Format.Money(r11b.cred)))
+
+	-- 12 (before 9). The phone path (the final fix, review Important 1): the first beat holds the first visitor (ruling a),
+	-- and a visit whose card is deferred under the beat maker doesn't hold card 2 or 3 (ruling b)
+	between("12")
+	assert(call("Start") == "dayone", "12: Start didn't answer dayone")
+	sent("12")
+	choose("12 make", 1)
+	takeGot("12")
+	assert(active() == "j1", "12: the active request is " .. tostring(active()) .. " after Make it now, want j1")
+	assert(call("Age", C.HoldMax) == true and call("Tick") == true, "12: Age or Tick failed")
+	assert(busy() == true, "12: DayOneBusy is " .. tostring(busy()) .. " HoldMax after the chain's start with j1 taken and not delivered, want true"
+		.. " (the first beat holds the first visitor until HoldTakenMax: ruling a)" .. RED7)
+	assert(wi:Invoke("SetRemaining", uid, 0) == true, "12: SetRemaining(0) failed")
+	local poke12 = wi:Invoke("Poke", uid)
+	assert(poke12 == false and wi:Invoke("Pending", uid) == nil, "12: mid-beat (HoldMax) a Poke answered " .. tostring(poke12) .. ", want no visit")
+	assert(call("Age", C.HoldTakenMax - C.HoldMax) == true and call("Tick") == true, "12: Age or Tick failed")
+	assert(busy() == false, "12: DayOneBusy is " .. tostring(busy()) .. " HoldTakenMax after the chain's start, want false (an abandoned beat meets the first visitor)")
+	local poke12b = wi:Invoke("Poke", uid)
+	assert(poke12b == true and wi:Invoke("Pending", uid) ~= nil, "12: at HoldTakenMax a Poke answered " .. tostring(poke12b) .. ", want a visit")
+	assert(wi:Invoke("Expire", uid) == true and wi:Invoke("Pending", uid) == nil, "12: Expire didn't end the visit")
+	-- (b) a visit in flight, his card on screen, then deferred under the beat maker
+	assert(wi:Invoke("Spawn", uid, "weird_pigeon") == true, "12: WalkIns Spawn(weird_pigeon) refused in the bedroom")
+	local v12
+	assert(waitFor(function() v12 = wi:Invoke("Pending", uid); return v12 ~= nil and v12.arrived == true end, 3), "12: the pigeon's card did not arrive within 3 s")
+	task.wait(0.5) -- the client's own WalkIn_Deferred report for it lands first (the beat maker is open there)
+	assert(wi:Invoke("SetDeferred", uid, v12.token, false) == true, "12: SetDeferred(false) refused")
+	assert(wi:Invoke("Pending", uid).deferred ~= true, "12: the pigeon's card still reads deferred after SetDeferred(false)")
+	deliver("12", A)
+	queued("12", "speakers")
+	assert(call("Age", C.AfterDeliver) == true and call("Tick") == true, "12: Age or Tick failed")
+	local l12 = sent("12")
+	assert(not find(l12, "arrive"), "12: with the pigeon's card on screen a Tick sent " .. kinds(l12) .. ", want card 2 held (one card at a time)")
+	local s12 = state("12")
+	assert(s12.card == nil and s12.pending and s12.pending.id == "speakers", "12: card " .. tostring(s12.card and s12.card.id) .. ", pending "
+		.. tostring(s12.pending and s12.pending.id) .. "; want card 2 still queued")
+	assert(wi:Invoke("SetDeferred", uid, v12.token, true) == true, "12: SetDeferred(true) refused")
+	assert(wi:Invoke("Pending", uid).deferred == true, "12: the Pending hook doesn't read the pigeon's card deferred after SetDeferred(true)" .. RED7)
+	assert(call("Tick") == true, "12: Tick failed")
+	local l12b = sent("12")
+	local arr12 = find(l12b, "arrive", "speakers")
+	assert(arr12 and type(arr12.payload) == "table" and arr12.payload.now == true, "12: with the pigeon's card deferred a Tick sent " .. kinds(l12b)
+		.. ", want card 2 (now = true) over it (ruling b)" .. RED7)
+	local v12b = wi:Invoke("Pending", uid)
+	assert(v12b and v12b.token == v12.token, "12: the pigeon's visit is " .. tostring(v12b and v12b.token) .. " after card 2 went out, want it kept in flight (it shows after)")
+	choose("12 private", 2)
+	queued("12", "spend")
+	-- the client brings the pigeon's card back under the beat maker when card 2 leaves; deferred again here whatever it
+	-- reported (its beat maker may have closed), so card 3 meets the same deferred visit
+	task.wait(0.3)
+	assert(wi:Invoke("SetDeferred", uid, v12.token, true) == true, "12: SetDeferred(true) before card 3 refused")
+	tickTo("12 card 3", C.AfterSpeakers, "spend")
+	local v12c = wi:Invoke("Pending", uid)
+	assert(v12c and v12c.token == v12.token, "12: the pigeon's visit ended when card 3 went out, want it kept")
+	local rem12 = wi:Invoke("GetRemaining", uid)
+	choose("12 save", 2)
+	local t12 = tourNow()
+	assert(t12.done and not t12.skipped, "12: after Save it the tour is " .. gotList(t12) .. ", want done")
+	chainEnded("12")
+	assert(wi:Invoke("GetRemaining", uid) == rem12, "12: the walk-in timer moved from " .. tostring(rem12) .. " to " .. tostring(wi:Invoke("GetRemaining", uid))
+		.. " at the chain's end, want it left (a visit is in flight: ArmFirst refuses)")
+	assert(wi:Invoke("Pending", uid) ~= nil, "12: the pigeon's visit ended with the chain, want it still in flight")
+	assert(wi:Invoke("Expire", uid) == true, "12: Expire failed")
+	table.insert(out, string.format("12 the phone path: Make it now; DayOneBusy true at HoldMax (Poke refused), false at HoldTakenMax (Poke -> a visit); a pigeon's card on screen holds card 2, deferred it lets cards 2 and 3 out over it; the visit kept, the timer %s left",
+		tostring(rem12)))
 
 	-- 9. a hub delivery (no card 2), ON SPEAKERS at the laptop, then no plot: rackFar
 	between("9")

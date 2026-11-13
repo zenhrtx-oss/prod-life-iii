@@ -1,7 +1,8 @@
 -- Server, during play: the pigeon (design 4.3) through the WalkIns Studio hook, paused throughout. From the control
 -- room (in front of the studio PC, where t47b stands), Spawn weird_pigeon: its figure appears on the lounge coffee
 -- table's top face (under OK_Visitors, at most 12 parts, no lights) and holds a walking slot; the card arrives within
--- 2 s with the pigeon as the sender and the fixed tag that names the lounge (no token in the tag or the line); a real
+-- 2 s with the pigeon as the sender and the fixed room-neutral tag UNINVITED · THE DOOR WAS OPEN (Day One copy 8.1: it names
+-- no room, since the card opens in a bedroom too; no token in the tag or the line); a real
 -- choice (not WALK AWAY) gets its result and the pigeon is gone within 5 s: the 2 s result delay, the 1 s flight and
 -- slack. Not tightened by cutting the delay or the flight.
 local RS, Players, SSS = game:GetService("ReplicatedStorage"), game:GetService("Players"), game:GetService("ServerScriptService")
@@ -53,7 +54,8 @@ local function run()
 	local card = Content.CardById.weird_pigeon
 	local v = card and Content.VisitorById[card.visitor]
 	assert(card and v and v.kind == "critter", "weird_pigeon is not a card from a critter")
-	assert(string.find(card.tag, "LOUNGE", 1, true) ~= nil, "the pigeon card's tag does not name the lounge: " .. tostring(card.tag))
+	assert(card.tag == "UNINVITED · THE DOOR WAS OPEN", "the pigeon card's tag is not the room-neutral one (copy 8.1): " .. tostring(card.tag))
+	assert(not string.find(string.lower(card.tag), "lounge", 1, true), "the pigeon card's tag names the lounge: " .. tostring(card.tag))
 	assert(not string.find(card.tag, "{", 1, true) and not string.find(card.line, "{", 1, true), "the pigeon card's tag or line holds a token")
 	local names = Content.Names(W.Roster)
 	local top = workspace.OKStudio.Lounge.Coffee_Top

@@ -1,6 +1,7 @@
 -- CLI spec for Modules/DayOneRules and Data/DayOne (the Day One plan, Task 1): which card comes next from the saved
 -- tour (Next, over every `got` combination), the stale-card check at send time (Stale, ruling B1), the card a delivery
--- queues (Delivered, ruling B3), the starter brief, the haggle and its one-time bonus, the walk-in hold (Holds), the
+-- queues (Delivered, ruling B3), the starter brief, the haggle and its one-time bonus, the walk-in hold (Holds; the final
+-- fix: a taken, undelivered request holds it until HoldTakenMax), the
 -- loop's clock (Due: expire, send, return; ruling F1: no return once HoldMax has passed; fix 1: card 1 returns only
 -- with ReturnMin seconds left before HoldMax), the tool card 3 names (Tool, ruling F2: price-0 rows are everyone's and
 -- never offered; fix 1: rows with needs are skipped), the fills, the card payload, the saved d1's repair, the
@@ -12,8 +13,8 @@ local Format = require("../src/ReplicatedStorage/OK/Modules/Format")
 local E = require("./economy_fixture")
 
 -- a literal copy of Config.DayOne (src/ReplicatedStorage/OK/Config.lua); Task 2's t120 check pins it to live Config
-local DAYONE = { Enabled = true, FirstCard = 1, WakeWait = 20, LookAround = 30, ReturnMin = 15, HoldMax = 70, CardSeconds = 180,
-	AfterDeliver = 3, AfterSpeakers = 4, VisitAfter = { 5, 7 }, HaggleOdds = 50, HaggleBonus = 50, PrivateXP = 10 }
+local DAYONE = { Enabled = true, FirstCard = 1, WakeWait = 20, LookAround = 30, ReturnMin = 15, HoldMax = 70, HoldTakenMax = 240,
+	CardSeconds = 180, AfterDeliver = 3, AfterSpeakers = 4, VisitAfter = { 5, 7 }, HaggleOdds = 50, HaggleBonus = 50, PrivateXP = 10 }
 -- Data/Artists needs Roblox globals (Color3), so its briefs are a literal copy of { id, artist, starter } (preflight m3;
 -- t120 checks the real list), and JUNO's pay (j1's reward.cred) and colour (her Color3 as 0-255) are literals too
 local BRIEFS = {
@@ -213,6 +214,39 @@ eq("Holds a pending card at now 500", R.Holds({ started = 0, pending = { id = "s
 eq("Holds done", R.Holds({ started = 0, done = true, card = { token = "day1:1", id = "dayone", at = 0 } }, 10, DAYONE), false)
 eq("Holds nil chain", R.Holds(nil, 10, DAYONE), false)
 eq("Holds a look-around's return past HoldMax (F1)", R.Holds({ started = 0, returnAt = 90 }, 90, DAYONE), false)
+-- final fix (review Important 1, ruling a): the request taken and not yet delivered (you're making your first beat) holds
+-- the first visitor until started + HoldTakenMax (240), so he never walks in mid-beat, and an abandoned beat still meets
+-- him by then; the tour (4th argument) decides it, whichever brief was taken
+local function tourGot(...) local g = {}; for _, id in ipairs({ ... }) do g[id] = true end; return { got = g } end
+local making = tourGot("open", "take")
+eq("Holds taken, not delivered, at 69", R.Holds({ started = 0 }, 69, DAYONE, making), true)
+eq("Holds taken, not delivered, at 70 (past HoldMax: still making the beat)", R.Holds({ started = 0 }, 70, DAYONE, making), true)
+eq("Holds taken, not delivered, at 239", R.Holds({ started = 0 }, 239, DAYONE, making), true)
+eq("Holds taken, not delivered, at 240 (HoldTakenMax: released)", R.Holds({ started = 0 }, 240, DAYONE, making), false)
+eq("Holds taken, not delivered, much later", R.Holds({ started = 0 }, 1000, DAYONE, making), false)
+eq("Holds taken, not delivered, from a later start", R.Holds({ started = 100 }, 339, DAYONE, making), true)
+eq("Holds taken, not delivered, from a later start, at +240", R.Holds({ started = 100 }, 340, DAYONE, making), false)
+eq("Holds taken without open (take alone)", R.Holds({ started = 0 }, 200, DAYONE, tourGot("take")), true)
+-- delivered: the old rule (HoldMax, or a card open or queued)
+local delivered = tourGot("open", "take", "deliver")
+eq("Holds delivered at 69", R.Holds({ started = 0 }, 69, DAYONE, delivered), true)
+eq("Holds delivered at 70", R.Holds({ started = 0 }, 70, DAYONE, delivered), false)
+eq("Holds delivered at 200", R.Holds({ started = 0 }, 200, DAYONE, delivered), false)
+eq("Holds delivered, card 2 queued at 200", R.Holds({ started = 0, pending = { id = "speakers", at = 203 } }, 200, DAYONE, delivered), true)
+eq("Holds an old save's deliver without take at 100", R.Holds({ started = 0 }, 100, DAYONE, tourGot("deliver")), false)
+-- never taken: the old 70 s rule (the wanderer's first visit by ~90 s)
+eq("Holds never taken at 69", R.Holds({ started = 0 }, 69, DAYONE, tourGot("open")), true)
+eq("Holds never taken at 70", R.Holds({ started = 0 }, 70, DAYONE, tourGot("open")), false)
+eq("Holds never taken, nothing got, at 70", R.Holds({ started = 0 }, 70, DAYONE, tourGot()), false)
+-- a finished tour never extends it (the chain ends with it anyway)
+eq("Holds taken on a done tour at 100", R.Holds({ started = 0 }, 100, DAYONE, { got = { take = true }, done = true }), false)
+eq("Holds taken on a skipped tour at 100", R.Holds({ started = 0 }, 100, DAYONE, { got = { take = true }, done = true, skipped = true }), false)
+eq("Holds taken, a done chain", R.Holds({ started = 0, done = true }, 100, DAYONE, making), false)
+-- no tour, or a junk one: the old rule
+eq("Holds no tour at 100", R.Holds({ started = 0 }, 100, DAYONE, nil), false)
+eq("Holds a junk tour at 100", R.Holds({ started = 0 }, 100, DAYONE, "junk"), false)
+eq("Holds a junk got at 100", R.Holds({ started = 0 }, 100, DAYONE, { got = "take" }), false)
+eq("Holds no tour at 69", R.Holds({ started = 0 }, 69, DAYONE, nil), true)
 
 -- Due: expire, then send, then return; nothing is sent over an open card ---------------------------------------------
 local function card(id, at) return { token = "day1:t", id = id, at = at } end
@@ -484,6 +518,11 @@ eq("Config HaggleBonus", DAYONE.HaggleBonus, 50)
 eq("Config the ask is $450", Format.Money(J1_PAY + DAYONE.HaggleBonus), "$450")
 ok("Config HaggleOdds is a percentage", DAYONE.HaggleOdds >= 0 and DAYONE.HaggleOdds <= 100)
 ok("Config CardSeconds > HoldMax (an open card holds past HoldMax)", DAYONE.CardSeconds > DAYONE.HoldMax)
+-- final fix (ruling a): the first beat holds the first visitor longer than HoldMax, and an abandoned one still meets him by
+-- HoldTakenMax + FirstEver[2] (about 4 min 20 s)
+eq("Config HoldTakenMax", DAYONE.HoldTakenMax, 240)
+ok("Config HoldTakenMax > HoldMax", DAYONE.HoldTakenMax > DAYONE.HoldMax)
+ok("Config HoldTakenMax + FirstEver[2] <= 260", DAYONE.HoldTakenMax + firstEver[2] <= 260)
 -- fix 1: the return fits before the first visitor. Card 1 lands at FirstCard (or WakeWait + FirstCard on the late path);
 -- a look pressed at once there still returns with ReturnMin seconds left
 eq("Config LookAround", DAYONE.LookAround, 30)

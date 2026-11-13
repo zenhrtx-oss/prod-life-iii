@@ -31,7 +31,11 @@
 --     bedroom (PlaceOf 2/bedroom): DueWithin is false and a Poke starts nothing (only your own rooms count); after a
 --     Career Reset (a clean heal gate, checked) and Aura -20, HealSteps(10) pays nothing there.
 -- On any error, and after success: unseated in the lounge, Unfill, the rooms Reset, the hold back to true, WalkIns, phone,
--- Career and Life reset, ResetHints, the tour done, Quiet off; then the error is rethrown.
+-- Career and Life reset, ResetHints, the tour done, Quiet off; then the test hook's ProfileRestore (its ProfileMark is
+-- run()'s first step: money, XP and level, gear, the gate logs, the tour, the hints, the sessions) and the career hook's
+-- Publish; then the error is rethrown. (D1-T7 final fix: fresh()'s tour done pays the real tour XP, +50, and t106a's
+-- cleanup finished the tour again, +50 more: 100 XP, level 2 before t15, so t16 found level 3 after it. Now nothing is
+-- left behind.)
 local RS, Players, SSS = game:GetService("ReplicatedStorage"), game:GetService("Players"), game:GetService("ServerScriptService")
 local p = Players:GetPlayers()[1]; assert(p, "no player")
 local uid = p.UserId
@@ -154,6 +158,8 @@ local function fresh(label)
 end
 
 local function run()
+	local mk = test:Invoke("ProfileMark", uid) -- first, before anything changes (the cleanup's ProfileRestore)
+	assert(mk == true, "the test hook's ProfileMark answered " .. tostring(mk) .. ", want true (sync ServerScriptService/OK/Main: D1-T3 fix 1)")
 	assert(wi:Invoke("Pause", uid, true) == true, "Pause(true) failed")
 	fresh("rooms walk-ins")
 
@@ -323,5 +329,10 @@ pcall(function()
 	wi:Invoke("Pause", uid, true); wi:Invoke("Reset", uid); ph:Invoke("Reset", uid); career:Invoke("Reset", uid); life:Invoke("Reset", uid)
 	test:Invoke("ResetHints", uid); advanceTour(); ph:Invoke("Quiet", uid, false)
 end)
+-- the profile as ProfileMark noted it (the tour's XP from fresh() and the cleanup's advanceTour taken back)
+local restored
+pcall(function() restored = test:Invoke("ProfileRestore", uid) end)
+pcall(function() career:Invoke("Publish", uid) end) -- Career_Get's cached Money dropped, the career attributes sent again
 if not ok then error(msg, 0) end
+assert(restored == true, "cleanup: the test hook's ProfileRestore answered " .. tostring(restored) .. ", want true")
 return msg

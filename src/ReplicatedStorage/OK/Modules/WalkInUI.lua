@@ -41,7 +41,12 @@
 -- the card's padding. A choice goes to DayOne_Choose(token, index) (index 0 is SKIP; "stale" ends the card quietly,
 -- nothing else to show), the server is never told of its deferral (no WalkIn_Deferred), and on a short phone its line
 -- stays (card 1's pay and card 3's tool and goal are only there; there is no walker's bubble to say it): the body
--- scrolls instead.
+-- scrolls instead. A Day One card that would open by itself waits while a result card shows (final review minor 1: never
+-- two cards on screen; the chip still opens it). The server sends a `now` card over a walk-in visit whose card is
+-- deferred under the beat maker (the final fix, review Important 1, ruling b): that visit is parked, not dropped (his
+-- card, its seen state and what the server was last told of its deferral kept), and comes back when the Day One card
+-- ends, deferred or open as the beat maker then says, with no second riser; a "beat" for it updates it while parked, and
+-- a "leave" for it (he gave up, or you left) drops it, its unseen news or note still queued for the result card.
 -- Explainers (Wave 3 design 4.5): a card or result whose payload carries hint = { term, text } shows it as its last
 -- footer line, Card.Hint / Result.Hint (a Mark "i" and the muted Label), full width under WALK AWAY's row (the Aura
 -- line beside it) or under OK; a line added between the Aura line and the hint goes above it. On a card whose body
@@ -269,7 +274,10 @@ function M.Build(Theme)
 
 	-- the visit on screen: { token, card, today, max, seen = the card has been open, source ("dayone" for a Day One card),
 	-- now (the beat maker doesn't defer it), walk (the bottom button's label), noFace (no portrait square) }
+	-- also raw (the "arrive" payload it was painted from) and, for a walk-in, told (the deferral last sent to the server)
 	local cur = nil
+	local parked = nil     -- a walk-in visit (its cur table) a Day One card replaced on screen: back when that card ends
+	local arrive           -- (payload, src, keep): defined below; endVisit brings a parked visit back through it
 	local forced = false   -- the chip was tapped: show the card even while deferred
 	local busy = false     -- a WalkIn_Choose call is out
 	local shown = {}       -- the open / deferred / chip state last applied
@@ -514,12 +522,16 @@ function M.Build(Theme)
 	local function refresh(force)
 		local daw, compactDaw = dawOrCutaway()
 		if cur and cur.now then daw = nowHolds() end -- shown over the beat maker: only the cutaway and the result screen hold it
-		local deferred = cur ~= nil and ((not forced and (daw or (cypherBusy() and not shown.open))) or (phoneOpen() and not shown.open))
+		local deferred = cur ~= nil and ((not forced and (daw or (cypherBusy() and not shown.open))) or (phoneOpen() and not shown.open)
+			or (cur.source == "dayone" and not forced and not shown.open and result.Visible)) -- minor 1: not over a result card
 		local open = cur ~= nil and not deferred
 		local chipOn = deferred and not compactDaw -- over the phone beat maker the chip would sit on its pads
 		if not force and open == shown.open and deferred == shown.deferred and chipOn == shown.chip then return end
 		-- a Day One card has no walker to tell (WalkIn_Deferred is the walk-ins' own)
-		if cur and cur.source ~= "dayone" and deferred ~= shown.deferred then tellDeferred(cur.token, deferred, cur.seen == true) end
+		if cur and cur.source ~= "dayone" and deferred ~= shown.deferred then
+			cur.told = deferred
+			tellDeferred(cur.token, deferred, cur.seen == true)
+		end
 		local wasOpen = shown.open
 		shown.open, shown.deferred, shown.chip = open, deferred, chipOn
 		card.Visible = open; chip.Visible = chipOn
@@ -546,12 +558,21 @@ function M.Build(Theme)
 	local function note(text) footer.Text = text; footer.TextColor3 = Theme.accent; noteUntil = os.clock() + 4 end
 
 	local function endVisit(token)
-		if not cur or (token ~= nil and cur.token ~= token) then return end
+		if not cur or (token ~= nil and cur.token ~= token) then
+			if parked and token ~= nil and parked.token == token then parked = nil end -- he ended while parked: not brought back
+			return
+		end
+		local wasDayOne = cur.source == "dayone"
 		cur, forced = nil, false
 		setPortrait(nil) -- his copy goes with his visit
 		gui:SetAttribute("Token", ""); gui:SetAttribute("Card", ""); gui:SetAttribute("Choices", 0)
 		resetFooter()
 		refresh(true)
+		if wasDayOne and parked then -- the walk-in visit the Day One card stood over comes back (ruling b)
+			local k = parked
+			parked = nil
+			arrive(k.raw, nil, k)
+		end
 	end
 	local function hideResult()
 		resultSerial += 1
@@ -582,20 +603,31 @@ function M.Build(Theme)
 		CardFeel.Result(r, dawUp())
 	end
 
-	-- src: "dayone" when it came on the DayOne remote (or its Get), nil for a walk-in
-	local function arrive(p, src)
+	-- src: "dayone" when it came on the DayOne remote (or its Get), nil for a walk-in. keep: a parked walk-in visit coming
+	-- back (endVisit): painted from its own payload, with its seen, told and forced kept
+	arrive = function(p, src, keep)
 		if type(p) ~= "table" or type(p.card) ~= "table" then return end
 		local dayone = src == "dayone"
 		-- the same Day One card again (the Build's DayOne_Get and its "arrive" both brought it): already up, no second riser
 		if dayone and cur and p.token ~= nil and cur.token == p.token then return end
+		-- a Day One card over a walk-in visit's card (the server sends only a `now` card over one, and only while that card
+		-- is deferred: ruling b): the visit is parked, its state with it, and comes back when the Day One card ends
+		if dayone and cur and cur.source ~= "dayone" then
+			cur.forced = forced
+			parked = cur
+		end
 		local c = p.card
 		local v = type(c.visitor) == "table" and c.visitor or {}
 		-- beatText: the second footer line for the payload's beat (nil: none); beatGood: a best beat to show. A Day One
 		-- card's header, bottom label, `now` and missing face (see the file's header)
 		cur = { token = p.token, card = c, today = p.today, max = p.max, beatText = CardFeel.BeatLine(c.beat, c.beatMin), beatGood = type(c.beat) == "table",
 			source = dayone and "dayone" or nil, now = dayone and p.now == true,
-			walk = (dayone and type(p.walk) == "string" and p.walk ~= "") and p.walk or nil, noFace = dayone and v.id == nil }
+			walk = (dayone and type(p.walk) == "string" and p.walk ~= "") and p.walk or nil, noFace = dayone and v.id == nil, raw = p }
 		forced = false
+		if keep then
+			cur.seen, cur.told, forced = keep.seen, keep.told, keep.forced == true
+			shown.deferred = keep.told -- the tell below compares with what the server was last told for this card
+		end
 		nameL.Text = tostring(v.name or "?")
 		tagL.Text = tostring(c.tag or v.style or "")
 		header.Text = (dayone and type(p.header) == "string" and p.header ~= "") and p.header
@@ -621,8 +653,10 @@ function M.Build(Theme)
 	-- "beat" (fix round 1): your best beat changed while his card waits or shows. The open visit's beat, line and choice
 	-- texts are replaced in place and the card laid out again (same token: no riser, no re-arm, the hint stays)
 	local function beatUpdate(p)
-		if not cur or type(p) ~= "table" or p.token ~= cur.token then return end
-		local c = cur.card
+		if type(p) ~= "table" then return end
+		local vis = (cur and p.token == cur.token and cur) or (parked and p.token == parked.token and parked) or nil
+		if not vis then return end
+		local c = vis.card
 		c.beat = p.beat
 		if type(p.line) == "string" then c.line = p.line end
 		if type(p.choices) == "table" and type(c.choices) == "table" then
@@ -630,7 +664,8 @@ function M.Build(Theme)
 				if type(ch) == "table" and type(p.choices[i]) == "string" then ch.text = p.choices[i] end
 			end
 		end
-		cur.beatText, cur.beatGood = CardFeel.BeatLine(c.beat, c.beatMin), type(c.beat) == "table"
+		vis.beatText, vis.beatGood = CardFeel.BeatLine(c.beat, c.beatMin), type(c.beat) == "table"
+		if vis ~= cur then return end -- parked: painted from its card when it comes back
 		lineL.Text = (type(c.line) == "string" and c.line ~= "") and ("“" .. c.line .. "”") or ""
 		paintChoices()
 		gui:SetAttribute("BeatUpdates", (tonumber(gui:GetAttribute("BeatUpdates")) or 0) + 1)
@@ -681,7 +716,8 @@ function M.Build(Theme)
 	local function leave(payload)
 		-- he left before his card ever showed (deferred until it expired, you left the hub or respawned): his news was
 		-- applied on arrival, so it still gets told
-		local nw = cur and cur.token == payload.token and not cur.seen and cur.card.news
+		local vis = (cur and cur.token == payload.token and cur) or (parked and parked.token == payload.token and parked) or nil
+		local nw = vis and not vis.seen and vis.card.news
 		if type(nw) == "table" and tostring(nw.headline or "") ~= "" then table.insert(queued, nw) end
 		-- he gave up waiting (the card stood for the whole limit): his note, through the result card
 		local n = payload.note

@@ -23,8 +23,8 @@ end
 local out = {}
 
 -- a literal copy of Config.DayOne (src/ReplicatedStorage/OK/Config.lua); spec/day_one_spec.lua holds the same
-local FIXTURE = { Enabled = true, FirstCard = 1, WakeWait = 20, LookAround = 30, ReturnMin = 15, HoldMax = 70, CardSeconds = 180,
-	AfterDeliver = 3, AfterSpeakers = 4, VisitAfter = { 5, 7 }, HaggleOdds = 50, HaggleBonus = 50, PrivateXP = 10 }
+local FIXTURE = { Enabled = true, FirstCard = 1, WakeWait = 20, LookAround = 30, ReturnMin = 15, HoldMax = 70, HoldTakenMax = 240,
+	CardSeconds = 180, AfterDeliver = 3, AfterSpeakers = 4, VisitAfter = { 5, 7 }, HaggleOdds = 50, HaggleBonus = 50, PrivateXP = 10 }
 
 -- (1) the remotes ----------------------------------------------------------------------------------------------------
 local Remotes = RS.OK:FindFirstChild("Remotes")

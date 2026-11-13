@@ -68,8 +68,9 @@ W.Visitors = {
 	  style = "aura in a jar", color = { 150, 120, 200 }, sig = "none", check = "research/wave1_names_2026-10-27.md#jarman" },
 	{ id = "stranger", kind = "weird", names = { parody = "A STRANGER FROM ABROAD", fiction = "A FARAWAY VISITOR" },
 	  style = "from far away", color = { 200, 140, 90 }, sig = "none", check = "research/wave1_names_2026-10-27.md#stranger" },
-	-- the critter: no walker; Visitor.SpawnSpot puts its own figure on the lounge coffee table (sig unused)
-	{ id = "pigeon", kind = "critter", names = { parody = "A PIGEON", fiction = "A CITY PIGEON" }, style = "lounge regular",
+	-- the critter: no walker; Visitor.SpawnSpot puts its own figure on the hub's lounge coffee table, or at a bedroom's
+	-- CritterSpot (sig unused)
+	{ id = "pigeon", kind = "critter", names = { parody = "A PIGEON", fiction = "A CITY PIGEON" }, style = "feathered regular",
 	  color = { 130, 135, 145 }, sig = "none", check = "research/wave1_names_2026-10-27.md#pigeon" },
 	{ id = "blockkid", kind = "local", names = { parody = "A KID FROM THE BLOCK", fiction = "A KID FROM DOWN THE STREET" },
 	  style = "up and coming", color = { 255, 120, 60 }, sig = "cap", check = "research/wave1_names_2026-10-27.md#blockkid" },
@@ -1141,9 +1142,9 @@ W.Cards = {
 		  good = { key = "fed", headline = "FED", tone = "win", aura = 10, rel = { score = 1, flag = "fed" },
 			text = "You ate, you laughed, and you came back to the beat sharper.",
 			line = "see? now you look like a person again" } },
-		{ text = "Share the plate with the whole lounge.", sure = true,
+		{ text = "Share the plate with everyone.", sure = true,
 		  good = { key = "shared", headline = "SHARED THE PLATE", tone = "win", followers = 200, aura = 5,
-			text = "Everyone in the lounge ate. Somebody posted the plate.",
+			text = "Everyone ate. Somebody posted the plate.",
 			line = "next time i'm bringing two plates" } },
 		{ text = "Eat at the desk and keep working.", sure = true,
 		  good = { key = "desk", headline = "BACK TO WORK", tone = "neutral", rel = { score = -1 },
@@ -1333,10 +1334,10 @@ W.Cards = {
 			text = "He left a postcard on the desk and went on his way.",
 			line = "visit sometime. they'd go crazy" } },
 	  } },
-	-- the pigeon (design 4.3): a critter, not a walker. Visitor.SpawnSpot puts it on the lounge coffee table and the card
-	-- opens wherever the player is in the hub, so the tag always names the lounge (fixed text, no token, no room check;
-	-- plan amendment F13). It flies off after the result
-	{ id = "weird_pigeon", visitor = "pigeon", cap = { group = "weird", per = "day", max = 1 }, tag = "THE LOUNGE · COFFEE TABLE",
+	-- the pigeon (design 4.3): a critter, not a walker. Visitor.SpawnSpot puts it on the hub's lounge coffee table or at a
+	-- bedroom's CritterSpot, and the card opens wherever the player is, so the tag and the words name no room (fixed text,
+	-- no token, no room check; plan amendment F13; Day One copy doc section 8). It flies off after the result
+	{ id = "weird_pigeon", visitor = "pigeon", cap = { group = "weird", per = "day", max = 1 }, tag = "UNINVITED · THE DOOR WAS OPEN",
 	  line = "coo.",
 	  choices = {
 		{ text = "Sample the coo.", odds = 50,
@@ -1347,12 +1348,12 @@ W.Cards = {
 			text = "It flew off before you hit record. You got the sound of one wing.",
 			line = "coo." } },
 		{ text = "Give it a crumb from the desk.", sure = true,
-		  good = { key = "fed", headline = "LOUNGE MASCOT", tone = "win", aura = 5,
-			text = "It ate the crumb and stayed for the whole session. The lounge has a mascot now.",
+		  good = { key = "fed", headline = "NEW MASCOT", tone = "win", aura = 5,
+			text = "It ate the crumb and stayed for the whole session. You have a mascot now.",
 			line = "coo coo." } },
-		{ text = "Shoo it off the table.", sure = true,
+		{ text = "Shoo it out the door.", sure = true,
 		  good = { key = "shooed", headline = "SHOOED", tone = "neutral",
-			text = "It hopped down, walked two laps of the lounge and left through the door you opened.",
+			text = "It walked two laps of the room and left through the door you opened.",
 			line = "...coo." } },
 	  } },
 

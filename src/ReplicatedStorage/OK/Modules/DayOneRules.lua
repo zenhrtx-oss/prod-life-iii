@@ -92,12 +92,21 @@ function M.Bonus(d1, briefId, starterId, first, amount)
 end
 
 -- true while Day One holds the first-ever walk-in (the DayOneBusy attribute): the chain isn't done, and a card is open
--- or queued, or fewer than cfg.HoldMax seconds have passed since the chain started
-function M.Holds(chain, now, cfg)
+-- or queued, or fewer than cfg.HoldMax seconds have passed since the chain started, or (the final fix, review Important
+-- 1, ruling a) the saved `tour` has the request taken and not yet delivered (you're making your first beat, whichever
+-- brief you took) and fewer than cfg.HoldTakenMax seconds have passed since the chain started: the first visitor never
+-- walks in mid-beat, and an abandoned beat still meets him once HoldTakenMax has passed. A done or skipped tour, no
+-- tour or a junk one reads as not making a beat (the old rule)
+function M.Holds(chain, now, cfg, tour)
 	if type(chain) ~= "table" or chain.done then return false end
 	if type(chain.card) == "table" or type(chain.pending) == "table" then return true end
 	local t, s = num(now), num(chain.started)
-	return (t ~= nil and s ~= nil and t - s < cfg.HoldMax)
+	if t == nil or s == nil then return false end
+	if t - s < cfg.HoldMax then return true end
+	if type(tour) ~= "table" or tour.done or tour.skipped then return false end
+	local g = gotOf(tour)
+	local cap = num(cfg.HoldTakenMax)
+	return g.take == true and not g.deliver and cap ~= nil and t - s < cap
 end
 
 -- what the loop does now, the first that holds:

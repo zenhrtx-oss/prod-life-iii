@@ -4,11 +4,16 @@
 -- OK_WalkIn or the beat maker, the beat maker closed (card 1 isn't shown over it), the camera given back. MuteMonitors
 -- must be off (else the room listener makes no sound: a stray click on the HUD's speaker button?). A Toast listener is
 -- connected first: the done toast comes inside Tour.Finish.
--- (1) Card 1 opens by itself (OK_WalkIn Open, Card day1_dayone). Command "choose:1" (On it. Make it now.): LastChoose
---     "ok", the card closes, and the beat maker (OK_DAW.DAW) opens at the bedroom laptop, its Monitors button reading
---     "🔊 ON SPEAKERS" (the OpenDAW payload's room), the Request card's Active the starter brief (j1) and its Overlay
---     "presets" (the OpenDAW payload's presets: DAWClient shows the preset chooser once the request is active). The
---     card's Command "preset:BOUNCE": BOUNCE's pattern and BPM loaded, Overlay "none".
+-- (1) Card 1 opens by itself (OK_WalkIn Open, Card day1_dayone). Command "choose:2" (Haggle: ask for JUNO's pay +
+--     HaggleBonus; t124a fixed the roll good; the D1-T7 final fix, review Important 2): LastChoose "ok", the card closes,
+--     and the beat maker (OK_DAW.DAW) opens at the bedroom laptop (the haggle goes on as Make it now). While it is open,
+--     JUNO's answer is read on top of it: the toast label (PlayerGui.OK_Toast.Toast, PanelUI's own toast gui) shows
+--     Data/DayOne's Toasts.haggleGood filled ("she said yes. $450 when it's done."), Visible, its gui enabled with a
+--     DisplayOrder above OK_DAW's and OK_Coach's, and its rect overlaps the beat maker's window (so on top is what makes
+--     it readable). Then the Monitors button reads "🔊 ON SPEAKERS" (the OpenDAW payload's room), the Request card's
+--     Active is the starter brief (j1) and its Overlay "presets" (the OpenDAW payload's presets: DAWClient shows the
+--     preset chooser once the request is active). The card's Command "preset:BOUNCE": BOUNCE's pattern and BPM loaded,
+--     Overlay "none".
 -- (2) The coach mark (PlayerGui.OK_Coach, Modules/CoachUI): CoachStep "deliver" and, at the real size (desktop, not
 --     Compact; the Request card's Message empty), CoachVisible true on CoachAnchor "Deliver". The pill (OK_Coach.Mark)
 --     reads Data/DayOne's Marks.deliver, is Active false and isn't a GuiButton, and OK_Coach holds no GuiButton at all.
@@ -56,6 +61,8 @@ local Artists = require(RS.OK.Data.Artists)
 local DAWCfg = require(RS.OK.Modules.DAWConfig)
 local RED = " (before the D1-T5 sync of Modules/CoachUI, OK/ClientMain and OK/DAWClient: the expected red)"
 local RED1 = " (before the D1-T5 fix 1 sync of Modules/CoachUI: the expected red)"
+local RED7 = " (before the D1-T7 final fix sync of Modules/PanelUI: the expected red)"
+local Format = require(RS.OK.Modules.Format)
 local SPEAKERS = "🔊 ON SPEAKERS" -- the Monitors button at a room's laptop (rooms copy §4.5)
 local STARTER = Rules.Starter(Artists.Briefs)
 local BOUNCE
@@ -147,11 +154,28 @@ local function run()
 	assert(player:GetAttribute("MuteMonitors") ~= true, "MuteMonitors is on at the start (a stray click on the HUD's speaker button?): the room listener would make no sound")
 	fresh()
 
-	-- 1. card 1: Make it now opens the beat maker at the bedroom laptop on its preset chooser
+	-- 1. card 1: the haggle (good) opens the beat maker at the bedroom laptop on its preset chooser, JUNO's yes on top
+	local GOOD, unfilled = Rules.Fill(D.Toasts.haggleGood, { ask = Format.Money(STARTER.reward.cred + C.HaggleBonus) })
+	assert(not unfilled, "Data/DayOne's haggleGood keeps a token: " .. GOOD)
 	assert(waitFor(function() return wg:GetAttribute("Open") == true and wg:GetAttribute("Card") == "day1_dayone" end, 10),
 		"no Day One card 1 open within 10 s: " .. cardState() .. "; want day1_dayone open (t124a's Start sent it)")
-	choose("1 card 1", 1)
-	assert(waitFor(function() return daw.Visible end, 5), "1: the beat maker didn't open within 5 s of Make it now (DayOne's make: DAW.OpenFor at the bedroom laptop, t124a's stand spot)")
+	choose("1 card 1", 2)
+	assert(waitFor(function() return daw.Visible end, 5), "1: the beat maker didn't open within 5 s of the haggle (DayOne's haggle goes on as make: DAW.OpenFor at the bedroom laptop, t124a's stand spot)")
+	local tg = pg:WaitForChild("OK_Toast", 5)
+	assert(tg and tg:IsA("ScreenGui"), "1: no PlayerGui.OK_Toast ScreenGui (PanelUI's toast gui)" .. RED7)
+	local tl = tg:FindFirstChild("Toast")
+	assert(tl and tl:IsA("TextLabel"), "1: OK_Toast has no Toast label")
+	assert(waitFor(function() return tl.Visible and tl.Text == GOOD end, 5), "1: the toast label reads '" .. tl.Text .. "' (visible " .. tostring(tl.Visible)
+		.. ", " .. tostring(tg:GetAttribute("Queued")) .. " waiting), want '" .. GOOD .. "' (JUNO's answer to the haggle; toasts seen: "
+		.. (#toasts > 0 and table.concat(toasts, " | ") or "none") .. ")")
+	assert(daw.Visible and dawGui.Enabled, "1: the beat maker closed before JUNO's answer was read")
+	local coachGui = pg:FindFirstChild("OK_Coach")
+	assert(tg.Enabled and tg.DisplayOrder > dawGui.DisplayOrder and (not coachGui or tg.DisplayOrder > coachGui.DisplayOrder), string.format(
+		"1: OK_Toast is enabled %s at DisplayOrder %d, OK_DAW at %d, OK_Coach at %s; want it enabled and above both (drawn over the beat maker)",
+		tostring(tg.Enabled), tg.DisplayOrder, dawGui.DisplayOrder, coachGui and tostring(coachGui.DisplayOrder) or "-"))
+	local tRect, wRect = abs(tl), abs(daw)
+	assert(overlaps(tRect, wRect), "1: the toast " .. fmt(tRect) .. " doesn't overlap the beat maker's window " .. fmt(wRect)
+		.. ": the check proves nothing (want the toast's spot under the window, so on top is what shows it)")
 	local mon = daw:FindFirstChild("Monitors", true)
 	assert(mon and mon:IsA("GuiButton") and waitFor(function() return mon.Text == SPEAKERS end, 3), "1: the Monitors button reads '" .. tostring(mon and mon.Text)
 		.. "', want '" .. SPEAKERS .. "' (opened at a room's laptop: the OpenDAW payload's room)")
@@ -162,7 +186,8 @@ local function run()
 	cmd("preset:BOUNCE")
 	assert(waitFor(function() return daw:GetAttribute("Pattern") == BOUNCE.pattern and daw:GetAttribute("BPM") == BOUNCE.bpm and req:GetAttribute("Overlay") == "none" end, 3),
 		"1: preset:BOUNCE: Overlay '" .. tostring(req:GetAttribute("Overlay")) .. "', BPM " .. tostring(daw:GetAttribute("BPM")) .. "; want BOUNCE loaded and Overlay none")
-	table.insert(out, string.format("1 Make it now: ok; the beat maker open at the bedroom laptop (%s), Active %s, Overlay presets; BOUNCE loaded, Overlay none", mon.Text, STARTER.id))
+	table.insert(out, string.format("1 Haggle (good): ok; the toast '%s' shown on top of the open beat maker (OK_Toast %d over OK_DAW %d, its %s over the window %s); the beat maker at the bedroom laptop (%s), Active %s, Overlay presets; BOUNCE loaded, Overlay none",
+		GOOD, tg.DisplayOrder, dawGui.DisplayOrder, fmt(tRect), fmt(wRect), mon.Text, STARTER.id))
 
 	-- 2. the coach mark on DELIVER (desktop) or the request chip (phones)
 	local coach = pg:WaitForChild("OK_Coach", 5)

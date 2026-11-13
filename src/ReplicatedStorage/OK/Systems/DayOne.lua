@@ -17,12 +17,17 @@
 --   2 is up keeps card 2 and its first beat). The chain's beat ({ pattern, bpm, swing }) and room (the delivery laptop's
 --   room Model) are set when card 2 is queued.
 -- * Sending: a queued card goes out only while no walk-in is in flight (WalkIns.Busy) and no phone DM is open
---   (PhoneBusy); else it waits and the 1 s loop retries. At send time a card the saved tour no longer names
---   (DayOneRules.Stale, ruling B1) is dropped unsent. A new card closes any open one first ("leave").
+--   (PhoneBusy); else it waits and the 1 s loop retries. One fallback (the final fix, review Important 1, ruling b): a
+--   `now` card (2 and 3, shown over the beat maker) goes out over a visit whose arrived card the client has deferred
+--   (WalkIns.CardDeferred: hidden under the beat maker, the compact one on a phone, where it can't be seen at all); the
+--   visit stays in flight and its card shows after (WalkInUI parks it under the Day One card), so one card is on screen.
+--   At send time a card the saved tour no longer names (DayOneRules.Stale, ruling B1) is dropped unsent. A new card
+--   closes any open one first ("leave").
 -- * The 1 s loop runs every started chain, the test hold or not: DayOneRules.Due (expire, then send, then card 1's one
 --   return: the sender sets returned = true and clears returnAt in the same step, F1), then the player attribute
---   DayOneBusy = DayOneRules.Holds (true while a card is open or queued, or for HoldMax s from the chain's start), which
---   holds Systems/WalkIns' countdown and scheduler. A finished chain is skipped (F4).
+--   DayOneBusy = DayOneRules.Holds on the saved tour (true while a card is open or queued, or for HoldMax s from the
+--   chain's start, or, while the request is taken and not yet delivered, for HoldTakenMax s from it: the final fix,
+--   ruling a), which holds Systems/WalkIns' countdown and scheduler. A finished chain is skipped (F4).
 -- * Card 1's choices (DayOne_Choose(token, index); 0 is SKIP; an index past the card's choices is "invalid", a token that
 --   isn't the open card's "stale", and the card stays as it was; an open card the saved tour no longer names, say card 1
 --   after the request was taken at the laptop's picker, is closed and the choice refused as "stale", with nothing applied:
@@ -212,10 +217,11 @@ end
 -- an open card the saved tour no longer names (DayOneRules.Stale; ruling B1 for the open card, fix round 1); a staged
 -- card (the hook's Show) never is
 local function staleCard(p, card) return card ~= nil and not card.staged and Rules.Stale(tourOf(p), card.id) end
--- DayOneBusy from DayOneRules.Holds, for the player's running chain only
+-- DayOneBusy from DayOneRules.Holds on the saved tour (a taken, undelivered request holds until HoldTakenMax: ruling a),
+-- for the player's running chain only
 local function busy(p, chain)
 	if not alive(p, chain) then return end
-	p:SetAttribute("DayOneBusy", Rules.Holds(chain, os.clock(), C) == true)
+	p:SetAttribute("DayOneBusy", Rules.Holds(chain, os.clock(), C, tourOf(p)) == true)
 end
 -- the open card closed on the client ("leave"); false when none was open
 local function close(p, chain, why)
@@ -239,17 +245,22 @@ local function send(p, chain, id)
 	log(p, { kind = "arrive", id = id, token = token, payload = payload })
 	return payload
 end
--- a walk-in in flight or a phone DM open: a queued Day One card waits (one card at a time)
-local function blocked(p)
+-- a walk-in in flight or a phone DM open: queued Day One card `id` waits (one card at a time). The fallback (ruling b):
+-- a `now` card isn't held by a visit whose arrived card is deferred on the client (WalkIns.CardDeferred), only by a phone
+-- DM or a visit the player can see or is about to (walking in, or his card on screen)
+local function blocked(p, id)
 	if p:GetAttribute("PhoneBusy") == true then return true end
 	local W = walkIns()
-	return W ~= nil and W.Busy(p) == true
+	if W == nil or W.Busy(p) ~= true then return false end
+	local def = D.Cards[id]
+	local overDaw = type(def) == "table" and def.now == true
+	return not (overDaw and type(W.CardDeferred) == "function" and W.CardDeferred(p) == true)
 end
 -- the queued card out now, unless something blocks it (it stays queued); one the saved tour no longer names is dropped
 -- (ruling B1). True when a card went out
 local function sendPending(p, chain)
 	local pend = chain.pending
-	if not pend or blocked(p) then return false end
+	if not pend or blocked(p, pend.id) then return false end
 	chain.pending = nil
 	if Rules.Stale(tourOf(p), pend.id) then return false end
 	chain.beat = chain.beat or pend.beat -- set once (m9): card 2 plays the beat it was first queued with

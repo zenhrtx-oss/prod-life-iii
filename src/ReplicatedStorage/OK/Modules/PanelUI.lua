@@ -18,6 +18,13 @@
 -- purchase or unlock keeps a gamepad's place on the row it was on, and the scroll position; a new tab or an opening panel
 -- starts at the top. On a short panel (a phone) the keyboard footer gives its room to Content. OK_UI's ForceViewport
 -- attribute (tests) sizes the panel as that viewport would.
+-- Toasts (C.Toast; the D1-T7 final fix, review Important 2) sit in their own ScreenGui, PlayerGui.OK_Toast (label Toast),
+-- beside the panel's gui with its insets: DisplayOrder TOAST_ORDER (7), over the beat maker (OK_DAW, 5), the coach mark and
+-- the cypher (6), so a toast fired while the beat maker is open is read, and under the walk-in and Day One cards (OK_WalkIn,
+-- 8, whose result card shares the toast's bottom-centre spot), the phone (9) and the level-up banner (10), as before. One
+-- shows at a time for TOAST_SECONDS (2.5); a new one waits its turn instead of overwriting the one on screen (a repeat of
+-- the one showing restarts its time, as before; a repeat of one already waiting is dropped; at most TOAST_WAITING wait,
+-- the oldest dropped first). Its Queued attribute counts the waiting ones.
 local RS = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local Format = require(RS.OK.Modules.Format)
@@ -48,6 +55,8 @@ local function needsText(needs)
   return table.concat(out, " · ")
 end
 M.Title = "PROD LIFE III"
+-- the toasts' own gui (see the header)
+local TOAST_GUI, TOAST_ORDER, TOAST_SECONDS, TOAST_WAITING = "OK_Toast", 7, 2.5, 4
 function M.Build(gui, Theme)
   local function new(class, props, parent) local i = Instance.new(class); for k, v in pairs(props) do i[k] = v end; i.Parent = parent; return i end
   local function corner(p, r) new("UICorner", {CornerRadius = UDim.new(0, r or 10)}, p) end
@@ -69,9 +78,16 @@ function M.Build(gui, Theme)
   corner(content, 10)
   local list = new("UIListLayout", {Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder}, content)
   new("UIPadding", {PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12), PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10)}, content)
+  -- the toast's own gui (see the header): a sibling of `gui` in PlayerGui with its insets (one left by an earlier Build
+  -- goes first, so only one Toast label exists)
+  local toastParent = gui.Parent or gui
+  local oldToasts = toastParent:FindFirstChild(TOAST_GUI)
+  if oldToasts and oldToasts:IsA("ScreenGui") then oldToasts:Destroy() end
+  local toastGui = new("ScreenGui", {Name = TOAST_GUI, ResetOnSpawn = false, DisplayOrder = TOAST_ORDER, ScreenInsets = gui.ScreenInsets, ZIndexBehavior = gui.ZIndexBehavior}, toastParent)
+  toastGui:SetAttribute("Queued", 0)
   -- the toast wraps rather than cut a line: 360 wide, at least 40 tall, growing upward from its bottom edge (the rooms
   -- plan's Task 6: copy §3.1 with a long owner name runs to two lines)
-  local toast = new("TextLabel", {Name = "Toast", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -24), Size = UDim2.fromOffset(360, 40), AutomaticSize = Enum.AutomaticSize.Y, TextWrapped = true, BackgroundColor3 = Theme.panel, TextColor3 = Theme.text, Font = Theme.font, TextSize = 16, Text = "", Visible = false}, gui)
+  local toast = new("TextLabel", {Name = "Toast", AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -24), Size = UDim2.fromOffset(360, 40), AutomaticSize = Enum.AutomaticSize.Y, TextWrapped = true, BackgroundColor3 = Theme.panel, TextColor3 = Theme.text, Font = Theme.font, TextSize = 16, Text = "", Visible = false}, toastGui)
   corner(toast, 10); new("UIStroke", {Color = Theme.accent2, Thickness = 1}, toast)
   new("UIPadding", {PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10), PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6)}, toast)
   local footer = new("TextLabel", {Name = "Footer", Size = UDim2.new(1, -36, 0, 36), Position = UDim2.new(0, 18, 1, -48), BackgroundTransparency = 1, Text = "", TextColor3 = Theme.muted, Font = Theme.font, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left}, panel)
@@ -493,8 +509,30 @@ function M.Build(gui, Theme)
   end
   -- a background career fetch is out (the client's Studio test seam waits on it)
   function C.CareerLoading() return careerSince ~= nil end
-  local toastToken = 0
-  function C.Toast(text) toastToken += 1; local my = toastToken; toast.Text = text; toast.Visible = true; task.delay(2.5, function() if toastToken == my then toast.Visible = false end end) end
+  -- toasts, one at a time (see the header). `showing` is the text on screen by this queue's own record, never read back
+  -- from the label (a test may blank the label's text)
+  local toastToken, showing, waiting = 0, nil, {}
+  local function showToast(text)
+    toastToken += 1; local my = toastToken
+    showing = text; toast.Text = text; toast.Visible = true
+    toastGui:SetAttribute("Queued", #waiting)
+    task.delay(TOAST_SECONDS, function()
+      if toastToken ~= my then return end
+      local nextText = table.remove(waiting, 1)
+      if nextText ~= nil then showToast(nextText); return end
+      showing = nil; toast.Visible = false
+      toastGui:SetAttribute("Queued", 0)
+    end)
+  end
+  function C.Toast(text)
+    if type(text) ~= "string" then text = tostring(text or "") end
+    if showing == nil or text == showing then showToast(text); return end -- nothing on screen, or the same again: now
+    for _, w in ipairs(waiting) do if w == text then return end end -- already waiting
+    if #waiting >= TOAST_WAITING then table.remove(waiting, 1) end
+    table.insert(waiting, text)
+    toastGui:SetAttribute("Queued", #waiting)
+  end
+  C.ToastGui = toastGui
   return C
 end
 return M

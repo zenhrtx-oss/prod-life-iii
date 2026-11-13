@@ -28,7 +28,10 @@
 --     room's folder is untouched. Stop takes it off the air.
 -- On any error, and after success: any play of the player's stopped, unseated in the lounge, the gear put back as it
 -- was (ResetGear, then GrantGear the noted ids), the rooms Reset, everything else reset, the tour's noted steps done
--- again (a finished tour finished again, as t104a's cleanup), hold on, Quiet off; the error is rethrown.
+-- again (a finished tour finished again, as t104a's cleanup), hold on, Quiet off, then the test hook's ProfileRestore
+-- (its ProfileMark is run()'s first step: money, XP and level, gear, the gate logs, the tour, the hints, the sessions; the
+-- D1-T7 final fix: finishing the noted tour again paid the real tour XP, +50, which with t104a's put t16 a level ahead)
+-- and the career hook's Publish; the error is rethrown.
 -- Tail for t106b and t106c, after the cleanup and only on success: the noted gear ids in the player attribute _T106Gear
 -- (t106c puts them back), WakeUp (the player in their bedroom), and GrantGear("spk_monitors"), so t106b finds tier 2
 -- speakers in the bedroom (awaited here, at most 5 s).
@@ -196,6 +199,8 @@ local function fresh(label)
 end
 
 local function run()
+	local mk = test:Invoke("ProfileMark", uid) -- first, before anything changes (the cleanup's ProfileRestore)
+	assert(mk == true, "the test hook's ProfileMark answered " .. tostring(mk) .. ", want true (sync ServerScriptService/OK/Main: D1-T3 fix 1)")
 	gearBefore, tourBefore = ownedGear(), tourNow()
 	assert(wi:Invoke("Pause", uid, true) == true, "Pause(true) failed")
 	fresh("speakers")
@@ -347,7 +352,12 @@ pcall(function()
 	if tourBefore then restoreTour(tourBefore) end
 	ph:Invoke("Quiet", uid, false)
 end)
+-- the profile as ProfileMark noted it (finishing the noted tour again paid its XP: taken back here)
+local restored
+pcall(function() restored = test:Invoke("ProfileRestore", uid) end)
+pcall(function() career:Invoke("Publish", uid) end) -- Career_Get's cached Money dropped, the career attributes sent again
 if not ok then error(msg, 0) end
+assert(restored == true, "cleanup: the test hook's ProfileRestore answered " .. tostring(restored) .. ", want true")
 -- tail for t106b and t106c, after the cleanup: the noted gear for t106c, the player in their bedroom with tier 2 speakers
 p:SetAttribute("_T106Gear", table.concat(gearBefore, ","))
 assert(rooms:Invoke("WakeUp", uid) == true, "tail: WakeUp returned false")

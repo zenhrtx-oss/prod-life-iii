@@ -90,10 +90,13 @@
 --   (State, Filler, Chips, Names, Busy, DueWithin, Aired, OnReset) and WalkIns never requires Phone. The scheduler
 --   holds while the player attribute PhoneBusy is set (an opened DM awaits its choice).
 -- * Day One (the Day One plan, Task 2): while the player attribute DayOneBusy is true (Systems/DayOne: a Day One card is
---   open or due, or its chain started under Config.DayOne.HoldMax seconds ago) the presence timer neither counts down
---   nor re-arms and the scheduler refuses, as for PhoneBusy; the chain's end calls M.ArmFirst(p, seconds), which sets the
---   first-ever visit's timer (count 0, nothing in flight). WalkIns never requires DayOne: it reads the attribute, and
---   DayOne registers its reset through M.OnReset, so the hook's Reset clears a chain too (ruling F6).
+--   open or due, or its chain started under Config.DayOne.HoldMax seconds ago, or under HoldTakenMax while the request
+--   is taken and not yet delivered) the presence timer neither counts down nor re-arms and the scheduler refuses, as for
+--   PhoneBusy; the chain's end calls M.ArmFirst(p, seconds), which sets the first-ever visit's timer (count 0, nothing in
+--   flight). Day One holds its cards while a visit is in flight (M.Busy), except a card shown over the beat maker while
+--   the visit's arrived card is deferred there (M.CardDeferred; the final fix, review Important 1). WalkIns never
+--   requires DayOne: it reads the attribute, and DayOne registers its reset through M.OnReset, so the hook's Reset clears
+--   a chain too (ruling F6).
 -- * Visits that behave like people (design 4.4): a card that stands open for the whole expiry closes with a note on its
 --   "leave" payload ({ name, waited, line }: who, how long he waited, a W.NoteLines parting line; the visit counted at
 --   arrival; telemetry CardExpire and CardNote). No other way a visit ends leaves one. While the client reports the card
@@ -1051,6 +1054,13 @@ end
 
 -- a visit is in flight for p (waiting for a walking slot, walking, or his card open). Safe before Init
 function M.Busy(p) return pending[p.UserId] ~= nil end
+-- p's in-flight visit has arrived and its card is deferred on the client (WalkIn_Deferred: hidden behind the beat maker
+-- or a cutaway). Systems/DayOne lets a card shown over the beat maker go out then (the final fix, review Important 1).
+-- Safe before Init
+function M.CardDeferred(p)
+	local rec = pending[p.UserId]
+	return rec ~= nil and rec.arrived == true and rec.deferred == true
+end
 
 -- the first-ever visit armed `seconds` from now (Systems/DayOne, when Day One's chain ends: Config.DayOne.VisitAfter).
 -- True when it set the timer: the profile is ready, no walk-in has come yet (count 0) and no visit is in flight; else
@@ -1274,9 +1284,9 @@ local function makeHook()
 		if cmd == "SetDay" then local st = state(p); st.day = tonumber(a) or 0; ctx.Data.MarkDirty(p); return true end
 		if cmd == "AdvanceVisits" then local st = state(p); st.count += tonumber(a) or 0; ctx.Data.MarkDirty(p); return true end
 		if cmd == "Choose" then return M.Choose(p, a, b) end
-		if cmd == "Pending" then -- news = the key of the news he arrived with
+		if cmd == "Pending" then -- news = the key of the news he arrived with; deferred = M.CardDeferred
 			local r = pending[uid]
-			return r and { token = r.token, id = r.id, arrived = r.arrived, news = r.news } or nil
+			return r and { token = r.token, id = r.id, arrived = r.arrived, news = r.news, deferred = M.CardDeferred(p) } or nil
 		end
 		if cmd == "Expire" then local r = pending[uid]; if not r then return false end; endVisit(r, "hook"); return true end
 		if cmd == "Age" then -- every clock on the open card moves `a` seconds back: the arrival, the deferral's start and

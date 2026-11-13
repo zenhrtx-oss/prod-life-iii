@@ -8,10 +8,13 @@
 -- ResetSessions, and today's Delivery counts cleared (ResetXPCount and the career hook's ResetCredCount, as t122a), so
 -- JUNO's first delivery pays in full. Then WakeUp (the player in their bedroom, the tour reset) and the player at the
 -- bedroom's stand spot (room-local (2, 0, -3), t106a's and t122a's), where the DAW's StationOf names the bedroom's laptop:
--- "Make it now" opens the beat maker there (within DAWConfig.CloseDistance) and the delivery counts as at your laptop.
+-- "Make it now" (and "Haggle", which goes on as it) opens the beat maker there (within DAWConfig.CloseDistance) and the
+-- delivery counts as at your laptop.
 -- The money is noted in the player attribute _T124Money (t124c wants it + JUNO's 3-star pay). Then the DayOne hook's
 -- Start answers "dayone" and sends card 1 at once: the hook's Open names it, Sent holds its "arrive" (source dayone,
--- three choices) and DayOneBusy is true. It is left open for t124b. Under deferred signals the resets' handlers run a
+-- three choices) and DayOneBusy is true; then the DayOne hook's SetRoll(0.1) fixes the haggle's roll good (the D1-T7 final
+-- fix: t124b haggles and reads JUNO's yes on the toast over the open beat maker; t124c wants the +HaggleBonus once). It is
+-- left open for t124b. Under deferred signals the resets' handlers run a
 -- frame late, so reads after them settle first.
 -- On any error: unseated in the lounge, then the DayOne Reset; the note, the money and the profile mark stay for t124c,
 -- which puts them back; the error is rethrown.
@@ -147,7 +150,8 @@ local function run()
 		"card 1's payload has source " .. tostring(arr.payload.source) .. ", id " .. tostring(arr.payload.card.id) .. "; want dayone, day1_dayone, 3 choices")
 	assert(arr.token == open.token, "the arrive's token " .. tostring(arr.token) .. " is not the open card's " .. tostring(open.token))
 	assert(waitFor(function() return p:GetAttribute("DayOneBusy") == true end, 2), "DayOneBusy is " .. tostring(p:GetAttribute("DayOneBusy")) .. " with card 1 open, want true")
-	table.insert(out, "Start: card 1 (day1_dayone, 3 choices) sent and open, DayOneBusy true; left open for t124b")
+	assert(call("SetRoll", 0.1) == true, "the DayOne hook's SetRoll(0.1) failed") -- after every reset (a reset drops the roll)
+	table.insert(out, "Start: card 1 (day1_dayone, 3 choices) sent and open, DayOneBusy true; the haggle's roll fixed good (0.1); left open for t124b")
 	return table.concat(out, "\n")
 end
 
