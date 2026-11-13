@@ -121,6 +121,13 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
   - `CastRules.Make` ties a new person to one existing close person with chance `Config.People.TieAtBirth = 30`, kind from their role (local_artist → crew or friend, producer_peer → rival or collab, and so on, per §C1).
 - **Ripples:** an outcome's `rels = { { who, score?, flag?, clear?, clearWarn? }, … }` is written in order through `RelWrite`. A `who` that is archived updates `A.sc` only.
 - **Chain slots:** an arc's items carry `chain = "<arcId>"`. Their text and gates may use `$` (the lead, the queue entry's `who`) and `$b` / `$c`.
+  - **Declaring a slot.** The chain's first item declares its slots: `slots = { b = { role = "<roleId>" | written = "<id>", mint? }, c = { role = …, intro = true } }`.
+    - `role` binds through plan 2's `Bind`, and `written` names a written person.
+    - `intro = true` means the slot binds only through an item marked `newSlot = "c"`.
+    - `BindSlot` reads the declaration from the chain's first item (`Content.ChainStart[arcId]`, indexed by Merge).
+  - **The last link.** An item marked `last = true` sets `done = true` when it resolves.
+  - **A dropped promise closes its chain.** When a chain's own promise is let go (`"drop:<id>"`), the chain record sets `done = true` and `dropped = day`. Every queue entry with `ctx.chain == k` is removed, nothing is minted, and the chain's people stop counting as busy.
+  - **The project's own event.** When a chain's own promise is delivered, Systems/Web raises `"project:<k>"`, with k the chain key. Follow-ups waiting on the project wait on `on = "project:<k>"`, never on `"request:<who>"`. A different job for the same person can then never fire, consume or remove them.
   - `prof.walkins.chains[arcId .. ":" .. lead] = { era, start, slots = { b = id, c = id }, done = false }`.
   - A slot is bound once, the first time an item needs it (`WebRules.BindSlot`), and is never re-drawn.
   - An item with `newSlot = "c"` may bind `c` once, when `c` is unset.
@@ -302,7 +309,9 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
   - `prof.walkins.chains`, `prof.grants`, `prof.keepsakes` and `prof.era` defaulted and repaired. Keepsakes are only appended, and a repair never edits one.
   - a chain follow-up's `EventKey` is granted on resolve; a granted one in the queue is removed, never shown
   - an outcome's `keepsake` mints once through `AchKey`
-  - a chain's last link sets `done`
+  - a chain's `last = true` link sets `done`
+  - `"drop:<id>"` closes a chain bound to that promise: its queue entries are removed and nothing is minted
+  - the matching delivery raises `"project:<k>"`
   - plan 2's archive `busy` adds every person in an open chain record
 - Modify: `Systems/Life.lua` / `Modules/LifeRules.lua` `DiscoText`: a keepsake row, with credits shown apart from story people (§C1).
 - Create: `research/endless/era_fields_2026-11-12.md`: which saved fields a new era keeps (gear, fits, sounds, room items, keepsakes, the Hall of Fame source in `life.disco`) and which reset (career, walkins, sessions). This is for the after-launch plan; no code.
@@ -323,6 +332,8 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
     - a test chain bound to g1 binds `$b` (g2) once; a later item asking `$b` gets g2 again
     - a `newSlot = "c"` item binds g3 once
     - a `revise` item changes the credits and records `revised`, while `slots` stay the same people
+    - a follow-up waiting on `"project:<k>"` stays queued when an unrelated promise for g1 is delivered, and arrives after the chain's own promise is delivered
+    - letting the chain's promise go closes the chain, empties its queue entries, mints nothing, and lets the archive take its people again
     - resolving the chain's follow-up twice (re-planted through the hook) grants once and shows once
     - the chain's own promise for g1, once delivered, sets `projectBeat`, and the keepsake pins it
     - a second, unrelated promise for g1, delivered afterwards, leaves `projectBeat` alone
@@ -382,9 +393,35 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
 
 - [ ] **Steps 1–5:** as in Task 6. Commit `E3-T7: arcs 6-10`.
 
-### Task 8: Report and integration
+### Task 8: The underground scene (only once the user locks it)
 
-**Interfaces:** Produces none. It reports on Tasks 1–7.
+> **Gate:** run this task only after the user confirms the underground names and progression **in Claude's session**. On 11-12 ~22:00 the user answered "Not yet" here, after approving them in Codex's session at ~21:57. If they still aren't locked when this plan reaches Task 8, the ledger records "Task 8: skipped, not locked" and Task 9 runs.
+> **Where:** the user chose "Inside the endless plans" (11-12 ~22:00). This whole slice lands here, after E3-T5, never half in plan 2. Every early job keeps its accepted project and its earned origin from the start.
+
+**Files:**
+- Source to adapt, not copy blindly: Codex's `design_input/codex/underground_integration_2026-11-12/`.
+  - `Content.lua` and `content.json`: six visitors of kind `underground`, Juno's walk-in visitor with the same JUNO VALE identity, 6 entry Cards, 19 follow-ups, 12 request templates, `Values` and keepsakes.
+  - `ProgressRules.lua`: a pure candidate for "first paid delivery → intro → two distinct scene projects + one follow-through → headliners".
+  - `checks.lua`.
+  - Re-check every row against the built names (slots, `last`, `project:<k>`, promises). Codex's integration metadata names the keys it couldn't know.
+- Modify: `Data/Web.lua` (the adapted rows); `Modules/WalkInRules.lua` `StarEntry` (people plan Task 9: kind `artist` only, and kind `underground` is never a star entry); `Modules/WebRules.lua` or a new pure `Modules/SceneRules.lua` (the reviewed `ProgressRules`); `Modules/CareerSim.lua`.
+- Modify: `research/endless/copy_2026-11-12.md` §C5, the underground lines with their approval list.
+- Modify: `spec/walkins_data_spec.lua`, `spec/pacing_spec.lua`.
+  - The intro gate opens only on a `"delivery"` with `fields.cred > 0`.
+  - No underground entry comes before `juno.scene_intro`.
+  - The nine stars stay kind `artist` behind `StarsOpen`.
+  - On the 200 seeds, the random player meets an underground artist in week 1 or 2, and every guardrail holds.
+- Create: `build/t167a_play_server.lua`. Juno's paid first delivery → the intro → one artist's entry → its promise → the project delivered → the callback → the keepsake with `beat = "project"`. Then a second project, and a follow-through that opens a headliner.
+
+**Interfaces:**
+- Consumes: Tasks 1–7, plan 2's promises and events, and the people plan's `StarEntry`.
+- Produces: the underground scene.
+
+- [ ] **Steps:** write the failing tests → spec FAIL, controller red → adapt and implement → specs PASS. The controller syncs `Data/Web` and the touched modules, then the refresh; `--edit t40_ t50_ t46` and `--play t167a t165a t135a` → PASS. Commit `E3-T8: the underground scene`.
+
+### Task 9: Report and integration
+
+**Interfaces:** Produces none. It reports on Tasks 1–8.
 
 **Files:**
 - Create: `research/endless/lives_report_2026-11-12.md`:
@@ -402,7 +439,7 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
   - the tracker (Now, Needs you, Done log; spec §10 ticked line by line with its evidence)
   - IDEAS.md
   - snapshot `v46_people_lives`; export; push to GitHub
-- [ ] **Step 5: Commit** `E3-T8: people's lives report and integration`.
+- [ ] **Step 5: Commit** `E3-T9: people's lives report and integration`.
 
 ---
 

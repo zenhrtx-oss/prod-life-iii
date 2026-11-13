@@ -404,7 +404,7 @@ Line numbers are from 11-12; the pre-flight scan re-reads them.
 - Modify the event sources (each a one-line `pcall` call into `Systems/Web.Event`):
   - `Systems/Life.lua` `Event` (:146), which forwards every Life event kind as its own name
   - `Systems/Life.lua` `Tick` (:167): `"day"`
-  - `Systems/Contracts.lua` `Deliver` (:236): `"delivery"`, and `"delivery3"` at 3 stars
+  - `Systems/Contracts.lua` `Deliver` (:236): `"delivery"`, and `"delivery3"` at 3 stars. Both carry `fields = { brief, stars, first, cred = the Money the gate actually paid, xp = the XP it paid }`, so a trigger can tell a paid delivery (`cred > 0`) from a repeat or a refused award.
   - `Systems/Reactions.lua` (:66): `"fire"` to the author
   - `Systems/BeatBattles.lua`: `"cypher_win"`
   - `Systems/Career.lua` `Unlock` (:309): `"buy:" .. gateId`
@@ -488,7 +488,7 @@ Line numbers are from 11-12; the pre-flight scan re-reads them.
   - `Offers` (:116) lists promises first, each with `brief = BriefFor(...)` and `promise = true`
   - `Pick` (:160) accepts a promise id
   - `Deliver` (:236): a promise brief pays once through `Delivery` at its reward, × 1.5 for 3 stars as today. It then removes the promise, raises `"request:<who>"` with `fields = { who, promise = id, beat = { pattern, bpm, stars } }` (the delivered beat, for plan 3's keepsakes) and adds 1 to the person's `h`.
-  - `M.Drop(player, id)`: a promise let go writes `rel` −1 for its person and raises `"rel"` as WriteRel does
+  - `M.Drop(player, id)`: a promise let go writes `rel` −1 for its person, raises `"rel"` as WriteRel does, and raises `"drop:" .. id` (plan 3 closes a chain bound to it)
   - `M.State` sends `promises`
   - Picking another request leaves an accepted promise in `promises` (the §4.2 seam).
 - Modify: `Systems/WalkIns.lua` / `Systems/Phone.lua` `apply`: an outcome's `request` calls `Contracts.Promise(p, who, tpl, lv)`. `cardEligible` gets `opts.promisesFull`, which makes a card with any `request` outcome ineligible.
