@@ -190,7 +190,7 @@ Line numbers are from 11-12; the pre-flight scan re-reads them.
   - `"cast:<id>:rise"` / `"cast:<id>:fall"`
   - `"request:<who>"` (a promised beat delivered)
 - **A trigger** (`Data/Web.Triggers`): `{ on = event | prefix .. "*", needs?, under?, chance = 1..100, plant = { id, at?|day?, pri? }, who = "@role" | "$event" | nil }`. `"$event"` is the person the event names, from `fields.who`.
-- **A promise** (`prof.sessions.promises`, at most `Config.Web.MaxPromises = 3`): `{ id = "q" .. n, who, tpl, lv, day, t }`, where `t` is a title index.
+- **A promise** (`prof.sessions.promises`, at most `Config.Web.MaxPromises = 3`): `{ id = "q" .. n, who, tpl, lv, day, t, chain? }`, where `t` is a title index and `chain` is set by plan 3 for a request made inside a chain.
   - Its brief is `WebRules.BriefFor(promise, Web.Requests, names)`:
     - `{ id, artist = who, title, asks, bonus, reward = { cred = tpl.pay[lv], xp = tpl.xp[lv] }, promise = true }`
     - the starting pay table, Claude's call: `pay = { 250, 350, 450, 550, 650 }` and `xp = { 20, 25, 30, 35, 40 }` by level
