@@ -213,14 +213,16 @@ Line numbers are from 11-12; the pre-flight scan re-reads them.
 **Files:**
 - Create: `src/ReplicatedStorage/OK/Modules/WebRules.lua`, with `Merge` only for now. Create: `src/ReplicatedStorage/OK/Data/Web.lua`, the empty skeleton `{ Roles = {}, Visitors = {}, Cards = {}, Followups = {}, Triggers = {}, Requests = {} }`.
 - Create: `spec/web_rules_spec.lua`.
-- Modify every consumer to read `WebRules.Merge(W, Web)`:
-  - `Systems/WalkIns.lua` :130
-  - `Systems/Phone.lua` :62
-  - `Systems/Career.lua` :266
-  - `spec/pacing_spec.lua`, `spec/walkins_data_spec.lua`, `spec/career_sim_spec.lua` wherever they require Data/WalkIns
+- Modify every **runtime and pacing** consumer to read `WebRules.Merge(W, Web)`. Each requires `Data/Web` and `Modules/WebRules` beside Data/WalkIns. The list comes from `grep -rln "Data.WalkIns\|Data/WalkIns" src build spec`, run at the task's start. On 11-12 it was:
+  - `Systems/WalkIns.lua` :130, `Systems/Phone.lua` :62, `Systems/Career.lua` :266, `Modules/Visitor.lua`
+  - any client module the grep finds that reads `Names`, `WaitLines`, `NoteLines` or `VisitorById`; a missed one would show a generated visitor as a raw token
+  - `spec/pacing_spec.lua`, `spec/walkins_data_spec.lua`, `spec/career_sim_spec.lua`, `spec/life_rules_spec.lua`, `spec/format_spec.lua`, `spec/visitor_looks_spec.lua` wherever they read the deck
   - `build/t46_check.lua`
 
-  Each requires `Data/Web` and `Modules/WebRules` beside Data/WalkIns.
+  The ~50 `build/t4x`–`t12x` play files that check today's written content may keep requiring `Data/WalkIns` directly. Any test of Web content reads the merged deck. Record the final list in the ledger.
+- Modify the word scans so new content can't slip past them:
+  - `build/t40_check.lua` (d) and `build/t50_check.lua` add `ReplicatedStorage.OK.Data` to their scan roots (Data/Web now, Data/Cast from Task 2)
+  - `spec/walkins_data_spec.lua` checks the BLOCK words and CRED/Cred over the merged deck's text
 - Modify `spec/walkins_data_spec.lua`: every rule it checks runs over the merged deck. Content from both files obeys the same rules.
 
 **Interfaces:**
@@ -283,15 +285,18 @@ Line numbers are from 11-12; the pre-flight scan re-reads them.
   - `GateOk` (:232) gains a fifth argument, `extra = { lvOf? }` (plan 3 adds `ties` and `warn` to the same table). With `extra.lvOf` it reads `needs.lv` / `under.lv` for the card's visitor. Callers pass `opts.extra`, and every existing call is unchanged with `extra` nil
   - `M.Pick`'s result for a due entry carries `entry.who`
 - Modify: `Modules/WebRules.lua`: `Candidates`, `Bind`, `Resolve`, `NamesFor` (Shared shapes).
-- Modify: `Data/Web.lua`: `Roles` (the six). Add three role follow-ups that keep `homekid`'s chain working for anyone:
+- Modify: `Data/Web.lua`: `Roles` (the six). Add three role follow-ups that carry `homekid`'s chain to every *other* hometown friend:
   - `payback_hometown`, from `payback_homekid`'s text with `{name:$}`
   - `hometown_show`
   - `hometown_album`
 
-  They are copies of kid 1's, with `visitor = "@hometown"` and `$` gates (§B4's first three).
+  They are copies of kid 1's, with `visitor = "@hometown"`, `$` gates and `notWritten = true`, so their candidates leave out the role's written members (§B4's first three).
+  - **`homekid` keeps his own written chain.** When a bind gives `homekid`, the plant goes to `payback_homekid`, and `homekid_show` / `_album` / `_forgot` stay his.
+  - The written chain and the role chain never both run for him.
+  - Outcomes express this as `plant = { id = "payback_hometown", byWho = { homekid = "payback_homekid" } }`, which `WebRules.Resolve` turns into the written id.
 - Modify: `Data/WalkIns.lua` `two_sessions` (:2006-2022):
-  - choice 1's `rel.who = "@hometown"` and `plant = { id = "payback_hometown", at = { 10, 16 } }`
-  - `payback_homekid` stays for queued legacy entries; nothing plants it any more
+  - choice 1's `rel.who = "@hometown"` and `plant = { id = "payback_hometown", at = { 10, 16 }, byWho = { homekid = "payback_homekid" } }`
+  - `payback_homekid` stays, both for queued legacy entries and for every bind that gives `homekid`
 - Modify: `Modules/CareerSim.lua`. `sim.cast` and `sim.castRng = Lcg(seed + 200003)`. `pickNext` passes `bindable`, `today` and `lvOf`. A role pick is bound with `WebRules.Bind` (making through `CastRules.Make`) and resolved before `arrive`. A bound person's `ls` is the day; `Run` returns `cast` and `generatedVisits`, the visits and opened pops whose resolved visitor is a `g` id, by day.
 - Modify: `spec/walkin_rules_spec.lua`, `spec/web_rules_spec.lua`, `spec/career_sim_spec.lua`, `spec/walkins_data_spec.lua`:
   - every `@role` visitor names a declared role
@@ -314,7 +319,8 @@ Line numbers are from 11-12; the pre-flight scan re-reads them.
     - with two entries due, `pri = 5` comes before `pri = nil` even with a later `at`
     - a role card with `bindable` returning false is never picked; returning true, it is
   - **web_rules_spec (Bind):**
-    - on a fresh state `Bind(two_sessions' role item)` returns `"homekid"`
+    - on a fresh state `Bind(two_sessions' role item)` returns `"homekid"`, and `Resolve` with `homekid` turns the plant into `payback_homekid`
+    - a `notWritten` item's candidates never include `homekid`
     - once `homekid` is in `rel`: with candidates `{ "homekid", "g1" }` and a counting rng, the weights are as in Shared shapes
     - `mint = 100` always gives `made = true`
     - no candidates with `item.mint == false` returns nil
@@ -322,9 +328,10 @@ Line numbers are from 11-12; the pre-flight scan re-reads them.
     - a role card with `needs.flags = { "$.helped" }` resolved to `g2` gives `needs.flags = { "g2.helped" }` and `visitor = "g2"`
     - the input is unchanged
   - **career_sim_spec:**
-    - a homer run binds `homekid` first: its `rel.homekid` exists and its queue or firstSeen shows `payback_hometown` with `who = "homekid"`
+    - a homer run binds `homekid` first: its `rel.homekid` exists, and its queue or firstSeen shows `payback_homekid` (via `byWho`), never `payback_hometown` for `homekid`
+    - a second hometown bind on that run is a generated kid, whose chain is `payback_hometown`
     - `rel["@hometown"]` and `rel["$"]` never exist
-    - with `curve` and `Web` empty except the roles, every seed's random results equal plan 1's final numbers (only homer and climber may move)
+    - **exact equality:** on every seed whose run makes at most one hometown bind, random's results equal plan 1's final numbers. The ledger records how many seeds that is. On every seed, every pacing guardrail holds.
 - [ ] **Step 2:** `sh tools/spec.sh walkin_rules web_rules career_sim walkins_data pacing` → FAIL.
 - [ ] **Step 3: Implement.** Pacing must pass, with the numbers in the commit.
 - [ ] **Step 4:** `sh tools/spec.sh` → PASS. Controller: sync `Modules/WalkInRules`, `Modules/WebRules`, `Data/Web`, `Data/WalkIns` and `Modules/CareerSim`, then the refresh; `--edit t46 t69` → PASS (t69's `two_sessions` asserts move to `payback_hometown` and `@hometown`: update them in this task).

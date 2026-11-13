@@ -191,7 +191,8 @@
     - `earn` callers pass their source: walk-in money `"WalkIn"`, requests `"Delivery"`, dailies `"Daily"`, the streak `"Streak"`, the weekly `"Weekly"`, FIRE `"Fire"`, cypher `"Cypher"`.
     - Negative walk-in money and costs stay ungated, as today.
   - **XP:**
-    - deliveries `"Delivery"`, the weekly `"Weekly"`, dailies `"Daily"`, the cypher `"Cypher"`, phone card XP `"Phone"` (replacing `gateXP`, :332)
+    - deliveries `"Delivery"`, the weekly `"Weekly"`, dailies `"Daily"`, phone card XP `"Phone"` (replacing `gateXP`, :332)
+    - the cypher as **two** `"Cypher"` awards, entry XP then win XP (`economy.cypherEnterXP` 10 and `cypherWinXP` 30 replace the lumped `cypherXP` 40), as BeatBattles pays them. Each entered round without a win pays entry XP only.
     - beat saves `"BeatSave"` × `beatSavesPerDay` when given
     - the activity lump stays as it is
   - **Stats:** `addStat` callers that model an award pass `"<source>.<stat>"`: the feeds, walk-in and phone outcomes, and the plaque. The heal keeps its own path.
@@ -216,6 +217,8 @@
 - [ ] **Step 2: Write the failing tests.**
   - **career_sim_spec:**
     - **Hard caps, golden match:** with `input.curve = false` and `SOURCES` given, the random player on all 20 seeds equals the golden file field by field (the route through the gate changes nothing).
+      - Routing every award through the gate can expose a cap the sim never modeled before. For example, a walk-in outcome above `WalkIn.max`, or cypher XP paid as one lump where the server pays two awards.
+      - A mismatch traced to such a difference that was already there before this plan is a **ruling, not a stop**. The ledger records the field that moved and why. The golden file is then re-pinned with that fix alone, before the curve goes in.
     - **The curve on a fixture:** one curved source `{ amount = 100, dailyMax = 1, curve = true }` and a 3-visit day paying 100 each gains 100 + 85 + 70 at step 0.15.
     - **The new inputs:** `requestsPerDay = 8` delivers 8 first-time briefs on day 1 when 8 are takeable; `cypherWinsPerDay = 6` pays 6 wins on day 1.
   - **pacing_spec, the `LONG` block** (both seed sets; the bounds asserted on the 200):
@@ -330,6 +333,7 @@
     - `Unlocks[20]` is the Legend line; `plate_legend.level == 20`
     - `DataService.LevelFor(Config.Levels[20]) == 20`; `LevelFor(3200) == 10`
     - `migrate` on a stored `{ xp = Config.Levels[13] + 1, gear = { plate_legend = true }, v = 5 }` → level 13, and `gear.plate_legend` still true
+    - no rank or Unlocks line contains "CRED" or "Cred", or OK branding (t40 and t50 don't scan Config's ranks)
     - marker `T141 OK`
   - **pacing_spec:** the climb block, as above.
 - [ ] **Step 3:** Controller red `--edit t141_` → FAIL. `sh tools/spec.sh pacing` → FAIL.
