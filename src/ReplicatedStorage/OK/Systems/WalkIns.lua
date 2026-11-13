@@ -21,6 +21,9 @@
 -- * The daily Aura heal (Wave 1b): after 5 s present (the hub or your rooms) each UTC day (once a session), Aura in the
 --   red moves up to Config.Career.Sources.AuraHeal's max toward 0 through Career.Add "AuraHeal", whose gate (dailyMax 1)
 --   holds it to once a UTC day across sessions; a heal that pays sends the toast "the internet forgot. +N AURA".
+-- * The story hands you gear (Your Rooms Task 8): an outcome's `gift` goes through M.Gift in apply (this file's and
+--   Systems/Phone's): Gear.Grant, and when it granted, the toast "NEW GEAR: DESK MONITORS" (none when you already own it).
+--   No money moves and Gear.Bought does not fire.
 -- * The pick is stored in prof.walkins.next until he arrives, so a respawn or a trip away never rerolls it.
 --   A queued sponsor_drop that no longer applies (the deal it was planted for is gone or changed, or Aura is back at
 --   that sponsor's floor) is taken out of the queue when it would be picked, stored pick included, and never applied.
@@ -118,7 +121,8 @@
 --   presence check, and returns what it paid (Your Rooms Task 5);
 --   Rel(userId) returns a copy of prof.walkins.rel, and SetRel(userId,
 --   rel) replaces it with a copy of `rel` (not a table: none) through state()'s repair, never reporting, and returns what
---   it kept).
+--   it kept; Gift(userId, gearId) is M.Gift on a { gift = gearId } outcome: Gear.Grant and its toast, whether it granted,
+--   Your Rooms Task 8).
 local RS, Players = game:GetService("ReplicatedStorage"), game:GetService("Players")
 local RunService, Http = game:GetService("RunService"), game:GetService("HttpService")
 local Config = require(RS.OK.Config)
@@ -227,6 +231,33 @@ local function send(p, kind, payload)
 	end
 	local ok, err = pcall(function() walkInEv:FireClient(p, kind, payload) end)
 	if not ok then report("send " .. kind .. ": " .. tostring(err)) end
+end
+
+-- an outcome's `gift` (Your Rooms Task 8, rooms copy 5): Gear.Grant, and when it granted, the toast "NEW GEAR: DESK MONITORS"
+-- (the gear's name upper-cased; none when the item is already yours or unknown). A walk-in's apply and Systems/Phone's apply
+-- both come through here, so the rule and the toast live once. Gear is required lazily, as Life and Rooms are. A failure is
+-- reported and never thrown: the outcome's stats are already paid (send()'s rule). In Studio the toast is also logged for the
+-- hook's Sent as { kind = "toast", payload = { text } }, the way Systems/Rooms logs its own toasts: a server test can't see
+-- a FireClient. Returns whether it granted
+function M.Gift(p, o)
+	local id = type(o) == "table" and o.gift or nil
+	if type(id) ~= "string" then return false end
+	local ok, granted, name = pcall(function()
+		local Gear = require(RS.OK.Systems.Gear)
+		if not Gear.Grant(p, id) then return false end
+		return true, Gear.Item(id).name
+	end)
+	if not ok then report("gift " .. id .. ": " .. tostring(granted)); return false end
+	if not granted then return false end
+	local text = "NEW GEAR: " .. string.upper(tostring(name))
+	if sentLog then
+		local log = sentLog[p.UserId] or {}
+		sentLog[p.UserId] = log
+		table.insert(log, { kind = "toast", payload = { text = text } })
+	end
+	local okT, errT = pcall(function() RS.OK.Remotes.InteractionEvent:FireClient(p, "Toast", { text = text }) end)
+	if not okT then report("gift toast: " .. tostring(errT)) end
+	return true
 end
 
 -- one player's Pick / Resolve / ResolveNews / Plant draws: SetRng values first (held to [lo, hi]), then random.
@@ -532,8 +563,8 @@ local function showTag(p, applied, tone)
 end
 
 -- apply a Resolve / ResolveNews result after its cost was paid (the Money path): the outcome's money on its own, the
--- stats, the sponsor deal (a signing resets rel.rep), the relationship write (M.WriteRel), a planted follow-up, a
--- cooldown. The first HIT (hits 0 -> more) plants mom_plaque at {1, 2} after the outcome's own plant, as CareerSim does
+-- stats, the sponsor deal (a signing resets rel.rep), the relationship write (M.WriteRel), a gift (M.Gift), a planted
+-- follow-up, a cooldown. The first HIT (hits 0 -> more) plants mom_plaque at {1, 2} after the outcome's own plant, as CareerSim does
 -- (Plant refuses a second while one is queued). A follow-up only the phone delivers (source "phone": clip_context,
 -- giveback_letter) is not planted while Config.Phone is off: queued, nothing could ever pop it and Plant would refuse the
 -- thread for good. Rng order: a Followers Add below that
@@ -560,6 +591,7 @@ local function apply(p, res, item, cost)
 		st.rel.rep = nil -- a new deal is a new relationship (design 4.3): the rep's score and flags start over
 	end
 	if type(o.rel) == "table" then M.WriteRel(p, o.rel, item.visitor) end
+	M.Gift(p, o) -- the story hands you gear (Gear.Grant and its toast): after the stats, before any plant (no draw)
 	if applied.placements > 0 then life(p, "placement", { v = item.visitor, key = item.id, disco = o.disco }) end
 	local planted = false
 	if type(o.plant) == "table" then
@@ -1284,6 +1316,7 @@ local function makeHook()
 		if cmd == "SetDay" then local st = state(p); st.day = tonumber(a) or 0; ctx.Data.MarkDirty(p); return true end
 		if cmd == "AdvanceVisits" then local st = state(p); st.count += tonumber(a) or 0; ctx.Data.MarkDirty(p); return true end
 		if cmd == "Choose" then return M.Choose(p, a, b) end
+		if cmd == "Gift" then return M.Gift(p, { gift = a }) end -- the gift path on its own, through the live Gear (a test's own require may not be the live module)
 		if cmd == "Pending" then -- news = the key of the news he arrived with; deferred = M.CardDeferred
 			local r = pending[uid]
 			return r and { token = r.token, id = r.id, arrived = r.arrived, news = r.news, deferred = M.CardDeferred(p) } or nil

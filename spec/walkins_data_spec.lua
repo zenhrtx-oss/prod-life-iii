@@ -60,7 +60,11 @@ local OUTCOME_KEYS = { "good", "bad", "rare" }
 -- applies (xp before its plumbing, say) can't pass silently. `tag` is listed so its own must-be-absent rule reports it
 local OUTCOME_FIELDS = { key = true, headline = true, text = true, line = true, tone = true, money = true, aura = true,
 	followers = true, placements = true, hits = true, sponsors = true, sponsor = true, note = true, cooldown = true,
-	plant = true, tag = true, xp = true, disco = true, rel = true }
+	plant = true, tag = true, xp = true, disco = true, rel = true, gift = true }
+-- Your Rooms Task 8 (rooms copy 5): an outcome's `gift` is a gear id the story hands you free (Systems/Gear.Grant, from
+-- Systems/WalkIns' and Systems/Phone's apply), on a walk-in outcome and a phone outcome alike. Only the speaker rows may be
+-- given (a gift skips the row's level and needs, which the speaker rows' own gates would otherwise hold)
+local GIFTS = { spk_monitors = true, spk_studio = true }
 -- Wave 3 (design 4.3, copy doc 9.1 #3): an outcome's relationship write `rel = { who?, score?, flag?, clear? }`
 -- (WalkInRules.RelWrite): who = a visitor (default: the card's own), score a whole step within -3..3 (never 0), flag /
 -- clear a flag name. A write with none of score, flag or clear does nothing, so the validator refuses one
@@ -220,6 +224,7 @@ local function checkOutcome(where, o, xpOk)
 	ok(where .. ".note", o.note == nil or isStr(o.note))
 	ok(where .. ".cooldown", o.cooldown == nil or intIn(o.cooldown, 1, 50))
 	ok(where .. ".tag absent (tags come from TagFor)", o.tag == nil)
+	ok(where .. ".gift is a GIFTS id (spk_monitors or spk_studio)", o.gift == nil or (type(o.gift) == "string" and GIFTS[o.gift] == true))
 	if o.plant ~= nil then
 		ok(where .. ".plant resolves", type(o.plant) == "table" and W.FollowupById[o.plant.id] ~= nil)
 		local at = type(o.plant) == "table" and o.plant.at
@@ -557,6 +562,13 @@ do
 	scratch("ready choice without bad", noBad, "(ready) has good and bad")
 end
 scratch("ready not true", readyDM(nil, { ready = 1 }), ".ready is true or absent")
+-- Your Rooms Task 8: `gift` is a string from GIFTS, on a walk-in outcome and a phone outcome alike
+scratch("gift on a walk-in outcome", walkinCard({ aura = 10, gift = "spk_monitors" }), nil)
+scratch("gift on a phone outcome", readyDM({ good = sOutcome("home", "win", { aura = 20, xp = 40, gift = "spk_studio" }) }), nil)
+scratch("gift not in GIFTS", walkinCard({ aura = 10, gift = "spk_bogus" }), ".gift is a GIFTS id")
+scratch("gift a gear id outside GIFTS", walkinCard({ aura = 10, gift = "fit_cuban" }), ".gift is a GIFTS id")
+scratch("gift not a string", walkinCard({ aura = 10, gift = 5 }), ".gift is a GIFTS id")
+scratch("gift true", walkinCard({ aura = 10, gift = true }), ".gift is a GIFTS id")
 
 -- Wave 3 (design 4.1): a valid walk-in card with a beat choice (choice 1 pays a placement and carries beat; the line says
 -- {beat}), and one decided by beatMin (choice 1's own text says {beat}; its good pays no placement). `edit` changes the
@@ -1637,6 +1649,51 @@ do
 	ok("ROOM_WORDS leaves phone cards alone (mishap_keys is a phone card)", W.CardById.mishap_keys ~= nil and W.CardById.mishap_keys.source == "phone" and not scanned.mishap_keys)
 	table.sort(bad)
 	ok("no walk-in text says a hub-only room word (" .. #bad .. "): " .. table.concat(bad, "; "), #bad == 0)
+end
+
+-- gifts (Your Rooms Task 8, rooms copy 5) ---------------------------------------------------------------------------------
+-- Exactly three outcomes hand you the desk monitors, one for each way the design names: a gift (family), a deal (a sponsor
+-- signs you) and a find (a STUDIO ALERT phone card). Each is named by card id + choice index + side, because rep_headphones
+-- has key "signed" on its choices 1 and 2. Their text and line are copy 5.1 to 5.6 (their headline, tone, numbers and rel are
+-- the old ones). None is on a hometown-kid card, a pool card or a follow-up (the people plan's pool copies only the kid's
+-- entries: ruling X5), so a gift can't be copied into a pool by accident
+do
+	local GIFT_AT = {
+		["card mom_busy choice 1.good"] = { id = "mom_busy", choice = 1, key = "tour",
+			text = "She touched every knob, then came back with a pair of old monitors from the garage.",
+			line = "so many buttons. these were just sitting in the garage" },
+		["card rep_headphones choice 1.good"] = { id = "rep_headphones", choice = 1, key = "signed",
+			text = "{sponsor} put your face on the box and sent monitors with the check.",
+			line = "smile for the box. the check's coming, and the monitors too" },
+		["card mishap_keys choice 2.good"] = { id = "mishap_keys", choice = 2, key = "found",
+			text = "It was under a lounge couch cushion, next to a pair of monitors marked free.",
+			line = "keyboard found. monitors too. the note says free" },
+	}
+	local got, n = {}, 0
+	eachItemOutcome(W.Cards, W.Followups, function(_, where, o)
+		if o.gift ~= nil then got[where] = o.gift; n += 1 end
+	end)
+	for where, want in pairs(GIFT_AT) do
+		eq("gift at " .. where, got[where], "spk_monitors")
+		local card = W.CardById[want.id]
+		local ch = card and card.choices[want.choice]
+		local o = ch and ch.good
+		ok(where .. " exists", o ~= nil)
+		if o then
+			eq(where .. " key", o.key, want.key)
+			eq(where .. " text (copy 5)", o.text, want.text)
+			eq(where .. " line (copy 5)", o.line, want.line)
+		end
+	end
+	for where, gift in pairs(got) do ok("gift outside the three (" .. where .. " = " .. tostring(gift) .. ")", GIFT_AT[where] ~= nil) end
+	eq("exactly three gift outcomes", n, 3)
+	eq("mom_busy is mom's walk-in card", W.CardById.mom_busy and W.CardById.mom_busy.visitor, "mom")
+	eq("rep_headphones is the rep's headphones deal", W.CardById.rep_headphones and W.CardById.rep_headphones.sponsor, "headphones")
+	eq("mishap_keys is a phone card", W.CardById.mishap_keys and W.CardById.mishap_keys.source, "phone")
+	for _, id in ipairs({ "mom_busy", "rep_headphones", "mishap_keys" }) do
+		local c = W.CardById[id]
+		ok(id .. " is not a hometown-kid card (X5)", c ~= nil and c.visitor ~= "homekid" and c.visitor ~= "blockkid")
+	end
 end
 
 if #fails > 0 then error(#fails .. " walkins data case(s) failed: " .. table.concat(fails, "; ")) end

@@ -179,7 +179,8 @@ end
 
 -- apply a Resolve / ResolveNews result after its cost was paid: Aura and Followers through the Phone source (losses
 -- through Career.Take), XP through DataService.AddXP "Phone" (applied.xp = what the gate paid: 0 when it refused or
--- the outcome has none), the relationship write (WalkIns.WriteRel, Wave 3), a planted follow-up, a cooldown. The
+-- the outcome has none), the relationship write (WalkIns.WriteRel, Wave 3), a gift (WalkIns.Gift: Gear.Grant and its
+-- "NEW GEAR" toast, Your Rooms Task 8), a planted follow-up, a cooldown. The
 -- outcome's money, placements, hits, sponsors and a sponsor deal are never applied here (the content validator keeps them off phone outcomes; live content carrying one is
 -- reported). Returns the amounts actually applied, and whether the plant queued a follow-up (Plant returned an entry)
 local function apply(p, res, item, cost)
@@ -199,6 +200,7 @@ local function apply(p, res, item, cost)
 	if (d.xp or 0) > 0 then applied.xp = ctx.Data.AddXP(p, d.xp, "Phone") end
 	if o.sponsor ~= nil then report("outcome " .. tostring(o.key) .. " carries a sponsor (not applied)") end
 	if type(o.rel) == "table" then WalkIns.WriteRel(p, o.rel, item.visitor) end
+	WalkIns.Gift(p, o) -- the story hands you gear (Gear.Grant and its toast; never throws), after the stats, before any plant
 	local planted = type(o.plant) == "table" and Rules.Plant(st, o.plant, W.FollowupAt, rngFor(p.UserId), { sponsor = item.sponsor }) ~= nil
 	if type(o.cooldown) == "number" then st.last[item.visitor] = (st.last[item.visitor] or st.count) + o.cooldown end
 	ctx.Data.MarkDirty(p)

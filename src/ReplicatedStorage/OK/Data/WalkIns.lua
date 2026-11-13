@@ -16,6 +16,10 @@
 -- One exception (design 8.3): a sponsor quiz (quiz_*) answer quotes no amount, so it can't give the right one away; the
 -- rep's line quotes the bonus instead.
 -- The numbers are tuned by spec/pacing_spec.lua (design 4.8). Change them only with that spec passing.
+-- `gift` (an outcome, optional; Your Rooms Task 8): a gear id the story hands you free when that outcome lands, through
+-- Systems/Gear.Grant, from Systems/WalkIns' and Systems/Phone's apply (a toast "NEW GEAR: DESK MONITORS" when it granted,
+-- none when you already own it). Exactly three outcomes carry one today, all "spk_monitors" (mom_busy choice 1, rep_headphones
+-- choice 1, mishap_keys choice 2); spec/walkins_data_spec.lua names them and allows only the GIFTS ids.
 -- `nohint` (a card or follow-up, optional): the explainer terms (Config.Hints) its words use in another sense, which no
 -- explainer may attach to on that item, its news or its results (Wave 3 final review M2: "hit" the verb, a song's "flip",
 -- "fire" as slang). spec/walkins_data_spec.lua keeps every listed term said in the item's text.
@@ -844,8 +848,9 @@ W.Cards = {
 	  choices = {
 		{ text = "Sign it. $300.", sure = true,
 		  good = { key = "signed", headline = "SPONSORED", tone = "win", sponsor = "headphones", sponsors = 1, money = 300, aura = 10,
-			text = "Your face is going on the {sponsor} box. Bonus in the bank.",
-			line = "smile for the box. check's coming" } },
+			gift = "spk_monitors",
+			text = "{sponsor} put your face on the box and sent monitors with the check.",
+			line = "smile for the box. the check's coming, and the monitors too" } },
 		{ text = "Ask for a cut of every sale.", odds = 50,
 		  good = { key = "signed", headline = "SPONSORED", tone = "win", sponsor = "headphones", sponsors = 1, money = 600,
 			text = "{sponsor} agreed to a bigger deal.",
@@ -1176,9 +1181,9 @@ W.Cards = {
 	  line = "you didn't call me back. i was in the area. are you sleeping enough",
 	  choices = {
 		{ text = "Give her the full tour.", sure = true,
-		  good = { key = "tour", headline = "TOUR GUIDE", tone = "win", aura = 10,
-			text = "She touched every knob. You let her.",
-			line = "so many buttons. you know what all of these do?" } },
+		  good = { key = "tour", headline = "TOUR GUIDE", tone = "win", aura = 10, gift = "spk_monitors",
+			text = "She touched every knob, then came back with a pair of old monitors from the garage.",
+			line = "so many buttons. these were just sitting in the garage" } },
 		{ text = "Promise to call more. Mean it.", sure = true,
 		  good = { key = "promise", headline = "PROMISE", tone = "win", aura = 5, rel = { score = 1 },
 			text = "You promised. She believed you. Call her.",
@@ -2055,9 +2060,9 @@ W.Cards = {
 			text = "A new keyboard by tonight. It even has better pads.",
 			line = "new keyboard connected" } },
 		{ text = "Ask around the building.", odds = 40,
-		  good = { key = "found", headline = "FOUND IT", tone = "win", aura = 5,
-			text = "It was in the lounge, under a couch cushion. Mystery solved.",
-			line = "keyboard found. lounge couch" },
+		  good = { key = "found", headline = "FOUND IT", tone = "win", aura = 5, gift = "spk_monitors",
+			text = "It was under a lounge couch cushion, next to a pair of monitors marked free.",
+			line = "keyboard found. monitors too. the note says free" },
 		  bad = { key = "missing", headline = "STILL MISSING", tone = "loss", aura = -5,
 			text = "Nobody saw anything. You played the melody on your laptop keys.",
 			line = "keyboard still missing" } },

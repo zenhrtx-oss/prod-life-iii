@@ -6,6 +6,7 @@
 -- Player attributes (for the client): Gear = "808,rollfx", Unlocked = "Bass,Rolls", NeonColor / PlateColor (Color3 or nil),
 -- Fits = "fit_cuban,fit_shades" (equipped fits).
 -- Buying plate_legend reports "legend" to Systems/Life (ctx.Life in edit tests, the live module otherwise).
+-- Grant(player, id) hands an item over free (the story's gifts: Data/WalkIns' outcome `gift`); see its comment.
 -- Equipped fits are built on the character (Modules/Fits, server-side so everyone sees them) by a Publish that changes
 -- them (not by a neon or nameplate toggle) and again on every respawn (CharacterAdded, CharacterAppearanceLoaded).
 -- Buying a look puts it on when its slot is empty. Gear_Equip from a client is rate limited (EQUIP_BURST calls, then one
@@ -125,6 +126,29 @@ function M.Buy(player, id)
 	boughtEv:Fire(player, it)
 	if id == "plate_legend" then pcall(function() (ctx.Life or require(RS.OK.Systems.Life)).Event(player, "legend") end) end -- never fails the buy
 	return { ok = true, item = id, state = M.State(player) }
+end
+
+-- the story hands you an item (Your Rooms Task 8: Data/WalkIns' outcome `gift`, applied by Systems/WalkIns and Systems/Phone).
+-- Returns true when it granted, false for an unknown id or an item you already own (price 0 items count as owned). Nothing
+-- is paid and no level or needs gate applies (the story skips them: a gift is the way round the rack). Owning it is set
+-- the way Buy sets it (a look goes on when its slot is empty), the profile is marked dirty and Publish runs, so the Gear
+-- attribute moves and Systems/Rooms rebuilds the room's speakers. It does not fire Bought (a gift is not the tour's "buy
+-- gear" step) and has none of Buy's side effects: for the speaker rows (the only gifts today, spec/walkins_data_spec.lua's
+-- GIFTS) there are none to share; plate_legend's Life "legend" belongs to buying it
+function M.Grant(player, id)
+	local it = type(id) == "string" and byId[id]
+	if not it then return false end
+	local prof = state(ctx.Data.GetProfile(player))
+	if M.Owns(player, id) then return false end
+	prof.gear[id] = true
+	if LOOKS[it.kind] then
+		local slot = slotOf(it)
+		if not prof.equip[slot] then prof.equip[slot] = id end
+	end
+	ctx.Data.MarkDirty(player)
+	M.Publish(player)
+	print(string.format("[OK] %s was given %s", player.Name, it.name))
+	return true
 end
 
 -- toggles a look you own: neon / nameplate colour (one each), or a fit (one per slot)
