@@ -129,10 +129,10 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
     - A new person joins a chain only through `newSlot` (a real introduction), once.
   - **The project beat.** A chain is tied to one promise.
     - A request created inside a chain item records `chain = k` on the promise, and the chain record stores `promise = id`.
-    - When plan 2's promise delivery raises `"request:<who>"` with `fields = { promise, beat = { pattern, bpm, stars } }`, only the chain whose `promise == fields.promise` stores `projectBeat`, a copy of that beat.
+    - When plan 2's promise delivery raises `"request:<who>"` with `fields = { promise, beat = { pattern, bpm, stars } }`, only the chain whose `promise == fields.promise` stores `projectBeat = { promise = id, beat = copy }`.
     - A different job for the same person never touches it, whichever slot that person is in.
     - Only a `revise` item can move a chain to another promise.
-    - The gate `needs.project = true` holds once the chain's own promise was delivered.
+    - The gate `needs.project = true` holds only while `projectBeat.promise == chain.promise`. A `revise` that moves the chain to a new promise therefore leaves the old beat unable to satisfy the new brief until the new promise is delivered.
     - A generic `request:<who>` event may wake a follow-up, but a follow-up that claims the project gates on `needs.project`.
 - **Grants:** `prof.grants = { [key] = day }`. `GrantRules`:
   - `EventKey(itemId, lead, era) -> "e:" .. …`. A follow-up of a chain resolves once. Pick skips a due entry whose key is granted, and removes it.
@@ -142,7 +142,7 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
 - **Keepsakes:** `prof.keepsakes = { { id, chain, era, day, story = { ids }, credits = { ids }, beat = { pattern, bpm, stars }? } }`.
   - They are never changed or removed.
   - An outcome's `keepsake = { family, story = { "$", "$b" }, credits = { "$" }, beat = "project" | nil }` mints one through `GrantRules` (`AchKey` on the story people).
-    - With `beat = "project"`, the record pins the chain's `projectBeat`. With no `projectBeat`, it has no beat.
+    - With `beat = "project"`, the record pins `projectBeat.beat` only when `projectBeat.promise == chain.promise`. Otherwise it has no beat.
     - A keepsake never takes your current best beat, so it can't name a beat that wasn't the project. Copy that promises "your track" is used only with `beat = "project"` (a `walkins_data_spec` rule).
   - The discography shows it, in words from §C1.
 - **The era:** `prof.era`, default 1. Every chain record, grant key and keepsake carries it. Gear, fits and rooms already live outside `prof.career` (`prof.gear`, `prof.career.gates`); §6's "kept apart" needs no move now. This plan records which fields a new era must keep (`research/endless/era_fields_2026-11-12.md`).
@@ -328,6 +328,7 @@ Codex's `design_input/codex/generated_cast_rewards_contract_2026-11-12.txt` is t
     - a second, unrelated promise for g1, delivered afterwards, leaves `projectBeat` alone
     - the keepsake's `beat` stays the same after `SetRecent` changes the recent beats
     - `needs.project` is false until the chain's own promise is delivered
+    - after a `revise` moves the chain to a new promise, `needs.project` is false again, and a keepsake has no beat until the new promise is delivered
     - a keepsake minted with no delivered project has no beat
     - archiving is refused for g1 to g3 while the chain is open
     - a JSON round trip keeps keepsakes byte for byte
