@@ -18,7 +18,9 @@
 --     its pivot at the origin and its floor top at y 0, one RoomDoor part on the south wall with a (disabled) ExitPrompt,
 --     exactly one Station (tagged, Kind "Station", a StationName, a prompt), Seat_Chair, a Spawn inside the room, inside
 --     one of the kind's keep areas and facing into the room, every RoomBuild.ContractAnchors Attachment where
---     Config.Rooms puts it, at most 1 Light and no MeshPart.
+--     Config.Rooms puts it, at most 1 Light and no MeshPart. R-T16 fix, I4: exactly one Light, a PointLight whose Range reaches
+--     the room's far floor corner from where it hangs (the four interior floor corners, at y 0) and whose Brightness is 1.2 or
+--     more (it was 0.25 at range 14: the home and real floors lay outside it, the expected red).
 -- (6) RoomBuild.Anchors adds exactly the missing anchors: a Model holding Entrance (somewhere else) and Plaque_2 gets the
 --     other six, Entrance left where it was; a bare Model (no part) gets all eight on a Sockets part it makes; a second
 --     run adds none.
@@ -277,13 +279,24 @@ for _, kind in ipairs({ "bedroom", "home", "real" }) do
     assert(piv.Position.Magnitude < 1e-3 and piv.LookVector:Dot(Vector3.new(0, 0, -1)) > 0.999, kind .. ": pivot " .. str(piv.Position) .. ", want the origin facing -Z")
     local fl = m:FindFirstChild("Floor")
     assert(fl and near(fl.Position.Y + fl.Size.Y / 2, 0), kind .. ": the floor's top is not at y 0")
-    local doors, stations, lightsN, meshes = {}, {}, 0, 0
+    local doors, stations, lightsN, meshes, theLight = {}, {}, 0, 0, nil
     for _, d in ipairs(m:GetDescendants()) do
       if d:IsA("BasePart") and d:GetAttribute("RoomDoor") == true then table.insert(doors, d) end
       if d:IsA("BasePart") and CS:HasTag(d, TAG) and d:GetAttribute("Kind") == "Station" then table.insert(stations, d) end
-      if d:IsA("Light") then lightsN += 1 end
+      if d:IsA("Light") then lightsN += 1; theLight = d end
       if d:IsA("MeshPart") then meshes += 1 end
     end
+    -- R-T16 fix, I4: the one light reaches the whole floor
+    assert(lightsN == 1 and theLight:IsA("PointLight") and theLight.Parent:IsA("BasePart"), kind .. ": " .. lightsN .. " lights ("
+      .. tostring(theLight and theLight.ClassName) .. "), want exactly one PointLight in a part")
+    local bulbAt = theLight.Parent.Position
+    local far = 0
+    for _, c in ipairs({ { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 } }) do
+      far = math.max(far, (Vector3.new(c[1] * kc.size[1] / 2, 0, c[2] * kc.size[2] / 2) - bulbAt).Magnitude)
+    end
+    assert(theLight.Range >= far, string.format("%s: the stand-in's light reaches %.1f studs, its far floor corner is %.1f from the bulb at %s: the floor's corners lie in the dark (before the R-T16 fix sync of Modules/RoomBuild: 0.25 at range 14, the expected red)",
+      kind, theLight.Range, far, str(bulbAt)))
+    assert(theLight.Brightness >= 1.2, string.format("%s: the stand-in's light is %.2f bright, want 1.2 or more (before the R-T16 fix sync of Modules/RoomBuild: 0.25, the expected red)", kind, theLight.Brightness))
     assert(#doors == 1, kind .. ": " .. #doors .. " RoomDoor parts, want 1")
     local exit = doors[1]:FindFirstChild("ExitPrompt")
     assert(exit and exit:IsA("ProximityPrompt") and exit.Enabled == false, kind .. ": the door's ExitPrompt is missing or on (a plot's copy turns it on)")
@@ -308,7 +321,8 @@ for _, kind in ipairs({ "bedroom", "home", "real" }) do
     end
     assert(lightsN <= 1, kind .. ": " .. lightsN .. " lights, want at most 1")
     assert(meshes <= 56, kind .. ": " .. meshes .. " MeshParts, over 56")
-    table.insert(out, string.format("stand-in %s: contract items, %d anchors, %d light, Spawn %s in a keep area", kind, #RoomBuild.ContractAnchors(kc), lightsN, str(s)))
+    table.insert(out, string.format("stand-in %s: contract items, %d anchors, %d light (a PointLight, %.2f bright, range %.0f >= the far floor corner %.1f), Spawn %s in a keep area",
+      kind, #RoomBuild.ContractAnchors(kc), lightsN, theLight.Brightness, theLight.Range, far, str(s)))
   end)
   m:Destroy()
   if not ok then error(err, 0) end

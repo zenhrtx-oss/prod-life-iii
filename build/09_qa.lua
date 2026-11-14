@@ -11,6 +11,14 @@ local lights, _, roomOver = RoomScope.Lights(workspace) -- the hub's lights; a r
 assert(lights <= 61, "lights over budget: " .. lights) -- the user raised the cap from 36 to 61 on 2026-11-05 (keep every lamp)
 assert(roomOver == nil, roomOver)
 for _, d in ipairs(workspace:GetDescendants()) do assert(not d:IsA("LuaSourceContainer"), "script in workspace: " .. d:GetFullName()) end
+-- the throwaway 12-plot phone test (build/room_test.lua) is not left in the place (R-T16 fix, I2): while Workspace.RoomTest
+-- stands, Systems/Rooms gives nobody a plot, so a place saved with it fails here, before any public publish. (The private
+-- phone-tour publish is the one deliberate exception, and its checklist removes the test first: build/room_test_remove.lua)
+local SP = game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
+for _, at in ipairs({ { workspace, "Workspace" }, { game:GetService("ReplicatedStorage"), "ReplicatedStorage" },
+  { game:GetService("ServerScriptService"), "ServerScriptService" }, { SP, "StarterPlayerScripts" } }) do
+  assert(not (at[1] and at[1]:FindFirstChild("RoomTest")), at[2] .. ".RoomTest is in the place: the throwaway room test is still in (run build/room_test_remove.lua)")
+end
 local backup = game.ServerStorage:FindFirstChild("OK_Backup_2026-10-22")
 if backup then for _, d in ipairs(backup:GetDescendants()) do if d:IsA("BaseScript") then assert(d.Disabled, "enabled script in backup: " .. d:GetFullName()) end end end
 local seats, unanchored = 0, 0

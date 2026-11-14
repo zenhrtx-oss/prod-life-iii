@@ -24,6 +24,11 @@
 --     path (State used = limit), the next is refused "limit", the plaques are the same models after the edits, none is in Items,
 --     and home's limit and used are untouched.
 -- (6) a rejoin (Release and Claim): the rebuilt plot hangs the same plaques in the same slots (the build path, not the listener's).
+-- (7) R-T16 fix, M2: an import's own child named Plaques is never emptied. The bedroom's Plaques folder (Rooms', RoomPlaques) is
+--     taken out and a foreign Folder named Plaques (no RoomPlaques) with a child put in, as an import that ships one would
+--     have it; a plaque rebuild (SetWeekly with one more entry) leaves that child where it was, and Rooms hangs the wall in a
+--     Plaques folder of its own beside it (every read here takes only the RoomPlaques one). The foreign folder is removed.
+--     The expected red, before the sync of Systems/Rooms: the rebuild empties the foreign folder and hangs the plaques in it.
 -- On any error, and after success: unseated in the lounge, Unfill, the career Reset (the plot back to the bedroom), everything
 -- else reset (hold on, Quiet off), then the rooms Reset and the noted home put back, the weekly list put back, then the profile
 -- as ProfileMark noted it and the career hook's Publish; the error is rethrown.
@@ -93,12 +98,19 @@ local function labelOf(m) -- the plaque's words
 	local label = gui and gui:FindFirstChild("Label")
 	return label and label.Text or nil
 end
+-- the room's own Plaques folder (RoomPlaques), never an import's of the same name (R-T16 fix, M2)
+local function plaquesOf(room)
+	for _, c in ipairs(room:GetChildren()) do
+		if c.Name == "Plaques" and c:IsA("Folder") and c:GetAttribute("RoomPlaques") == true then return c end
+	end
+	return nil
+end
 -- every plaque model of the rooms you own, ladder order then slot order: { room, slot, model, text }
 local function hung()
 	local list = {}
 	for _, kind in ipairs(ownedKinds()) do
 		local room = roomOf(kind)
-		local folder = room and room:FindFirstChild("Plaques")
+		local folder = room and plaquesOf(room)
 		if folder then
 			local ms = {}
 			for _, m in ipairs(folder:GetChildren()) do if m:IsA("Model") then table.insert(ms, m) end end
@@ -382,6 +394,33 @@ local function run()
 	assert(sig(got6) == before6, "6: the rejoined plot's plaques differ:\n  before " .. before6 .. "\n  after  " .. sig(got6))
 	for _, x in ipairs(got6) do checkPlaque(x, "6 plaque " .. x.room .. "/" .. x.slot) end
 	table.insert(out, "6 rejoin: Release and Claim rebuilt the plot with the same " .. #got6 .. " plaques in the same slots (the build path hangs them, not the attribute listener)")
+
+	-- 7. R-T16 fix, M2: an import's own Plaques folder is left alone
+	local bed7 = roomOf("bedroom")
+	local ours = bed7 and plaquesOf(bed7)
+	assert(ours, "7: the bedroom has no Plaques folder of Rooms' own (RoomPlaques)")
+	ours:Destroy() -- as an import's room would come: no folder of Rooms' own yet, only its own
+	local foreign = Instance.new("Folder")
+	foreign.Name = "Plaques"
+	local keepMe = Instance.new("Part")
+	keepMe.Name = "ImportsOwn"; keepMe.Anchored = true; keepMe.CanCollide = false; keepMe.CanQuery = false; keepMe.Transparency = 1
+	keepMe.CFrame = bed7:GetPivot()
+	keepMe.Parent = foreign
+	foreign.Parent = bed7
+	local ok7, err7 = pcall(function()
+		assert(type(call("SetWeekly", { { w = 1, t = "Gold Tape", a = "" }, { w = 2, t = "", a = "" }, { w = 3, t = "Main Stage", a = "" }, { w = 4, t = "Gold Tape", a = "" } })) == "table",
+			"7: SetWeekly (4) failed")
+		-- the rebuild has run once the bedroom has a Plaques folder of Rooms' own again, or the foreign one lost its child
+		assert(waitFor(function() local f = plaquesOf(bed7); return keepMe.Parent ~= foreign or (f ~= nil and #f:GetChildren() > 0) end, 4),
+			"7: no plaque rebuild came after SetWeekly")
+		assert(keepMe.Parent == foreign and foreign.Parent == bed7, "7: the plaque rebuild emptied a Plaques folder Rooms did not make (an import's own): its child "
+			.. (keepMe.Parent and "moved" or "is gone") .. " (before the R-T16 fix sync of Systems/Rooms: the expected red)")
+		local got7 = expectWall("7 beside an import's own Plaques folder", 3)
+		assert(got7[1].model.Parent ~= foreign and got7[1].model.Parent:GetAttribute("RoomPlaques") == true, "7: the bedroom's plaques hang in " .. got7[1].model.Parent:GetFullName() .. ", want Rooms' own folder")
+	end)
+	foreign:Destroy()
+	if not ok7 then error(err7, 0) end
+	table.insert(out, "7 an import's own Plaques folder (no RoomPlaques) with a child: a plaque rebuild leaves the child, and the wall hangs in a Plaques folder of Rooms' own beside it")
 
 	return "T110A PLAY OK\n" .. table.concat(out, "\n") .. string.format("\nelapsed %.1f s", os.clock() - T0)
 end

@@ -30,6 +30,17 @@
 --     items = {} }; SetHome({ door "open", bedroom: a rug and an unknown id, home: a rug }) keeps the door, the bedroom's rug and
 --     the home room's rug (a room you don't own yet: kept, unbuilt) and drops the unknown id; Home answers the same; the plot
 --     still has only the bedroom; Reset wipes it back to the defaults.
+-- (10) R-T16 fix, I2: a Model named RoomTest in Workspace (what a player called RoomTest brings: their character) is not the
+--     phone test's root (a Folder with Throwaway): in the lounge, Release, then Claim still claims slot 1 and builds Plot_01;
+--     the Model is removed (in every case). (10) and (11) run each in its own pcall and their failures are reported together,
+--     so a red run shows both.
+-- (11) R-T16 fix, I5, the release race (Review Focus 1): the player, in the hall and seated on a test Seat beside HallSpawn,
+--     runs Enter(2) on a stand-in owner's open door (Fill(1); the hook's Door(2, "open")) in its own thread, and the owner
+--     leaves (Unfill) as soon as the move has unseated the player (Sit false: teleport's 0.3 s unseat wait, a yield after its
+--     target was fixed, whatever its stream request took and whether the hook's Invoke ran at once or later). The
+--     move gives up: Enter answers false, the player stands in the hall (root above y -5, within 15 studs of HallSpawn,
+--     PlaceOf nil), and Sent holds copy 1.19 ("Test 02 left the server"). The expected red: the player is dropped where
+--     plot 2's landing was and falls below it. The Seat is removed (in every case).
 -- On any error: unseated in the lounge, Unfill, rooms Reset, and everything else reset (hold on, Quiet off); the error is
 -- rethrown after. Tail for t101b, after the cleanup and only on success: WakeUp (the player in their bedroom, the plot
 -- streamed in), then OnOpen("Exit", "bedroom"): the next time this player's beat maker opens at a laptop in a plot, the
@@ -319,6 +330,82 @@ local function run()
 	assert(type(h2) == "table" and h2.door == Cfg.DoorDefault and type(h2.items) == "table" and next(h2.items) == nil,
 		"9: Home after Reset: want the defaults, got " .. show(h2))
 	table.insert(out, "9 saved home: Home = defaults after Reset; SetHome keeps the door, the bedroom's rug and the unbuilt home-room rug and drops the unknown id; Home answers it; Reset wipes it")
+
+	-- 10 and 11 (R-T16 fix) each run in their own pcall, so a red run shows both reds; the file's cleanup follows either way
+	local function roomTestModel() -- 10. I2: a Model named RoomTest (a player called RoomTest's character, a stray import) holds nobody's slot
+		teleport(LOUNGE)
+		assert(call("Release") == true, "10: Release returned false")
+		local fakeRT = Instance.new("Model")
+		fakeRT.Name = "RoomTest"
+		fakeRT.Parent = workspace
+		local ok10, err10 = pcall(function()
+			local k10 = call("Claim")
+			assert(k10 == 1, "10: with a Model named RoomTest in Workspace (not the phone test's Throwaway Folder) Claim answered " .. tostring(k10)
+				.. ", want slot 1 (before the R-T16 fix sync of Systems/Rooms: nil, every joiner plotless while it stands; the expected red)")
+			assert(plotModel(1) and bedroomOf(1), "10: Claim answered slot 1 but no Plot_01 stands, with a Model named RoomTest in Workspace")
+		end)
+		fakeRT:Destroy()
+		if not ok10 then
+			pcall(call, "Claim") -- the Model is gone: claim again, so (11) and the cleanup's Reset find the player a slot
+			error(err10, 0)
+		end
+		table.insert(out, "10 a Model named RoomTest in Workspace (as a player called RoomTest's character): Claim still claims slot 1 and builds Plot_01")
+	end
+	local function releaseRace() -- 11. I5: the release race
+		assert(call("RoomsDoor") == true, "11: RoomsDoor returned false")
+		local hs11 = h:FindFirstChild("HallSpawn").Position
+		arrive(hs11, "11: RoomsDoor (HallSpawn)")
+		assert(call("Fill", 1) == 1, "11: Fill(1) did not build a stand-in plot")
+		assert(call("Door", 2, "open") == "open", "11: the hook's Door(2, open) did not open slot 2's door (is the stand-in owner on slot 2?)")
+		-- a Seat in the hall, the player on it: teleport's unseat (its 0.3 s wait) is then a yield after the move's target is fixed
+		local seat11 = Instance.new("Seat")
+		seat11.Name = "OK_T101_RaceSeat"; seat11.Anchored = true; seat11.Size = Vector3.new(2, 1, 2); seat11.Transparency = 0.5
+		seat11.CFrame = CFrame.new(hs11.X, 0.5, hs11.Z + 4)
+		seat11.Parent = workspace
+		local ok11, err11 = pcall(function()
+			local hm = hum()
+			assert(hm, "11: no humanoid")
+			seat11:Sit(hm)
+			assert(waitFor(function() return hum() and hum().SeatPart == seat11 end, 3), "11: the player did not sit on the hall's test Seat")
+			call("Sent") -- drained
+			local res11, done11 = nil, false
+			task.spawn(function() res11 = call("Enter", 2); done11 = true end)
+			-- the move has fixed its target and is in its 0.3 s unseat wait once teleport has set Sit false (after its stream
+			-- request, however long that took): only then does the owner leave, whether the hook's Invoke ran at once or later
+			assert(waitFor(function() local hm2 = hum(); return done11 or (hm2 ~= nil and not hm2.Sit) end, 12), -- past teleport's own 10 s stream wait (round 2, N2)
+				"11: the raced move never reached its unseat (the player is still on the hall's test Seat)")
+			assert(not done11, "11: Enter(2) answered " .. tostring(res11) .. " before its move reached the unseat")
+			local freed11 = call("Unfill") -- the owner leaves now, while the move waits
+			assert(freed11 == 1, "11: Unfill freed " .. tostring(freed11) .. ", want the one stand-in")
+			assert(waitFor(function() return done11 end, 8), "11: the raced Enter(2) never returned")
+			local r11 = root()
+			local inHall = r11 ~= nil and r11.Position.Y > -5 and flat(r11.Position - hs11) < 15
+			if not inHall then -- let a fall show as the fall it is
+				waitFor(function() local rr = root(); return rr == nil or rr.Position.Y < -5 end, 2)
+				r11 = root()
+			end
+			assert(inHall, "11: Enter(2) raced the owner's leaving and the player ended at " .. (r11 and str(r11.Position) or "no character")
+				.. ": dropped where plot 2's landing was and falling below it, not in the hall near HallSpawn " .. str(hs11)
+				.. " (before the R-T16 fix sync of Systems/Rooms: the expected red)")
+			assert(res11 == false, "11: the raced Enter(2) answered " .. tostring(res11) .. ", want false (the move gave up)")
+			local pl11 = call("PlaceOf")
+			assert(pl11 == nil or pl11 == "hub", "11: PlaceOf reads " .. (type(pl11) == "table" and (tostring(pl11.slot) .. "/" .. tostring(pl11.kind)) or tostring(pl11)) .. ", want nil (the hall)")
+			local left11 = string.gsub(Copy.OwnerLeft, "{player}", function() return "Test 02" end)
+			local sent11 = call("Sent")
+			assert(type(sent11) == "table" and table.find(sent11, left11), "11: the toasts were '" .. (type(sent11) == "table" and table.concat(sent11, " | ") or tostring(sent11))
+				.. "', want '" .. left11 .. "' (copy 1.19)")
+		end)
+		seat11:Destroy()
+		if not ok11 then error(err11, 0) end
+		table.insert(out, "11 the release race: seated in the hall, Enter(2) on an open stand-in door while its owner leaves (Unfill): Enter false, still in the hall, PlaceOf nil, '"
+			.. (string.gsub(Copy.OwnerLeft, "{player}", function() return "Test 02" end)) .. "' told")
+	end
+	local errs = {}
+	for _, section in ipairs({ roomTestModel, releaseRace }) do
+		local okS, errS = pcall(section)
+		if not okS then table.insert(errs, tostring(errS)) end
+	end
+	assert(#errs == 0, table.concat(errs, "\n"))
 
 	return "T101A PLAY OK\n" .. table.concat(out, "\n") .. string.format("\nelapsed %.1f s", os.clock() - T0)
 end

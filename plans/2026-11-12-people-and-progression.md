@@ -370,6 +370,7 @@ The rooms plan (`plans/2026-11-12-your-rooms.md`) owns the gates `home_studio` /
 **Interfaces:**
 - Consumes: the rooms plan's Task 4 (gates) and Task 7 (`spk_monitors`).
 - Produces: the sim outputs `monitorsDay`, `homeDay` and `realDay`. Tasks 8 and 9 read `homeDay`.
+- **CareerSim must honour a gate's `after`** (rooms plan R-T16 fix, I7, 2026-11-13: `Config.Career.Gates` `real_studio.after = "home_studio"`, the decided ladder; `Career.Unlock` answers "needs" until that gate is owned). So `tryUnlock` gains that one check (never `real_studio` before `home_studio`, so `realDay > homeDay` whenever both are set), and the `pacing_spec` `GATES` literal and t46's `PACING.gates` carry `after` too.
 
 - [ ] **Step 1: Write the failing tests.**
   - **career_sim_spec:**

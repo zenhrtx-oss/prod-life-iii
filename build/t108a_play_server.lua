@@ -33,8 +33,12 @@
 -- (7) the token bucket: Config.Rooms.Edit.burst refusals (remove index 99 -> "unknown": a refusal costs a token) are answered
 --     "unknown" and the rest of 8 back-to-back calls (well under one `every`: nothing in Edit yields on a loaded profile) answer "busy", changing nothing; one `every` later a call goes through.
 -- (8) SetHome with junk (an unknown id, a string coordinate, an overlap, a far-off cell, a closet in the bedroom, a bad turn,
---     non-tables, an unknown kind) returns what it kept; the plot's Items are rebuilt from it (only the kept two, the earlier
---     models gone) and Home answers the same.
+--     non-tables, an unknown kind) returns what it kept; the plot's Items are rebuilt from it (only the kept four, the earlier
+--     models gone) and Home answers the same. R-T16 fix, I6 (round 2, N1: Repair in two passes): the two good plants keep
+--     their places first; then the overlapping rug and the far-off plant, in list order, move to the first place each fits
+--     among what is kept so far (RoomRules.Repair's scan, found here with RoomRules.Fits: turn 0 then 1, rows north to south,
+--     each west to east, over the bedroom grid's bounding box). The kept list keeps the saved order: plant, rug, plant, plant.
+--     Then SetHome puts back the two good plants alone, for (9).
 -- (9) your plot only: Edit from the hub -> "away" (State.inside nil); from another player's landing (Fill(1), Enter(2) as a
 --     friend) -> "owner"; from your own landing -> goes through (and a room you own is edited from anywhere in your plot).
 -- (10) a gear item saved while its gear is not owned (SetHome with a tape machine, after ResetGear) is kept and unbuilt (State
@@ -517,14 +521,59 @@ local function run()
 		},
 		attic = { { id = "plant", x = 0, z = 0, r = 0 } },       -- a kind that does not exist
 	} })
-	assert(type(kept8) == "table" and kept8.door == "open" and canon(kept8.items) == canon({ bedroom = { { id = "plant", x = p1[1], z = p1[2], r = 0 }, { id = "plant", x = p2[1], z = p2[2], r = 0 } } }),
-		"8: SetHome kept " .. show(kept8) .. ", want the door open and the two good plants only")
+	-- the first place `id` fits after `list` (Repair's scan: turn 0 then 1, rows north to south, each west to east, over the
+	-- bounding box of the live bedroom grid), or nil
+	local set8 = {}
+	for _, u in ipairs(state().unlocked) do set8[u] = true end
+	local kc8 = Cfg.Kinds.bedroom
+	local gx0, gz0, gx1, gz1 = math.huge, math.huge, -math.huge, -math.huge
+	for _, a in ipairs(kc8.grid) do
+		gx0, gz0 = math.min(gx0, math.floor(math.min(a[1], a[3]))), math.min(gz0, math.floor(math.min(a[2], a[4])))
+		gx1, gz1 = math.max(gx1, math.ceil(math.max(a[1], a[3])) - 1), math.max(gz1, math.ceil(math.max(a[2], a[4])) - 1)
+	end
+	local function firstFree(list, id)
+		for r = 0, 1 do
+			for z = gz0, gz1 do
+				for x = gx0, gx1 do
+					local e = { id = id, x = x, z = z, r = r }
+					if Rules.Fits(list, e, kc8, Catalog, set8, "bedroom", nil, Cfg) then return e end
+				end
+			end
+		end
+		return nil
+	end
+	-- pass 1: the good plants in place (p1, p2: two free cells); pass 2: the rug, then the far-off plant, round them
+	local e1 = { id = "plant", x = p1[1], z = p1[2], r = 0 }
+	local e4 = { id = "plant", x = p2[1], z = p2[2], r = 0 }
+	assert(Rules.Fits({ e1 }, e4, kc8, Catalog, set8, "bedroom", nil, Cfg), "8 premise: the two good plants (" .. p1[1] .. ", " .. p1[2] .. ") and (" .. p2[1] .. ", " .. p2[2] .. ") don't both stand")
+	local e2 = firstFree({ e1, e4 }, "rug")
+	local e3 = e2 and firstFree({ e1, e4, e2 }, "plant")
+	assert(e2 and e3, "8 premise: the bedroom has no free place for the moved rug and plant beside the two good plants")
+	local want8 = { bedroom = { e1, e2, e3, e4 } } -- the saved order: the plant, the rug, the far-off plant, the last plant
+	assert(type(kept8) == "table" and kept8.door == "open" and canon(kept8.items) == canon(want8),
+		"8: SetHome kept " .. show(kept8) .. ", want the door open and " .. show(want8) .. ": the good plants in place, and the overlapping rug and the far-off plant moved round them"
+		.. " (on the live bedroom grid fc2b1ab's one-pass Repair keeps the same four, so this step has no red of its own: the spec's cases (e)-(g) and t102 (b2) carry it)")
 	assert(canon(call("Home")) == canon(kept8), "8: Home does not answer what SetHome kept")
 	checkRoom("bedroom", "8")
-	assert(#modelsOf("bedroom") == 2, "8: the plot's Items hold " .. #modelsOf("bedroom") .. " models after the junk SetHome, want the 2 kept")
-	for _, m in ipairs(stale8) do assert(m.Parent == nil, "8: a model from before the SetHome is still in the world (" .. m.Name .. ")") end
+	assert(#modelsOf("bedroom") == 4, "8: the plot's Items hold " .. #modelsOf("bedroom") .. " models after the junk SetHome, want the 4 kept")
+	-- RoomEdit.Fit keeps a model already standing exactly as a kept entry says (same Sig id:x:z:r), so only what changed is
+	-- rebuilt. Since R-T16's I6 the moved rug's first fitting place can be rugCells[1], where the rug placed before the junk
+	-- already stands: that model is then reused. Every other earlier model must be gone.
+	local keptSig = {}
+	for _, e in ipairs(want8.bedroom) do keptSig[tostring(e.id) .. ":" .. tostring(e.x) .. ":" .. tostring(e.z) .. ":" .. tostring(e.r or 0)] = true end
+	for _, m in ipairs(stale8) do
+		if keptSig[m:GetAttribute("Sig")] then
+			assert(m.Parent ~= nil, "8: the earlier model " .. m.Name .. " stands exactly where a kept entry says, yet was destroyed (Fit should reuse it)")
+		else
+			assert(m.Parent == nil, "8: a model from before the SetHome is still in the world (" .. m.Name .. ", Sig " .. tostring(m:GetAttribute("Sig")) .. ")")
+		end
+	end
 	assert(state().door == "open", "8: State.door did not follow SetHome")
-	table.insert(out, "8 SetHome with junk (unknown id, string coordinate, overlap, far-off cell, closet in the bedroom, bad turn, non-tables, unknown kind): kept the door and two plants; the plot's Items rebuilt from it, the earlier models gone")
+	-- (9) starts from the two good plants alone
+	local two = call("SetHome", { v = 1, door = "open", items = { bedroom = { { id = "plant", x = p1[1], z = p1[2], r = 0 }, { id = "plant", x = p2[1], z = p2[2], r = 0 } } } })
+	assert(type(two) == "table" and type(two.items.bedroom) == "table" and #two.items.bedroom == 2 and #modelsOf("bedroom") == 2, "8: SetHome of the two good plants kept " .. show(two))
+	table.insert(out, string.format("8 SetHome with junk (unknown id, string coordinate, overlap, far-off cell, closet in the bedroom, bad turn, non-tables, unknown kind): kept the door, the two plants, the rug moved to (%d, %d) and the far-off plant to (%d, %d); the plot's Items rebuilt from it, the earlier models gone; then the two plants alone again",
+		e2.x, e2.z, e3.x, e3.z))
 
 	-- 9. your plot only
 	teleport(LOUNGE)

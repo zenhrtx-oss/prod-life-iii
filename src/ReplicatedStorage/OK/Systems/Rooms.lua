@@ -10,16 +10,28 @@
 --   there from Workspace), or RoomBuild's stand-in when there is none; home and real are stand-ins until their imports.
 -- * Leaving frees the slot: everyone standing in the plot (the owner too, when present, preflight F5) is moved to the
 --   building's HallSpawn first, guests with the toast "{player} left the server" (copy 1.19), then the plot goes.
+--   R-T16 fix, I5 (the release race): releaseSlot marks the owner's entry `releasing` before anything else, and from then
+--   on the plot's doors move nobody (enterPlot, goRoom, exitRoom and leavePlot refuse; a guest pressing Enter is told copy
+--   1.19). A move already on its way (a far plot's stream wait, the 0.3 s unseat) asks a `still()` check after each yield
+--   and before every PivotTo, and gives up when the plot is going (Enter's guest is told 1.19 then). Last, with no yield
+--   from there to the plot's Destroy, a final sweep moves anyone still standing in the plot (by position, before the slot
+--   tables are cleared) to HallSpawn, unseated, and tells a guest not yet told.
 -- * The wake-up: your first character goes to your bedroom's Spawn; a respawn after a death inside your own plot does
 --   the same. Under the test hold (Studio, ReplicatedStorage.OK has WalkInsPaused, true or false: WalkIns' held()) neither
 --   moves anyone, so the existing suite keeps starting at the hub spawn; tests drive them through the hook. Without the
 --   building (Workspace.OK_Rooms' Hall and RoomsDoor: the only way out of a plot) neither moves anyone either.
 -- * The throwaway-test seam (Task 15, build/room_test.lua; Studio or not, since the user tours a private publish): while
---   Workspace.RoomTest (the 12-plot phone test's root Folder, whose plots stand on the real slot origins) exists, Rooms
+--   Workspace.RoomTest (the 12-plot phone test's root Folder, whose plots stand on the real slot origins) exists (R-T16
+--   fix, I2: a Folder carrying the Throwaway attribute, as room_test.lua makes it; a player's character named RoomTest, a
+--   Model, or anything else of that name never counts), Rooms
 --   claims no slot (claim answers nil and PlotSlot reads 0; the hook's Fill claims none and answers 0), builds no plot, and moves no one on join or respawn (the
 --   wake-up and the respawn rule hold, forced ones too, and nobody gets the "building is full" toast): everyone stays at
 --   the hub spawn and the test's ROOM TOUR moves them. Nothing else changes; with no RoomTest (the whole suite, and every
 --   real server) it does nothing. build/room_test_remove.lua deletes RoomTest, and this seam goes with the test.
+-- * Untagged prompts (every one below) are hooked by onPrompt: a press from out of reach does nothing, and (R-T16 fix, M1) a
+--   player's press of the same prompt within PRESS_DEBOUNCE (0.25 s) of their last one is ignored: a weak-keyed table per
+--   prompt instance (many prompts share a name: 12 EnterPrompts, a RoomPrompt per door), so the closet's whole-profile
+--   payload, Decorate's push and a "friends" door's check can't be run once a frame. busy[] still guards the moves.
 -- * Doors (untagged prompts, hooked here; each press is checked for reach, as InteractionService does): the corridor's
 --   RoomsDoor -> the hall's HallSpawn; the hall's door k -> plot k's landing (RoomRules.CanEnter on the owner's saved
 --   door mode, Task 14 below; the owner always enters; a refusal toasts copy 1.16 / 1.17); the landing's
@@ -53,7 +65,9 @@
 --   kept; the plot's Items folders follow it, the plot itself isn't rebuilt), Guest(slot) (a stand-in Model in that plot, moved like a guest on Release), Station(kind?),
 --   RunStation(kind?) (InteractionService._RunHandler("Station") on it: { acted, toast }), Sent (the toasts sent this
 --   player since the last read), OnOpen(cmd, a) (the next time this player's beat maker opens at a laptop in a plot,
---   run hook command cmd(a) 2 s later: a client test's server-side move; disarmed after 30 s). Task 6: MayUse(inst)
+--   run hook command cmd(a) 2 s later: a client test's server-side move; disarmed after 30 s), OnDecorate(cmd, a) (R-T16
+--   fix, I1: the next time this player's decorate push goes out, run cmd(a) at their second Room_Get after it, the client
+--   test's knock once it reads Editing; disarmed after 30 s; see armDecorate). Task 6: MayUse(inst)
 --   (InteractionService.MayUse(player, inst): ok, ownerName?), StationOf (DAW.StationOf: { inst, room }), Run(kind, inst)
 --   (InteractionService._RunHandler(kind) on inst: { acted, toast }; the RackSpot's GearRack, say).
 -- * Placing your things (Task 9). Each room Model holds an `Items` Folder (attribute RoomItemsFolder; made by build(k) for every
@@ -105,7 +119,8 @@
 --   new room. The landing needs nothing more: RoomBuild.Landing is built from the owned kinds, so a door you now own is a
 --   working one (its RoomPrompt, its name sign and its Out marker) and the rest keep the locked sign; hookPlot hooks every
 --   RoomPrompt the new plot has, so the swap is the rebuild's (one writer: this module's single CareerGates listener).
--- * Your walls show your career (Task 11). Each room Model holds a `Plaques` Folder (attribute RoomPlaques) with one
+-- * Your walls show your career (Task 11). Each room Model holds a `Plaques` Folder (attribute RoomPlaques; R-T16 fix, M2:
+--   only a Folder with that mark is reused and emptied, and an import's own child named Plaques is left alone) with one
 --   RoomItems.Plaque model per hung plaque, RoomPlaque_<n> on the room's Plaque_<n> Attachment (found by name like every
 --   anchor: the bedroom's are the asset's own Sockets, the home and real stand-ins' come from Config; the models are named
 --   RoomPlaque_<n> so a recursive FindFirstChild("Plaque_<n>") can never meet one). One list for the whole plot,
@@ -223,6 +238,7 @@ local lastPlay = {}   -- [player] = os.clock() of their last room play that went
 local testGuests = {} -- [k] = { Model } (the hook's Guest)
 local sent = {}       -- Studio: [userId] = { toast text }
 local armed = {}      -- Studio: [player] = the hook's OnOpen entry
+local decoArmed = {}  -- Studio: [player] = the hook's OnDecorate entry { cmd, a, pushed, gets } (R-T16 fix, I1's test seam)
 local counts = {}     -- Studio: [userId] = { played = n, tried = n, rebuilt = n, views = n } since the hook's last Counts
 local pushed = {}     -- Studio: [userId] = { { kind, payload } } the Room remote sent the player since the hook's last Pushed
 local views = setmetatable({}, { __mode = "k" })   -- [player] = { t = os.clock(), v = State's answer } (Room_Get's cache)
@@ -242,8 +258,13 @@ local friendGen = 0    -- bumped by every clear of the cache: an answer to an as
 local function report(msg) warn("[OK][ERR] rooms: " .. tostring(msg)) end
 -- the test hold, as Systems/WalkIns' held(): Studio only, so a stray attribute in a published place never holds anyone
 local function held() return RunService:IsStudio() and RS.OK:GetAttribute("WalkInsPaused") ~= nil end
--- the throwaway-test seam (see the header): the 12-plot phone test stands on the slots' origins
-local function roomTest() return workspace:FindFirstChild("RoomTest") ~= nil end
+-- the throwaway-test seam (see the header): the 12-plot phone test stands on the slots' origins. Only room_test.lua's own
+-- root counts, a Folder with the Throwaway attribute (R-T16 fix, I2): a player named RoomTest puts a character Model of
+-- that name in Workspace, and it must never hold every joiner's slot
+local function roomTest()
+	local t = workspace:FindFirstChild("RoomTest")
+	return t ~= nil and t:IsA("Folder") and t:GetAttribute("Throwaway") ~= nil
+end
 
 -- copy ---------------------------------------------------------------------------------------------------------------
 -- a {player} in a toast: past 10 characters it is cut to 9 plus "…" (copy §1, tokens)
@@ -336,12 +357,15 @@ local function playDoor(part)
 	if s and s:IsA("Sound") then s.TimePosition = 0; s:Play() end
 end
 -- stream the target in, unseat, move 3 up; checked once, since the client's own physics can win the first move: moved
--- again only when the root is still where it stood before (never when the player has gone somewhere else since)
-local function teleport(p, target)
+-- again only when the root is still where it stood before (never when the player has gone somewhere else since).
+-- still (optional; R-T16 fix, I5): asked after each yield and before every PivotTo. When it answers false the target is
+-- going (its plot is being released): no move, and teleport answers false
+local function teleport(p, target, still)
 	local c = p.Character
 	local hum = c and c:FindFirstChildOfClass("Humanoid")
 	if not (target and c and hum and hum.Health > 0 and c:FindFirstChild("HumanoidRootPart")) then return false end
 	pcall(function() p:RequestStreamAroundAsync(target.Position, 10) end)
+	if still and not still() then return false end
 	if hum.Sit or hum.SeatPart then
 		local seat = hum.SeatPart
 		local weld = seat and seat:FindFirstChild("SeatWeld")
@@ -351,25 +375,30 @@ local function teleport(p, target)
 	end
 	local r = c:FindFirstChild("HumanoidRootPart")
 	if p.Character ~= c or not c.Parent or not r then return false end
+	if still and not still() then return false end
 	local from = r.Position
 	local dest = target + Vector3.new(0, 3, 0)
 	c:PivotTo(dest)
 	task.wait(0.25)
 	r = c:FindFirstChild("HumanoidRootPart")
-	if r and p.Character == c and (r.Position - dest.Position).Magnitude > 8 and (r.Position - from).Magnitude < 8 then c:PivotTo(dest) end
+	if r and p.Character == c and (r.Position - dest.Position).Magnitude > 8 and (r.Position - from).Magnitude < 8 and (still == nil or still()) then
+		c:PivotTo(dest)
+	end
 	presence(p)
 	return true
 end
--- one move at a time per player
-local function move(p, target, door)
+-- one move at a time per player; still: teleport's
+local function move(p, target, door, still)
 	if not target or busy[p] then return false end
 	busy[p] = true
 	playDoor(door)
-	local ok, res = pcall(teleport, p, target)
+	local ok, res = pcall(teleport, p, target, still)
 	busy[p] = nil
 	if not ok then report("move: " .. tostring(res)); return false end
 	return res
 end
+-- is plot k still o's and standing, and not being released? (a move into it, or around it, goes on only while it is)
+local function plotStill(k, o) return owners[k] == o and plots[k] ~= nil and not o.releasing end
 
 -- your door (Task 14; see the header) ----------------------------------------------------------------------------------
 local DOOR_ACTION, DOOR_OBJECT = "Door: {MODE}", "Who can come in" -- copy 10.4, 10.5 ({MODE}: Build.Copy.Modes, 10.1 - 10.3)
@@ -445,17 +474,22 @@ end
 -- saved door mode (doorMode). asFriend true or false (the hook's) answers the friend check; nil (the EnterPrompt) runs it,
 -- and only a "friends" door ever does. A refusal toasts copy 1.16 (locked) or 1.17 (friends only). A press that waited for
 -- the check reads the mode again (fix 1, M1: a door locked meanwhile refuses with 1.16); one whose owner left meanwhile
--- (or whose slot moved on) is told copy 1.19 (fix 1, M2), so no press goes unanswered
+-- (or whose slot moved on) is told copy 1.19 (fix 1, M2), so no press goes unanswered. R-T16 fix, I5: a plot being
+-- released (o.releasing) lets nobody in (a guest is told 1.19), and the move itself gives up when the release starts
+-- while it streams or unseats (plotStill after each yield; the guest is told 1.19 then too)
 local function enterPlot(p, k, asFriend)
 	k = tonumber(k)
 	local o = k and owners[k]
 	if not (o and plots[k]) then return false end
-	if o.id ~= p.UserId then
-		local function gone()
-			if owners[k] == o and plots[k] then return false end
-			toast(p, fill(Copy.OwnerLeft, { player = short(o.name) }))
-			return true
-		end
+	local guest = o.id ~= p.UserId
+	local function still() return plotStill(k, o) end
+	local function gone()
+		if still() then return false end
+		if guest then toast(p, fill(Copy.OwnerLeft, { player = short(o.name) })) end
+		return true
+	end
+	if gone() then return false end
+	if guest then
 		local mode = doorMode(o) -- the saved home.door (the owner's profile is loaded once their plot stands)
 		local friend, waited = asFriend, false
 		if mode == "friends" and friend == nil then friend, waited = friendAnswer(p, o) end -- waits FRIEND_SECONDS at most
@@ -469,20 +503,29 @@ local function enterPlot(p, k, asFriend)
 		end
 		if gone() then return false end -- a read of the saved mode can wait for the profile too
 	end
-	return move(p, landingInside(k), hallDoor(k))
+	if move(p, landingInside(k), hallDoor(k), still) then return true end
+	gone() -- the release began while the move streamed or unseated: no move, and a guest is told why
+	return false
 end
--- the landing's door for `kind`: into that room, at its Spawn
+-- the landing's door for `kind`: into that room, at its Spawn (never while the plot is being released, I5)
 local function goRoom(p, k, kind)
+	local o = owners[k]
+	if not (o and plotStill(k, o)) then return false end
 	local door = landingOf(k) and landingOf(k):FindFirstChild("Door_" .. tostring(kind))
-	return move(p, roomSpawn(k, kind), door)
+	return move(p, roomSpawn(k, kind), door, function() return plotStill(k, o) end)
 end
--- a room's ExitPrompt: onto the landing outside that room's door
+-- a room's ExitPrompt: onto the landing outside that room's door (never while the plot is being released, I5)
 local function exitRoom(p, k, kind)
+	local o = owners[k]
+	if not (o and plotStill(k, o)) then return false end
 	local room = roomOf(k, kind)
-	return move(p, landingOut(k, kind), room and Build.DoorOf(room))
+	return move(p, landingOut(k, kind), room and Build.DoorOf(room), function() return plotStill(k, o) end)
 end
--- the landing's LeavePrompt: into the hall, in front of door k
+-- the landing's LeavePrompt: into the hall, in front of door k (refused while the plot is being released, I5: the release
+-- moves everyone in it to the hall itself)
 local function leavePlot(p, k)
+	local o = owners[k]
+	if o and o.releasing then return false end
 	local l = landingOf(k)
 	return move(p, hallFront(k), l and l:FindFirstChild("FrontDoor"))
 end
@@ -558,7 +601,12 @@ end
 local function decorate(p, k, kind)
 	if slotOf[p] == nil or slotOf[p] ~= k or not roomOf(k, kind) then return false end
 	forgetView(p) -- the client asks Room_Get next: a fresh answer
-	return push(p, "decorate", { kind = kind })
+	local pushedOk = push(p, "decorate", { kind = kind })
+	local d = decoArmed[p] -- Studio: the hook's OnDecorate (R-T16 fix, I1's test seam): its push has gone out
+	-- (round 2, N3: the Room_Get count starts again at every push, so only the knock after the last push fires it, never a
+	-- second press's own fetch)
+	if pushedOk and d then d.pushed = true; d.gets = 0 end
+	return pushedOk
 end
 
 -- untagged prompts: a press from out of reach does nothing; a throw is reported, never a bare stack
@@ -566,11 +614,18 @@ local function near(p, part)
 	local r = rootOf(p)
 	return r ~= nil and part ~= nil and (r.Position - part.Position).Magnitude <= Config.Interaction.MaxDistance + 8
 end
+-- R-T16 fix, M1: a player's press of this very prompt within PRESS_DEBOUNCE of their last one does nothing (keyed by the
+-- prompt instance through its own closure's table, never by name: 12 EnterPrompts and a RoomPrompt per door share names)
+local PRESS_DEBOUNCE = 0.25
 local function onPrompt(part, name, fn)
 	local pp = part and part:FindFirstChild(name)
 	if not (pp and pp:IsA("ProximityPrompt")) then return end
+	local last = setmetatable({}, { __mode = "k" }) -- [player] = os.clock() of their last press of this prompt
 	pp.Triggered:Connect(function(p)
 		if not near(p, part) then return end
+		local now = os.clock()
+		if last[p] and now - last[p] < PRESS_DEBOUNCE then return end
+		last[p] = now
 		local ok, err = pcall(fn, p)
 		if not ok then report(name .. ": " .. tostring(err)) end
 	end)
@@ -940,21 +995,33 @@ local function plaqueRows(p, total)
 	if not ok then report("plaques: " .. tostring(rows)); return {}, nil end
 	return rows, sig
 end
+-- the room's own Plaques folder (R-T16 fix, M2, as RoomEdit's folderOf finds Items): only a Folder carrying RoomPlaques is
+-- ever reused (and so emptied); a child named Plaques that Rooms did not make (an import that ships its own) is left as
+-- it is, with a notice, and Rooms makes its own beside it. Never yields
+local function plaqueFolder(room)
+	for _, c in ipairs(room:GetChildren()) do
+		if c.Name == PLAQUE_FOLDER and c:IsA("Folder") and c:GetAttribute("RoomPlaques") == true then return c end
+	end
+	if room:FindFirstChild(PLAQUE_FOLDER) then
+		-- a notice, not an [OK][ERR]: the room still gets its plaques, and nothing of the import's is touched
+		warn("[OK] rooms: " .. room:GetFullName() .. " has a child named " .. PLAQUE_FOLDER .. " that Rooms did not make; it is left alone")
+	end
+	local f = Instance.new("Folder")
+	f.Name = PLAQUE_FOLDER
+	f:SetAttribute("RoomPlaques", true)
+	f.Parent = room
+	return f
+end
 -- hangs `rows` ({ { kind, text } }, in order) in the rooms of `plot` that are in `owned` (ladder order): each room's Plaques
--- folder is emptied, then filled from its Plaque_1..n anchors, the next row going to the next anchor; the rooms after the
--- last row stay empty. A slot with no anchor is reported and skipped (its row goes to the next slot). Never yields
+-- folder (plaqueFolder: Rooms' own only) is emptied, then filled from its Plaque_1..n anchors, the next row going to the
+-- next anchor; the rooms after the last row stay empty. A slot with no anchor is reported and skipped (its row goes to the
+-- next slot). Never yields
 local function hangPlaques(plot, owned, rows)
 	local at = 0
 	for _, kind in ipairs(owned) do
 		local room = plot:FindFirstChild(Build.RoomName(kind))
 		if room then
-			local folder = room:FindFirstChild(PLAQUE_FOLDER)
-			if not (folder and folder:IsA("Folder")) then
-				folder = Instance.new("Folder")
-				folder.Name = PLAQUE_FOLDER
-				folder:SetAttribute("RoomPlaques", true)
-				folder.Parent = room
-			end
+			local folder = plaqueFolder(room)
 			folder:ClearAllChildren()
 			for slot = 1, (Cfg.Kinds[kind] or {}).plaques or 0 do
 				local row = rows[at + 1]
@@ -1149,11 +1216,16 @@ local function claim(p)
 	return k
 end
 -- frees slot k: everyone standing in the plot goes to the hall's spawn first (guests told why; the owner too unless
--- they are the one leaving), then the plot goes
+-- they are the one leaving), then the plot goes. R-T16 fix, I5: o.releasing is set first (no door moves anyone into or
+-- around the plot from then on; a second release of the same owner answers false), and a final sweep with no yield before
+-- the Destroy moves anyone still in the plot (a guest whose door move landed after the scan, a mover whose move didn't take)
 local function releaseSlot(k, leaving)
 	local o = owners[k]
-	if not o then return false end
+	if not o or o.releasing then return false end
+	o.releasing = true
 	local target = hallSpawn()
+	local leftLine = fill(Copy.OwnerLeft, { player = short(o.name) })
+	local told = {} -- [player] = told copy 1.19 already
 	local movers = {}
 	for _, q in ipairs(Players:GetPlayers()) do
 		local r = rootOf(q)
@@ -1162,7 +1234,7 @@ local function releaseSlot(k, leaving)
 	if target then
 		local left = #movers
 		for _, q in ipairs(movers) do
-			if q ~= o.player then toast(q, fill(Copy.OwnerLeft, { player = short(o.name) })) end
+			if q ~= o.player then toast(q, leftLine); told[q] = true end
 			task.spawn(function()
 				local ok, err = pcall(teleport, q, target)
 				if not ok then report("release move: " .. tostring(err)) end
@@ -1176,6 +1248,27 @@ local function releaseSlot(k, leaving)
 		while left > 0 and os.clock() - t0 < 11 do task.wait(0.05) end -- past teleport's 10 s stream wait
 	end
 	if owners[k] ~= o then return false end -- released or claimed again while the movers moved
+	-- the final sweep: NOTHING below yields until plot:Destroy() (plotAt reads slots[k], so it runs before that is cleared)
+	local swept = {}
+	if target then
+		for _, q in ipairs(Players:GetPlayers()) do
+			local r = rootOf(q)
+			if r and plotAt(r.Position) == k and not (leaving and q == o.player) then
+				local ok, err = pcall(function()
+					local c = q.Character
+					local hum = c:FindFirstChildOfClass("Humanoid")
+					local seat = hum and hum.SeatPart
+					local weld = seat and seat:FindFirstChild("SeatWeld")
+					if hum then hum.Sit = false end
+					if weld then weld:Destroy() end
+					c:PivotTo(target + Vector3.new(0, 3, 0))
+				end)
+				if not ok then report("release sweep: " .. tostring(err)) end
+				if q ~= o.player and not told[q] then toast(q, leftLine); told[q] = true end
+				table.insert(swept, q)
+			end
+		end
+	end
 	testGuests[k] = nil
 	local plot = plots[k]
 	plots[k], kindsOf[k], slots[k], owners[k] = nil, nil, nil, nil
@@ -1190,6 +1283,7 @@ local function releaseSlot(k, leaving)
 	endPlay(k) -- its speakers are gone with it
 	plate(k)
 	for _, q in ipairs(movers) do pcall(presence, q) end
+	for _, q in ipairs(swept) do pcall(presence, q) end
 	return true
 end
 
@@ -1288,6 +1382,7 @@ local function onLeave(p)
 	plaqueConns[p], plaqueDirty[p], plaqueSig[p] = nil, nil, nil
 	local a = armed[p]
 	if a then a.conn:Disconnect(); armed[p] = nil end
+	decoArmed[p] = nil
 end
 
 -- API ------------------------------------------------------------------------------------------------------------------
@@ -1420,6 +1515,20 @@ end
 -- reported and answered, never passed to the client's InvokeServer. Room_Get answers from the cache (viewFor; Task 9's review
 -- M1: it is unthrottled, so a client calling it often costs one State a VIEW_SECONDS, not a Repair a call)
 local function roomGet(player)
+	-- Studio: the hook's OnDecorate (R-T16 fix, I1's test seam). Once its decorate push has gone out, the client's first
+	-- Room_Get is decorate mode's own fetch (RoomClient's enter); the second is the client test's knock, sent once it reads
+	-- Editing: the armed command runs then (deferred, after this answer), while decorate mode is on, with no timing guess
+	local d = decoArmed[player]
+	if d and d.pushed then
+		d.gets += 1
+		if d.gets >= 2 then
+			decoArmed[player] = nil
+			task.defer(function()
+				local okRun, errRun = pcall(dispatch, d.cmd, player.UserId, d.a)
+				if not okRun then report("OnDecorate " .. tostring(d.cmd) .. ": " .. tostring(errRun)) end
+			end)
+		end
+	end
 	local ok, res, cached = pcall(viewFor, player)
 	if ok then
 		if not cached and RunService:IsStudio() then
@@ -1546,6 +1655,18 @@ local function arm(p, cmd, a)
 	task.delay(30, function()
 		if armed[p] == entry then entry.conn:Disconnect(); armed[p] = nil end
 	end)
+	return true
+end
+-- the hook's OnDecorate(cmd, a) (R-T16 fix, I1's test seam; Studio only, one shot): the next time this player's decorate push
+-- goes out (a DecoratePrompt press, or the hook's Decorate), hook command cmd(a) runs at their second Room_Get after it (after
+-- the LAST push: each push starts the count again, round 2 N3)
+-- (roomGet: the first is decorate mode's own fetch, the second the client test's knock once it reads Editing). Disarmed
+-- after 30 s, or by a new arm
+local function armDecorate(p, cmd, a)
+	if type(cmd) ~= "string" then return false end
+	local entry = { cmd = cmd, a = a, pushed = false, gets = 0 }
+	decoArmed[p] = entry
+	task.delay(30, function() if decoArmed[p] == entry then decoArmed[p] = nil end end)
 	return true
 end
 -- the plot the player stands in, else their own
@@ -1684,6 +1805,7 @@ dispatch = function(cmd, userId, a, b)
 		return { acted = acted, toast = text }
 	end
 	if cmd == "OnOpen" then return arm(p, a, b) end
+	if cmd == "OnDecorate" then return armDecorate(p, a, b) end -- R-T16 fix, I1's test seam (see armDecorate)
 	-- Task 7: DAW_Broadcast's and DAW_Stop's own handlers for this player (the remote's path: the room branch, the
 	-- BroadcastTried rule); Counts since the last read; the speaker tier; the live FIRE rule for a token
 	if cmd == "Play" then return require(RS.OK.Systems.DAW)._Broadcast(p, a, b, 0) end
@@ -1796,7 +1918,14 @@ function M.Init(c)
 		report("Remotes.Room_Get / Room_Edit missing: run build/19_rooms.lua in Edit")
 	end
 	local ev = remotes and remotes:FindFirstChild("Room")
-	if ev and ev:IsA("RemoteEvent") then roomEvent = ev else report("Remotes.Room missing: run build/19_rooms.lua in Edit") end
+	if ev and ev:IsA("RemoteEvent") then
+		roomEvent = ev
+		-- the Room remote is server -> client only ("decorate", "state"). R-T16 fix, M4: an empty listener, so a client firing
+		-- it at the server is dropped here instead of filling the remote's queue ("queue exhausted" warnings)
+		ev.OnServerEvent:Connect(function() end)
+	else
+		report("Remotes.Room missing: run build/19_rooms.lua in Edit")
+	end
 	Players.PlayerAdded:Connect(onJoin)
 	Players.PlayerRemoving:Connect(onLeave)
 	for _, p in ipairs(Players:GetPlayers()) do onJoin(p) end

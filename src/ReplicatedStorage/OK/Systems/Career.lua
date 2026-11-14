@@ -8,7 +8,10 @@
 --   pays Config.Career.DeliveryFeed[stars]; FIRE (Reactions), flips (Flips), cypher wins (BeatBattles) and weekly
 --   plaques (Dailies) call Career.Add inline.
 -- * Gates (Config.Career.Gates): a "room" is bought once with Money when its needs are met (Studio Two); the "toggle"
---   is the sponsor-on-the-TV switch (free once its needs are met; flips prof.career.showSponsor).
+--   is the sponsor-on-the-TV switch (free once its needs are met; flips prof.career.showSponsor). A gate's `after` (R-T16
+--   fix, I7: real_studio's is home_studio, the decided ladder) must be owned first: Unlock answers "needs" until it is, and
+--   State's gate row carries `after` and its check an `after = { id, name, ok }` row (check.ok false while it isn't met),
+--   which the Career tab shows as one more needs chip with the gate's own name.
 -- * Player attributes for the client: Aura, Followers, Placements, Hits, Sponsors, Sponsor (the deal's display name),
 --   CareerGates ("studio_two,sponsor_tv": owned rooms, plus sponsor_tv while its needs are met and it is switched on).
 -- * Life: Publish runs Systems/Life.Publish last (loud when Followers really rose, so only a real gain gets a tier banner),
@@ -111,6 +114,20 @@ local function needsMet(check)
 end
 -- the toggle is on while its needs are met and the player has it switched on
 local function toggleOn(have, g) return have.showSponsor and needsMet(Rules.Check(have, g.needs)) end
+-- is the gate a room gate's `after` names owned (R-T16 fix, I7)? True for a gate with none
+local function afterMet(have, g) return type(g.after) ~= "string" or have.gates[g.after] == true end
+-- a gate's check (CareerRules.Check) with its prerequisite folded in (R-T16 fix, I7): a gate whose `after` names another
+-- gate gets check.after = { id, name, ok } (ok: that gate is owned), and check.ok is false while it isn't
+local function gateCheck(have, g)
+	local check = Rules.Check(have, g.needs, g.cost)
+	if type(g.after) == "string" then
+		local first = gateById(g.after)
+		local okAfter = afterMet(have, g)
+		check.after = { id = g.after, name = first and first.name or g.after, ok = okAfter }
+		if not okAfter then check.ok = false end
+	end
+	return check
+end
 
 -- the Career a player has (Money, the five stats, sponsor, showSponsor, owned gates)
 function M.Get(player) return Rules.Have(profile(player)) end
@@ -287,8 +304,8 @@ function M.State(player)
 	local gates = {}
 	for _, g in ipairs(careerCfg().Gates or {}) do
 		local owned = g.kind == "room" and have.gates[g.id] == true
-		table.insert(gates, { id = g.id, kind = g.kind, name = g.name, desc = g.desc, needs = g.needs or {}, cost = g.cost or 0,
-			owned = owned, on = owned or (g.kind == "toggle" and toggleOn(have, g)), check = Rules.Check(have, g.needs, g.cost) })
+		table.insert(gates, { id = g.id, kind = g.kind, name = g.name, desc = g.desc, needs = g.needs or {}, cost = g.cost or 0, after = g.after,
+			owned = owned, on = owned or (g.kind == "toggle" and toggleOn(have, g)), check = gateCheck(have, g) })
 	end
 	local Gear = gearSys()
 	local gear = {}
@@ -322,7 +339,7 @@ function M.Unlock(player, gateId)
 	local res
 	if g.kind == "room" then
 		if have.gates[g.id] then res = { ok = false, reason = "owned" }
-		elseif not needsMet(check) then res = { ok = false, reason = "needs" }
+		elseif not (needsMet(check) and afterMet(have, g)) then res = { ok = false, reason = "needs" } -- I7: the gate before it first, too
 		elseif not check.money.ok or not ctx.Data.SpendCred(player, g.cost or 0) then res = { ok = false, reason = "money" }
 		else
 			prof.career.gates[g.id] = true

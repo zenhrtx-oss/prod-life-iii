@@ -6,8 +6,10 @@
 -- { v = 1, door = "friends", items = {} }, saves it, and a second read keeps the same table. (b) a stored home with 2 good
 -- bedroom items and 1 junk one survives HttpService JSON key for key; state() drops the junk and names it, writes the repair
 -- back, a real save leaves it out of the stored JSON, and a reload brings back 2 items and drops nothing. (b2) every kind of
--- junk drops quietly (a string coordinate, out of bounds, overlapping, an unknown id, over the limit, a bad turn, a
--- non-table entry) and the good ones keep their order. (c) ruling R8: items under a room whose gate (career.gates.home_studio)
+-- junk drops quietly (a string coordinate, an unknown id, over the limit, a bad turn, a non-table entry); the entries that
+-- stand where they were saved keep their places and their order; an entry out of bounds or overlapping would move into the
+-- space left (R-T16 fix, I6; round 2, N1: the in-place ones first, and they win the limit), but the six in place fill the
+-- bedroom, so it drops "limit". (c) ruling R8: items under a room whose gate (career.gates.home_studio)
 -- is missing stay in the save, reported as unbuilt "unowned" and never dropped; with the gate set they are buildable (nothing
 -- unbuilt, nothing dropped, the same entries), and taking the gate away keeps them again. (c2) locked items (a first, a gear
 -- item through the Gear system, a fame tier from prof.life) stay unbuilt until each unlock is held; a Gear that throws leaves its
@@ -163,13 +165,14 @@ local _, droppedB2 = Rooms._State(pb)
 eq("(b) dropped after the reload", names(droppedB2), "")
 table.insert(out, "(b) 2 good + 1 junk survives JSON; the junk is dropped and named, written back, saved without it, and gone after a reload")
 
--- b2) every kind of junk drops quietly, the good entries keep their order
+-- b2) every kind of junk drops quietly; the entries standing where they were saved keep their places and their order and win
+-- the limit (R-T16 fix round 2, N1); the out-of-bounds and overlapping ones find no room left to move into
 local function junkList()
   return {
-    rug(),                                           -- 1 kept
+    rug(),                                           -- 1 kept (-6,-7: it covers -6..-5, -7..-6)
     { id = "plant", x = "3", z = 1, r = 0 },         -- 2 malformed: a string coordinate
-    { id = "plant", x = 40, z = 40, r = 0 },         -- 3 bounds
-    { id = "plant", x = -6, z = -7, r = 0 },         -- 4 overlap with the rug
+    { id = "plant", x = 40, z = 40, r = 0 },         -- 3 bounds: set aside to move; the room is full: limit
+    { id = "plant", x = -6, z = -7, r = 0 },         -- 4 overlap with the rug: set aside; limit
     junk(),                                          -- 5 unknown
     plant(),                                         -- 6 kept
     { id = "plant", x = -6, z = -5, r = 0 },         -- 7 kept
@@ -186,12 +189,13 @@ local pb2 = { UserId = 10204, Name = "T102b2" }
 local bb = DS.Load(pb2)
 assertSame(bb.career.home, { v = 1, door = "friends", items = { bedroom = junkList() } }, "(b2) the junk list through JSON")
 local hbb, droppedBB, unbuiltBB = Rooms._State(pb2)
-eq("(b2) dropped", names(droppedBB), "bedroom:2:plant:malformed bedroom:3:plant:bounds bedroom:4:plant:overlap bedroom:5:grand_piano:unknown"
+eq("(b2) dropped (before the R-T16 fix round 2 sync of Modules/RoomRules and a fresh module cache: 3 and 4 moved, 9 and 10 'limit', the expected red)",
+  names(droppedBB), "bedroom:2:plant:malformed bedroom:3:plant:limit bedroom:4:plant:limit bedroom:5:grand_piano:unknown"
   .. " bedroom:11:plant:limit bedroom:12:plant:rot bedroom:13:nil:malformed")
 eq("(b2) unbuilt", names(unbuiltBB), "")
 local list = junkList()
-assertSame(hbb.items.bedroom, { list[1], list[6], list[7], list[8], list[9], list[10] }, "(b2) the kept entries, in their order")
-table.insert(out, "(b2) a string coordinate, out of bounds, overlap, an unknown id, over the limit, a bad turn and a non-table entry all drop (named); the six good ones stay")
+assertSame(hbb.items.bedroom, { list[1], list[6], list[7], list[8], list[9], list[10] }, "(b2) the kept entries, in place and in their order")
+table.insert(out, "(b2) a string coordinate, an unknown id, over the limit, a bad turn and a non-table entry all drop (named); the six in place stand and win the limit, so out of bounds and overlapping find no room to move into ('limit')")
 
 -- c) ruling R8: items under a room whose gate is missing stay, unbuilt; the gate makes them buildable
 local function seedC() return { v = 1, door = "friends", items = { bedroom = { rug() }, home = homeItems() } } end

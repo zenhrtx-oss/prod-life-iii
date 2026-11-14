@@ -93,7 +93,17 @@ local function studio() return workspace:FindFirstChild("OKStudio") end
 -- studio laptop (OK_Interactable parts with Kind = "Station"). A laptop inside a room (RoomScope.RoomOf) counts only for
 -- the player in its room Model's OwnerId; a room with none counts for nobody. Returns the spot (the chair, the PC's
 -- screen or the laptop) and the room Model it is in (nil in the hub), or nil when the player is at none.
+-- One owner rule (R-T16 fix, M3): a room's laptop asks InteractionService.MayUse (ctx.Interaction, set by Init), the very
+-- rule the prompt path and Systems/Stations use, so a later change to it (friends at a laptop, say) lands once. Before
+-- Init (an edit check, a pre-Init call) the same rule is read inline from the room Model's OwnerId
 local CS = game:GetService("CollectionService")
+local ctxRef
+local function mayUseRoom(player, inst, room)
+	local I = ctxRef and ctxRef.Interaction
+	if type(I) == "table" and type(I.MayUse) == "function" then return I.MayUse(player, inst) == true end
+	local owner = room:GetAttribute("OwnerId")
+	return owner ~= nil and owner == player.UserId
+end
 function M.StationOf(player)
 	local hum = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
 	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
@@ -110,15 +120,13 @@ function M.StationOf(player)
 			and (root.Position - inst.Position).Magnitude <= reach then
 			local room = RoomScope.RoomOf(inst)
 			if room == nil then return inst, nil end
-			local owner = room:GetAttribute("OwnerId")
-			if owner ~= nil and owner == player.UserId then return inst, room end
+			if mayUseRoom(player, inst, room) then return inst, room end
 		end
 	end
 	return nil
 end
 function M.AtStation(player) return M.StationOf(player) ~= nil end
 
-local ctxRef
 -- has the player unlocked a beat-maker feature ("Bass", "Rolls", "Swing")? Owning the gear for it (Systems/Gear).
 function M.Unlocked(player, feature)
 	return require(RS.OK.Systems.Gear).Has(player, feature)

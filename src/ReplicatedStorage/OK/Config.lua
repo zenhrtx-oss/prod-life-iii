@@ -131,6 +131,9 @@ Config.Gear = {
 -- (Config.Rooms.Kinds.<room>.gate is its id): owning it adds that room to your plot (Systems/Rooms rebuilds it on the
 -- CareerGates change). The ladder gates come first, so the Career tab lists them before THE HALL, which has none. Names and
 -- descs: research/rooms/copy_2026-11-12.md section 2 (draft lines, on the approval list). The prices are first guesses.
+-- `after` (R-T16 fix, I7: the decided ladder, bedroom -> home studio -> a real studio) names a gate that must be owned
+-- first: Career.Unlock answers "needs" until it is, and the Career tab shows it as one more needs chip (the gate's own name).
+-- CareerSim must honour it too when it buys rooms (the people plan's Task 6).
 Config.Career = {
   DeliveryFeed = { [2] = { followers = 40, aura = 5 }, [3] = { followers = 120, aura = 10 } },
   Sources = {
@@ -151,7 +154,7 @@ Config.Career = {
   },
   Gates = {
     { id = "home_studio", kind = "room", room = "home", name = "HOME STUDIO", desc = "More space, a closet, posters and a booth", needs = { placements = 1, followers = 1000 }, cost = 1500 },
-    { id = "real_studio", kind = "room", room = "real", name = "REAL STUDIO", desc = "The biggest room, with space for it all", needs = { placements = 3, followers = 20000 }, cost = 8000 },
+    { id = "real_studio", kind = "room", room = "real", name = "REAL STUDIO", desc = "The biggest room, with space for it all", needs = { placements = 3, followers = 20000 }, cost = 8000, after = "home_studio" },
     { id = "studio_two", kind = "room", name = "THE HALL", desc = "The door in the passage opens for you", needs = { placements = 1, aura = 300 }, cost = 5000 },
     { id = "sponsor_tv", kind = "toggle", name = "SPONSOR ON THE TV", desc = "Your sponsor's name on the lounge TV while you're in the room", needs = { sponsors = 1 }, cost = 0 },
   },

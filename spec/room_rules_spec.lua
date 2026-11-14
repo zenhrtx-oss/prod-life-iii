@@ -1,6 +1,7 @@
 -- CLI spec for Modules/RoomRules and Data/RoomCatalog (the Your Rooms plan, Task 1): plot origins and claims, owned
--- rooms, the room boxes, item cells, Fits, Repair (ruling R8: drop the malformed, unknown, out-of-bounds, overlapping
--- and over-limit; keep locked items and items in rooms you don't own, unbuilt), the save's size, unlocks, plaques,
+-- rooms, the room boxes, item cells, Fits, Repair (ruling R8: drop the malformed, unknown and over-limit; keep locked items
+-- and items in rooms you don't own, unbuilt; R-T16 fix, I6 and round 2, N1: keep in place what still stands where it was
+-- saved, move the out-of-bounds and overlapping into the space left, else drop them), the save's size, unlocks, plaques,
 -- speaker tiers, door access and modes, poster designs, Config.Rooms' own checks and the launch catalog's recipes.
 -- Run: sh tools/spec.sh room_rules
 local R = require("../src/ReplicatedStorage/OK/Modules/RoomRules")
@@ -526,23 +527,25 @@ eq("Repair a string: named", reasons(dropped, false), "home:malformed")
 h = R.Repair({ v = 7, door = "locked", items = {} }, { "bedroom" }, ROOMS, CAT, NONE)
 eq("Repair keeps a good door", h.door, "locked")
 eq("Repair sets v 1", h.v, 1)
--- the mixed list: home not owned, kit_tape not owned
+-- the mixed list: home not owned, kit_tape not owned. R-T16 fix, I6 (round 2, N1): the entries that stand where they were
+-- saved keep their places first and win the limit; an entry on a taken cell or off the free floor would move into the space
+-- left, but the six in place already fill the bedroom, so 5 and 6 drop "limit" (Fits at their saved spots)
 local MIXED = { v = 1, door = "open", items = {
 	bedroom = {
 		F("rug", -6, -7),                                  -- 1 good: kept
 		{ id = "plant", x = "4", z = 1, r = 0 },           -- 2 a string coordinate: dropped
 		F("lava_lamp", 4, 1),                              -- 3 an unknown id: dropped
 		F("tape_machine", -6, -5),                         -- 4 locked (no kit_tape): kept, unbuilt
-		F("plant", -5, -7),                                -- 5 on the rug: dropped (overlap)
-		F("plant", 0, 0),                                  -- 6 on the pigeon's spot: dropped (bounds)
+		F("plant", -5, -7),                                -- 5 on the rug (overlap): set aside to move; the room is full: dropped (limit)
+		F("plant", 0, 0),                                  -- 6 on the pigeon's spot (bounds): set aside; dropped (limit)
 		F("plant", -6, -5),                                -- 7 on the locked tape machine's cell: kept (it takes none)
 		"x",                                               -- 8 junk: dropped
-		F("plant", -4, -7),                                -- 9 kept
+		F("plant", -4, -7),                                -- 9 kept in place
 		F("closet", -4, -5),                               -- 10 a kind it isn't allowed in: dropped
-		F("plant", -4, -6),                                -- 11 kept
+		F("plant", -4, -6),                                -- 11 kept in place
 		F("plant", -5, -4, 4),                             -- 12 a bad turn: dropped
-		F("plant", -4, -5),                                -- 13 kept
-		F("plant", 4, 1),                                  -- 14 kept: the 6th built
+		F("plant", -4, -5),                                -- 13 kept in place
+		F("plant", 4, 1),                                  -- 14 kept in place: the 6th built
 		F("plant", 4, 2),                                  -- 15 the 7th: dropped (limit)
 		F("plant", -6, -4),                                -- 16 the 8th: dropped (limit)
 		F("rug", 3.5, -7),                                 -- 17 a fractional coordinate: dropped
@@ -558,7 +561,7 @@ h, dropped, unbuilt = R.Repair(MIXED, { "bedroom" }, ROOMS, CAT, NONE)
 eq("Repair mixed: bedroom kept in order", listKey(h.items.bedroom),
 	"rug@-6,-7,0 tape_machine@-6,-5,0 plant@-6,-5,0 plant@-4,-7,0 plant@-4,-6,0 plant@-4,-5,0 plant@4,1,0")
 eq("Repair mixed: bedroom dropped", reasons(dropped, "bedroom"),
-	"2:malformed 3:unknown 5:overlap 6:bounds 8:malformed 10:room 12:rot 15:limit 16:limit 17:malformed 18:malformed")
+	"2:malformed 3:unknown 5:limit 6:limit 8:malformed 10:room 12:rot 15:limit 16:limit 17:malformed 18:malformed")
 eq("Repair mixed: home kept unbuilt (not owned)", listKey(h.items.home), "couch@0,0,0 poster@1:2/3/1 poster@9:1/1/1")
 eq("Repair mixed: home dropped (unknown, a bad design)", reasons(dropped, "home"), "3:unknown 5:design")
 eq("Repair mixed: an unknown kind dropped", reasons(dropped, "attic"), "items:kind")
@@ -584,12 +587,13 @@ local h2, d2, u2 = R.Repair(h, { "bedroom" }, ROOMS, CAT, NONE)
 eq("Repair is idempotent", json(h2), json(h))
 eq("Repair again drops nothing", #d2, 0)
 eq("Repair again: the same unbuilt", reasons(u2, "bedroom") .. " | " .. reasons(u2, "home"), "2:locked | 1:unowned 2:unowned 3:unowned")
--- with kit_tape owned the tape machine is built again: the earlier entry wins and the later plant on its cell is dropped
+-- with kit_tape owned the tape machine is built again in place: the plant on its cell is set aside to move, but the six
+-- kept in place fill the bedroom, so it goes (limit: the items in place win the limit, R-T16 fix round 2, N1)
 local unlTape = R.Unlocked(CAT, { gear = { kit_tape = true } }, TIERS)
 local h3, d3, u3 = R.Repair(h, { "bedroom" }, ROOMS, CAT, unlTape)
 eq("Repair with kit_tape: bedroom", listKey(h3.items.bedroom),
 	"rug@-6,-7,0 tape_machine@-6,-5,0 plant@-4,-7,0 plant@-4,-6,0 plant@-4,-5,0 plant@4,1,0")
-eq("Repair with kit_tape: the plant on its cell dropped", reasons(d3, "bedroom"), "3:overlap")
+eq("Repair with kit_tape: the plant on its cell has no room left", reasons(d3, "bedroom"), "3:limit")
 eq("Repair with kit_tape: nothing locked", reasons(u3, "bedroom"), "")
 -- a locked item ahead of six good ones: all six built
 local h4, d4, u4 = R.Repair({ items = { bedroom = { F("tape_machine", -6, -5), table.unpack(six) } } }, { "bedroom" }, ROOMS, CAT, NONE)
@@ -614,6 +618,95 @@ eq("Repair: a list's extra key dropped", reasons(d7, "bedroom"), "extra:malforme
 local h8, d8 = R.Repair({ items = { bedroom = "rugs" } }, { "bedroom" }, ROOMS, CAT, NONE)
 eq("Repair: a kind's list that isn't a table", reasons(d8, "bedroom"), "items:malformed")
 eq("Repair: ... leaves the kind out", h8.items.bedroom, nil)
+-- R-T16 fix, M6: a poster's slot, word, colour and style are whole numbers or junk, as a floor entry's x and z are: a
+-- fractional slot in a room you don't own (kept unbuilt, so no Fits ever looks at it) is dropped as malformed
+local h9, d9, u9 = R.Repair({ items = { home = { P(1.5), P(2) } } }, { "bedroom" }, ROOMS, CAT, NONE)
+eq("Repair: a fractional poster slot in an unowned room dropped", reasons(d9, "home"), "1:malformed")
+eq("Repair: ... the whole one kept unbuilt", listKey(h9.items.home) .. " | " .. reasons(u9, "home"), "poster@2:1/1/1 | 1:unowned")
+
+-- R-T16 fix, I6: a room's floor changes under a saved home (an import lands with its measured grid or keep areas, or Config
+-- is retuned). A floor entry that no longer stands where it was saved ("bounds" or "overlap") moves to the first place it
+-- fits, scanned turn 0 then turn 1, rows north to south, each west to east, over the grid's bounding box (FullHome's scan);
+-- it drops only when no place in the room takes it. Over-limit entries still drop (the mixed list above), list order winning
+local function homeFloor(grid, keep) local r = copy(ROOMS_GRID); r.Kinds.home.grid = grid; r.Kinds.home.keep = keep; return r end
+local BOTH = { "bedroom", "home" }
+local function repairTwice(name, saved, rooms)
+	local before = json(saved)
+	local got, dropped1, unbuilt1 = R.Repair(saved, BOTH, rooms, CAT, ALL)
+	eq(name .. ": the input is untouched", json(saved), before)
+	-- (d) a second Repair of what the first kept changes nothing and drops nothing
+	local again, dropped2, unbuilt2 = R.Repair(got, BOTH, rooms, CAT, ALL)
+	eq(name .. ": a second Repair changes nothing", json(again), json(got))
+	eq(name .. ": a second Repair drops nothing", #dropped2, 0)
+	eq(name .. ": a second Repair leaves the same unbuilt", #unbuilt2, #unbuilt1)
+	return got, dropped1
+end
+-- (a) the grid shrinks to its west half: the plant and the rug saved east of x 0 move to the first free cells from the
+-- north-west corner (the plant to -12,-10; the rug past the first rug to -8,-10), and the shelf saved turned (r 1) moves to
+-- the first place it fits unturned (-6,-10: turn 0 is scanned first)
+local hA, dA = repairTwice("Repair, a shrunk grid", { items = { home = { F("rug", -10, -10), F("plant", 5, 5), F("rug", 6, -2), F("low_shelf", 8, 8, 1) } } },
+	homeFloor({ { -12, -10, 0, 10 } }, nil))
+eq("Repair, a shrunk grid: moved, not dropped", listKey(hA.items.home), "rug@-10,-10,0 plant@-12,-10,0 rug@-8,-10,0 low_shelf@-6,-10,0")
+eq("Repair, a shrunk grid: nothing dropped", reasons(dA, "home"), "")
+-- (b) a keep area added over a saved rug: the rug moves to the first free place (-12,-10); the plant clear of it stays
+local hB, dB = repairTwice("Repair, a new keep area", { items = { home = { F("plant", 5, 5), F("rug", -1, -1) } } },
+	homeFloor({ { -12, -10, 12, 10 } }, { { -1, -1, 1, 1 } }))
+eq("Repair, a new keep area: the rug moved off it", listKey(hB.items.home), "plant@5,5,0 rug@-12,-10,0")
+eq("Repair, a new keep area: nothing dropped", reasons(dB, "home"), "")
+-- (c) a full room: a 2 x 2 floor holds one rug; a second rug off the grid and a plant on the first rug find no free place
+-- and drop with their own reasons. A shelf in a strip one cell wide fits only turned: it moves there at r 1
+local hC, dC = repairTwice("Repair, a full room", { items = { home = { F("rug", 0, 0), F("rug", 5, 5), F("plant", 1, 1) } } },
+	homeFloor({ { 0, 0, 2, 2 } }, nil))
+eq("Repair, a full room: the first rug kept", listKey(hC.items.home), "rug@0,0,0")
+eq("Repair, a full room: no place takes the others", reasons(dC, "home"), "2:bounds 3:overlap")
+local hT = repairTwice("Repair, a one-cell strip", { items = { home = { F("low_shelf", 5, 5) } } }, homeFloor({ { 0, 0, 1, 2 } }, nil))
+eq("Repair, a one-cell strip: the shelf moved turned", listKey(hT.items.home), "low_shelf@0,0,1")
+-- R-T16 fix round 2, N1: Repair in two passes. The items that still stand where they were saved keep their places (and win
+-- the limit); only the ones that no longer fit move, into the space left, and never onto a locked item's cells
+-- (e) a 3 x 2 floor holding four plants in place: a rug saved off the grid ahead of them finds no 2 x 2 place left and drops
+-- "bounds"; the four plants stay where they were saved (the one-pass move put the rug on 0,0 and evicted two plants)
+local hE, dE = repairTwice("Repair, in place first", { items = { home = { F("rug", 10, 10), F("plant", 0, 0), F("plant", 1, 0), F("plant", 0, 1), F("plant", 1, 1) } } },
+	homeFloor({ { 0, 0, 3, 2 } }, nil))
+eq("Repair, in place first: the four plants stay", listKey(hE.items.home), "plant@0,0,0 plant@1,0,0 plant@0,1,0 plant@1,1,0")
+eq("Repair, in place first: the rug finds no place left", reasons(dE, "home"), "1:bounds")
+-- (f) a 4 x 2 floor with the tape machine (kit_tape not owned: locked, kept unbuilt) at 0,0: a rug saved off the grid moves
+-- to 2,0, the first place clear of the locked machine's cells (0,0 and 1,0), never onto them
+local NOTAPE = R.Unlocked(CAT, {}, TIERS)
+local fSaved = { items = { home = { F("tape_machine", 0, 0), F("rug", 10, 10) } } }
+local fRooms = homeFloor({ { 0, 0, 4, 2 } }, nil)
+local hF, dF, uF = R.Repair(fSaved, BOTH, fRooms, CAT, NOTAPE)
+eq("Repair, a locked item's cells: the rug moved clear of them", listKey(hF.items.home), "tape_machine@0,0,0 rug@2,0,0")
+eq("Repair, a locked item's cells: nothing dropped, the machine unbuilt", reasons(dF, "home") .. " | " .. reasons(uF, "home"), " | 1:locked")
+local hF2, dF2 = R.Repair(hF, BOTH, fRooms, CAT, NOTAPE)
+eq("Repair, a locked item's cells: a second Repair changes nothing", json(hF2) .. " " .. #dF2, json(hF) .. " 0")
+-- (g) no cascade: a plant saved off the grid first in the list, whose first scan cell (0,0) a later plant stands on in place:
+-- the later plants stay put (0,0 and 1,0) and the moved one takes the next free cell (2,0), keeping its place in the list
+local hG, dG = repairTwice("Repair, no cascade", { items = { home = { F("plant", 10, 10), F("plant", 0, 0), F("plant", 1, 0) } } },
+	homeFloor({ { 0, 0, 4, 2 } }, nil))
+eq("Repair, no cascade: the later plants stay, the moved one goes round them", listKey(hG.items.home), "plant@2,0,0 plant@0,0,0 plant@1,0,0")
+eq("Repair, no cascade: nothing dropped", reasons(dG, "home"), "")
+-- (h) R-T16 fix round 3, R1 (R8 across two loads): a locked item keeps its limit slot when Repair moves things. A bedroom whose
+-- free floor is area 3 alone (x -6..-3, z -7..-1), limit 6: the tape machine (2 x 1 at -6,-7), a plant saved off the grid,
+-- then five plants in place. Read A is a transient read (Gear not ready: kit_tape reads unowned, the machine locked): the five
+-- plants stand and the machine keeps its slot, so the off-grid plant has none left to move into and drops "limit" (it took the
+-- sixth slot at -5,-5 before the fix). Read B, the correct read of what A wrote back: the machine stands again and all six
+-- stay (before the fix the plant saved at -6,-5 then dropped "7:limit"). The direct correct read drops the same plant
+local BED3 = copy(ROOMS)
+BED3.Kinds.bedroom.grid = { { -6, -7, -3, -1 } }
+BED3.Kinds.bedroom.keep = nil
+local hSaved = { items = { bedroom = { F("tape_machine", -6, -7), F("plant", 40, 40), F("plant", -4, -7), F("plant", -6, -6), F("plant", -5, -6),
+	F("plant", -4, -6), F("plant", -6, -5) } } }
+local SIX = "tape_machine@-6,-7,0 plant@-4,-7,0 plant@-6,-6,0 plant@-5,-6,0 plant@-4,-6,0 plant@-6,-5,0"
+local hA3, dA3, uA3 = R.Repair(hSaved, BOTH, BED3, CAT, NOTAPE)
+eq("Repair, a transient read: the six stay (the machine unbuilt)", listKey(hA3.items.bedroom) .. " | " .. reasons(uA3, "bedroom"), SIX .. " | 1:locked")
+eq("Repair, a transient read: no slot left for the off-grid plant", reasons(dA3, "bedroom"), "2:limit")
+local hA3b, dA3b = R.Repair(hA3, BOTH, BED3, CAT, NOTAPE)
+eq("Repair, a transient read: read again, nothing changes", json(hA3b) .. " " .. #dA3b, json(hA3) .. " 0")
+local hB3, dB3 = repairTwice("Repair, the correct read after it", hA3, BED3)
+eq("Repair, the correct read after it: all six stay", listKey(hB3.items.bedroom), SIX)
+eq("Repair, the correct read after it: nothing dropped", reasons(dB3, "bedroom"), "")
+local hD3, dD3 = repairTwice("Repair, the correct read at once", hSaved, BED3)
+eq("Repair, the correct read at once: the same six", listKey(hD3.items.bedroom) .. " | " .. reasons(dD3, "bedroom"), SIX .. " | 2:limit")
 
 -- the save's size: every room filled to its limit, posters at their max, the longest id and the widest numbers -----
 local longest = ""

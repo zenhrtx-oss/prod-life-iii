@@ -42,7 +42,9 @@ local Items = require(RS.OK.Modules.RoomItems)
 local E = {}
 
 -- the token bucket -----------------------------------------------------------------------------------------------------
-local buckets = {} -- [player] = { n = tokens, t = os.clock() at the last refill }
+-- [player] = { n = tokens, t = os.clock() at the last refill }. Weak-keyed (R-T16 fix, M6): Forget(p) drops a bucket on leave,
+-- and a player who never reaches it can't hold one either
+local buckets = setmetatable({}, { __mode = "k" })
 
 function E.Take(p, edit, now)
 	local burst = tonumber(edit and edit.burst) or 5

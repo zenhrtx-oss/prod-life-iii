@@ -8,7 +8,10 @@
 -- "hall" to Life once, and only THE HALL's gate does; (f) Gear: needs refuse a buy after the level check, fits equip by slot,
 -- plate_legend stays last, buying it reports "legend" through ctx.Life, and a failing Life never fails either;
 -- Career.State's life is nil, the Career tab whole, when Life or its view fails; (g) producer cards carry the five stats
--- and the life's year, tier, title and ribbons, and never Money.
+-- and the life's year, tier, title and ribbons, and never Money; (e2) R-T16 fix, I7, the ladder's order: Config's
+-- real_studio row carries after = "home_studio"; with real_studio's needs met and its price in hand, Unlock answers "needs"
+-- and spends nothing while home_studio isn't owned, and Career.State's real_studio row carries `after` and a check whose
+-- `after` row (home_studio's name, not ok) keeps check.ok false (the Career tab's chip); with home_studio owned it unlocks.
 local RS, SSS = game:GetService("ReplicatedStorage"), game:GetService("ServerScriptService")
 local function freshRequire(mod) local c = mod:Clone(); c.Parent = mod.Parent; c.Name = "_fresh_" .. mod.Name; local ok, r = pcall(require, c); c:Destroy(); if not ok then error(r) end; return r end
 local Cfg = freshRequire(RS.OK.Config)
@@ -210,6 +213,37 @@ assert(noView.life == nil and #noView.gates == 4, "a view that fails should give
 assert(type(Career.State(pe).life) == "table", "the life should come back when Life does")
 table.insert(out, "(e) a failing Life or view: Career.State has no life, the tab whole")
 table.insert(out, "(e) studio_two: needs (0 placements; answered with Fetch's state, nothing published), money ($4,999), ok at $5,000 leaving $0, then owned; sponsor_tv needs a sponsor, toggles, never spends; State: 4 gates (home studio, real studio, THE HALL, sponsor_tv), 7 gear rows (the speaker rows pinned to the spec)")
+
+-- e2) R-T16 fix, I7: the ladder's order, real_studio only after home_studio
+local realG, homeG
+for _, g in ipairs(Cfg.Career.Gates) do
+  if g.id == "real_studio" then realG = g elseif g.id == "home_studio" then homeG = g end
+end
+assert(realG and homeG and realG.after == "home_studio", "Config.Career.Gates real_studio.after is " .. tostring(realG and realG.after)
+  .. ", want home_studio (before the R-T16 fix sync of OK/Config and Systems/Career: the expected red)")
+local pr = { UserId = 4108, Name = "T41r" }
+local rp = DS.Load(pr)
+for stat, need in pairs(realG.needs) do rp.career[stat] = need end
+rp.cred = realG.cost
+local rr1 = Career.Unlock(pr, "real_studio")
+assert(not rr1.ok and rr1.reason == "needs" and rp.cred == realG.cost and not rp.career.gates.real_studio,
+  "real_studio with its needs met and $" .. realG.cost .. " but no home_studio: ok " .. tostring(rr1.ok) .. ", reason " .. tostring(rr1.reason)
+  .. ", money left $" .. tostring(rp.cred) .. "; want 'needs' and nothing spent")
+local realRow
+for _, g in ipairs(Career.State(pr).gates) do if g.id == "real_studio" then realRow = g end end
+local ca = realRow and realRow.check and realRow.check.after
+assert(realRow and realRow.after == "home_studio" and realRow.check.ok == false and type(ca) == "table" and ca.id == "home_studio" and ca.ok == false
+  and ca.name == homeG.name, "Career.State's real_studio row before home_studio: after " .. tostring(realRow and realRow.after) .. ", check.ok "
+  .. tostring(realRow and realRow.check.ok) .. ", check.after " .. tostring(ca and (tostring(ca.id) .. "/" .. tostring(ca.name) .. "/" .. tostring(ca.ok)))
+  .. "; want home_studio, false, home_studio/" .. homeG.name .. "/false")
+rp.career.gates.home_studio = true -- Career.Unlock is the real writer; its effect
+local rr2 = Career.Unlock(pr, "real_studio")
+assert(rr2.ok and rp.cred == 0 and rp.career.gates.real_studio == true, "real_studio with home_studio owned did not unlock (" .. tostring(rr2.reason) .. ") or did not spend")
+local realRow2
+for _, g in ipairs(rr2.state.gates) do if g.id == "real_studio" then realRow2 = g end end
+assert(realRow2 and realRow2.owned == true and realRow2.check.after and realRow2.check.after.ok == true, "the real_studio row after the buy is not owned, or its after row isn't met")
+table.insert(out, "(e2) real_studio after home_studio: 'needs' with its needs and $" .. realG.cost .. " but no home studio (nothing spent; State: after home_studio, check.after '"
+  .. homeG.name .. "' not ok, check.ok false); with home_studio owned it unlocks")
 
 -- f) Gear: needs refuse after the level check; fits equip by slot
 local pf = { UserId = 4107, Name = "T41f" }

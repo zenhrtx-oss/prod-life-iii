@@ -25,6 +25,11 @@
 --     preview's Face in PosterColors[3]); "style:+1" -> 2 (FRAMED: the preview has a Border); "style:-1" twice wraps to 3
 --     (STACKED: Label_Top in the preview). Each step: the Poster attribute, the row's value and the preview's Label follow.
 --     Room_Get still holds no poster (the preview is client only).
+-- (5b) R-T16 fix, I3 (the poster words were drawn at TextScaled's 8 px floor): "word:+8" -> 10, HUSTLE, the widest word; then
+--     in each style (STACKED, "style:+1" -> BOLD, "style:+1" -> FRAMED, "style:+1" -> STACKED again) every label of the preview
+--     reads TextBounds.Y at its floor or more and TextFits: BOLD's Label and STACKED's middle 28 px (about 12% of the 240 px
+--     design), FRAMED's Label and STACKED's top and bottom 18 px. "word:-8" back to GRIND. The expected red, before the sync of
+--     Modules/RoomItems: 8 px. (7) checks the hung poster's labels the same way.
 -- (6) Phone first: OK_Room forced (ForceViewport) to 667x375, 771x390 and 844x390 less this gui's insets, and to 640x360:
 --     every visible control of the designer (its buttons and the WORD, COLOR and STYLE value boxes) is 44 px or more both
 --     ways, inside (0, 0)-vp, and overlaps no other.
@@ -143,6 +148,29 @@ local function tapAt(part, label, want)
 	assert(onScreen, label .. ": " .. part.Name .. " is off the screen")
 	cmd(string.format("tap:%.1f,%.1f", sp.X, sp.Y), want, label)
 end
+-- R-T16 fix, I3: every label of a poster model `m` in `style` reads at least its floor (TextBounds.Y, px of the 240 px design)
+-- and fits its box (TextFits); waited for (a fresh label's bounds come a frame late). Returns what it read
+local TEXT_FLOORS = { [1] = { Label = 28 }, [2] = { Label = 18 }, [3] = { Label_Top = 18, Label = 28, Label_Bottom = 18 } }
+local RED_I3 = " (before the R-T16 fix sync of Modules/RoomItems: TextScaled's 8 px floor, the expected red)"
+local function textCheck(m, style, label)
+	local want = TEXT_FLOORS[style]
+	local good = waitFor(function()
+		for name, floor in pairs(want) do
+			local l = m and m.Parent and m:FindFirstChild(name, true)
+			if not (l and l:IsA("TextLabel") and l.TextBounds.Y >= floor and l.TextFits) then return false end
+		end
+		return true
+	end, 3)
+	local seen = {}
+	for name, floor in pairs(want) do
+		local l = m and m:FindFirstChild(name, true)
+		table.insert(seen, string.format("%s '%s' %s px tall (want %d+), TextFits %s, TextSize %s, TextScaled %s", name, l and l.Text or "?",
+			l and tostring(math.floor(l.TextBounds.Y + 0.5)) or "none", floor, tostring(l and l.TextFits), tostring(l and l.TextSize), tostring(l and l.TextScaled)))
+	end
+	table.sort(seen)
+	assert(good, label .. ": " .. table.concat(seen, "; ") .. RED_I3)
+	return table.concat(seen, "; ")
+end
 local function postersIn()
 	local f = home:FindFirstChild("Items")
 	local list = {}
@@ -259,6 +287,19 @@ local function run()
 	table.insert(out, string.format("5 design: word wraps to %s and back to %s, color %s, style FRAMED then wraps to %s; the preview follows; the server untouched",
 		Cfg.PosterWords[12], Cfg.PosterWords[2], Cfg.PosterColorNames[3], Cfg.PosterStyleNames[3]))
 
+	-- 5b. R-T16 fix, I3: the words' size, the widest word in every style (the preview: the same RoomItems.Poster the wall gets)
+	assert(Cfg.PosterWords[10] == "HUSTLE", "premise: PosterWords[10] is " .. tostring(Cfg.PosterWords[10]) .. ", the widest word HUSTLE expected there")
+	cmd("word:+8", function() return attr("Poster") == "2,10,3,3" and previewLabel() == "HUSTLE" end, "5b word +8 (HUSTLE)")
+	local sizes = {}
+	for _, st in ipairs({ { nil, 3 }, { "style:+1", 1 }, { "style:+1", 2 }, { "style:+1", 3 } }) do
+		if st[1] then cmd(st[1], function() return attr("Poster") == "2,10,3," .. st[2] end, "5b " .. st[1] .. " (" .. Cfg.PosterStyleNames[st[2]] .. ")") end
+		local styleName = Cfg.PosterStyleNames[st[2]]
+		assert(waitFor(function() local m = previewModel(); return m ~= nil and m:GetAttribute("PosterStyle") == st[2] end, 3), "5b: the preview is not in style " .. styleName)
+		sizes[styleName] = textCheck(previewModel(), st[2], "5b the preview, HUSTLE in " .. styleName)
+	end
+	cmd("word:-8", function() return attr("Poster") == "2,2,3,3" and previewLabel() == Cfg.PosterWords[2] end, "5b word -8 (back to " .. Cfg.PosterWords[2] .. ")")
+	table.insert(out, "5b the widest word in each style (the preview): BOLD [" .. sizes.BOLD .. "]; FRAMED [" .. sizes.FRAMED .. "]; STACKED [" .. sizes.STACKED .. "]")
+
 	-- 6. phone first, a new poster
 	local inset = cam.ViewportSize - gui.AbsoluteSize
 	inset = Vector2.new(math.max(0, inset.X), math.max(0, inset.Y))
@@ -293,7 +334,8 @@ local function run()
 		return #ps == 1 and l ~= nil and l.Text == Cfg.PosterWords[2] and (ps[1]:GetPivot().Position - anchor(2).WorldPosition).Magnitude < 0.05
 	end, 4), "7: Room_home.Items on this client holds no poster reading " .. Cfg.PosterWords[2] .. " on Poster_2")
 	assert(waitFor(function() return previewModel() == nil and topDown() end, 3), "7: after HANG the preview is still up or the camera isn't straight down")
-	table.insert(out, "7 hang: ok; Room_Get holds { poster, slot 2, 2/3/3 }; its model reads " .. Cfg.PosterWords[2] .. " on Poster_2; the camera straight down again")
+	local hungSizes = textCheck(postersIn()[1], 3, "7 the hung poster (" .. Cfg.PosterWords[2] .. ", STACKED, built by the server)") -- R-T16 fix, I3
+	table.insert(out, "7 hang: ok; Room_Get holds { poster, slot 2, 2/3/3 }; its model reads " .. Cfg.PosterWords[2] .. " on Poster_2 [" .. hungSizes .. "]; the camera straight down again")
 
 	-- 8. a redesign of the hung poster
 	local hung = postersIn()[1]

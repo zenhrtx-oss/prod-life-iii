@@ -6,7 +6,8 @@
 -- the client wires to the Gear remotes and then calls C.Refresh(payload). With payload.closet (a room's closet) the Gear tab
 -- is your closet: only the fits you own, to wear or take off (see renderers.Gear; C.InCloset() says whether the open panel is
 -- that). The Career tab (payload.career = Career_Get)
--- shows the six stats, the gates (UNLOCK / SHOWING / HIDDEN through C.OnUnlock(id)) and the stat-gated gear (BUY
+-- shows the six stats, the gates (UNLOCK / SHOWING / HIDDEN through C.OnUnlock(id); a gate that needs another one first,
+-- check.after (R-T16 fix, I7), shows it as a needs chip ChipAfter with that gate's name) and the stat-gated gear (BUY
 -- through C.OnBuy(id)). Rows are named Gear_<id>, Gate_<id> and CareerGear_<id>; each has an "Action" button. Above the
 -- gates sit the milestone bars Bar_tier, Bar_level and Bar_hall (a Label, a Back with a Fill, and a Fraction attribute 0..1).
 -- The Story tab lists the FIRSTS (cells First_<id> in the two-column grid Firsts, Config.Life.Firsts order) and the story
@@ -340,7 +341,12 @@ function M.Build(gui, Theme)
       local l = new("TextLabel", {Name = "Chip" .. order, Size = UDim2.fromOffset(0, 20), AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = Theme.panel,
         Text = text, RichText = true, TextColor3 = color, Font = Theme.fontBlack, TextSize = 11, LayoutOrder = order}, holder)
       corner(l, 5); new("UIPadding", {PaddingLeft = UDim.new(0, 7), PaddingRight = UDim.new(0, 7)}, l)
+      return l
     end
+    -- a gate that needs another gate first (R-T16 fix, I7: check.after, Career.State's): while that one isn't owned, one
+    -- more chip, first, with its own name (copy 2.2's "HOME STUDIO"), so no new words
+    local after = check and type(check.after) == "table" and check.after or nil
+    if after and not after.ok then chip('<font color="#FF3CA0">×</font> ' .. tostring(after.name or after.id), Theme.muted, 0).Name = "ChipAfter" end
     for i, r in ipairs(check and check.rows or {}) do
       chip((r.ok and '<font color="#00FF8C">✓</font> ' or '<font color="#FF3CA0">×</font> ') .. needLabel(r.stat, r.need), r.ok and Theme.text or Theme.muted, i)
     end

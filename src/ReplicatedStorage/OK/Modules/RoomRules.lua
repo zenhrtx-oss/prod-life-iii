@@ -233,12 +233,50 @@ local function clean(e, byId)
 	local item = byId[e.id]
 	if type(item) ~= "table" then return nil, "unknown" end
 	if item.kind == "wall" then
-		if type(e.slot) ~= "number" or type(e.w) ~= "number" or type(e.c) ~= "number" or type(e.s) ~= "number" then return nil, "malformed" end
+		-- whole numbers only, as a floor entry's x and z (R-T16 fix, M6): a fractional slot is junk even in a room you don't own
+		if not isInt(e.slot) or not isInt(e.w) or not isInt(e.c) or not isInt(e.s) then return nil, "malformed" end
 		return { id = e.id, slot = e.slot, w = e.w, c = e.c, s = e.s }, item
 	end
 	if not isInt(e.x) or not isInt(e.z) or (e.r ~= nil and type(e.r) ~= "number") then return nil, "malformed" end
 	return { id = e.id, x = e.x, z = e.z, r = e.r or 0 }, item
 end
+-- the bounding box of a grid ({ area, ... }) in whole cells: the lowest and highest cells gx0, gz0, gx1, gz1; nil for a
+-- grid with no usable area
+local function gridBox(grid)
+	local gx0, gz0, gx1, gz1 = math.huge, math.huge, -math.huge, -math.huge
+	for _, a in ipairs(tbl(grid) or {}) do
+		local x0, z0, x1, z1 = area(a)
+		if x0 then
+			gx0, gz0 = math.min(gx0, math.floor(x0)), math.min(gz0, math.floor(z0))
+			gx1, gz1 = math.max(gx1, math.ceil(x1) - 1), math.max(gz1, math.ceil(z1) - 1)
+		end
+	end
+	if gx0 > gx1 or gz0 > gz1 then return nil end
+	return gx0, gz0, gx1, gz1
+end
+-- the first place a floor `item` Fits among `list` in a room of `kind` (kc = its Config row, cfg = Config.Rooms): turn 0
+-- then 1, rows north to south, each west to east, over gridBox(kc.grid); `ok(cells)` (optional) passes a place over before
+-- Fits is asked, and `held` (optional: Fits' own, the cells of the room's locked entries) counts as taken. A "max" or
+-- "limit" (or any reason but "bounds" and "overlap") means no other place helps: nil at once. Returns the entry
+-- { id, x, z, r } or nil. FullHome's scan (no held), and Repair's when it moves an entry (R-T16 fix, I6; round 2, N1: held)
+local function firstFit(list, item, kc, catalog, unlocked, kind, cfg, ok, held)
+	local gx0, gz0, gx1, gz1 = gridBox(kc.grid)
+	if not gx0 then return nil end
+	for r = 0, 1 do
+		for z = gz0, gz1 do
+			for x = gx0, gx1 do
+				local e = { id = item.id, x = x, z = z, r = r }
+				if ok == nil or ok(R.Cells(item, e)) then
+					local fits, why = R.Fits(list, e, kc, catalog, unlocked, kind, nil, cfg, held)
+					if fits then return e end
+					if why ~= "bounds" and why ~= "overlap" then return nil end
+				end
+			end
+		end
+	end
+	return nil
+end
+
 -- the checks that hang on the entry alone, never on ownership, unlocks or the room's other items: "room", "rot",
 -- "design" (an entry failing one can never be built where it is)
 local function standalone(entry, item, kind, rooms)
@@ -260,11 +298,28 @@ end
 --   a bad turn ("rot") or a bad poster design ("design").
 -- * An entry in a room you don't own, or a locked one (its gear not owned, its first, tier or room not held), stays
 --   in the home but isn't built: named in `unbuilt` as { kind, index (in the returned list), id, reason = "unowned" |
---   "locked" }. It takes no cell or slot, doesn't count toward the limit, and gets no geometry check, so a transient
---   read (Gear or Life not ready, gates read as {}) never deletes a placed item.
--- * Every other entry goes through Fits against the entries kept before it (list order wins): one that is out of
---   bounds, overlapping, over the limit or the max, or on a taken slot is dropped with Fits' reason. So an unbuilt item
---   that becomes buildable again rejoins on the next load, and whatever it then collides with later in the list goes.
+--   "locked" }. It takes no cell or slot and gets no geometry check, and it doesn't count toward the limit for an entry
+--   kept in place (pass 1, as Fits and Edit count) but does for a move (pass 2: round 3, R1), so a transient read (Gear or
+--   Life not ready, gates read as {}) never deletes a placed item, on that read or on the correct one after it.
+-- * Every other entry is placed in two passes (R-T16 fix, I6; round 2, N1: an item that still stands where it was saved
+--   always keeps its place, and only the ones that no longer do move, into the space left):
+--   - Pass 1, in list order: Fits against the entries kept in place before it. One that fits is kept where it was saved.
+--     A floor entry failing only on where it stands ("bounds": off the grid or on a keep area; "overlap": on a cell an
+--     entry kept before it holds) is set aside to move. Any other failure ("limit", "max", "slot") drops it with Fits'
+--     reason. So the items in place win the limit (and an item's max) over the ones that must move; list order decides
+--     within each group.
+--   - Pass 2, in list order over the set-aside entries: each moves to the first place it fits (firstFit, scanned as FullHome
+--     scans: turn 0 then 1; rows north to south, each west to east, over the grid's bounding box) among everything kept so
+--     far (pass 1's, then pass 2's earlier moves), never onto the cells of the room's locked entries (UnbuiltCells: held,
+--     as Edit refuses them) and never into their limit slots (round 3, R1: a move needs the built count plus the locked
+--     count under the limit). With no place, it drops with Fits' reason at its saved spot ("limit" or "max" in a full room,
+--     counting the locked entries, else "bounds" or "overlap").
+--   - The kept entries come out in their original list order (unbuilt indexes are their places in that list), and the
+--     dropped ones are named in index order.
+--   So an unbuilt item that becomes buildable again rejoins on the next load in place unless an item kept in place now
+--   holds its cells (then it moves, or goes in a full room). Pure and deterministic, and a second Repair of the result
+--   changes nothing: every kept entry is on the grid, clear of every other, and within the limit and its max. Edit's own
+--   checks are unchanged (a locked entry still holds its cells there, not a limit slot).
 -- Kinds are walked in ladder order (then the unknown ones, sorted), so both lists come out in a fixed order.
 function R.Repair(home, owned, cfg, catalog, unlocked)
 	local out = { v = 1, door = cfg.DoorDefault, items = {} }
@@ -297,29 +352,69 @@ function R.Repair(home, owned, cfg, catalog, unlocked)
 		if type(list) ~= "table" then
 			table.insert(dropped, { kind = kind, field = "items", reason = "malformed" })
 		else
-			local kept = {}
 			local n = #list
+			local final = {}  -- [i] = { e, why = "unowned" | "locked" | nil } for each entry kept, at its list index i
+			local inPlace = {} -- the entries kept so far, in place (pass 1) and then moved (pass 2): Fits' `items`
+			local locked = {}  -- the locked entries' cells come from these: pass 2's held
+			local toMove = {}  -- { i, e, item, raw }: pass 1's "bounds" / "overlap" floor entries, in list order
+			local drops = {}   -- { i, raw, reason }, put in index order below
+			-- pass 1, in list order: keep in place, set aside to move, or drop
 			for i = 1, n do
 				local raw = list[i]
 				local e, item = clean(raw, byId)
 				local reason = e == nil and item or standalone(e, item, kind, cfg)
 				if reason == nil and not own[kind] then
-					table.insert(kept, e)
-					table.insert(unbuilt, { kind = kind, index = #kept, id = e.id, reason = "unowned" })
+					final[i] = { e = e, why = "unowned" }
 				elseif reason == nil and not isOpen(item, unlocked) then
-					table.insert(kept, e)
-					table.insert(unbuilt, { kind = kind, index = #kept, id = e.id, reason = "locked" })
+					final[i] = { e = e, why = "locked" }
+					table.insert(locked, e)
 				else
 					if reason == nil then
-						local fit, why = R.Fits(kept, e, kc, catalog, unlocked, kind, nil, cfg)
-						if not fit then reason = why end
+						local fit, why = R.Fits(inPlace, e, kc, catalog, unlocked, kind, nil, cfg)
+						if fit then
+							final[i] = { e = e }
+							table.insert(inPlace, e)
+						elseif (why == "bounds" or why == "overlap") and item.kind == "floor" then
+							table.insert(toMove, { i = i, e = e, item = item, raw = raw }) -- I6: it moves in pass 2, if a place is left
+						else
+							reason = why
+						end
 					end
-					if reason == nil then
-						table.insert(kept, e)
+					if reason ~= nil then table.insert(drops, { i = i, raw = raw, reason = reason }) end
+				end
+			end
+			-- pass 2, in list order over the set-aside: into the space left, never onto a locked entry's cells (N1)
+			if #toMove > 0 then
+				local all = {}
+				for j = 1, #locked do all[j] = j end
+				local held = R.UnbuiltCells(locked, all, catalog)
+				-- round 3, R1 (R8): a locked entry keeps its limit slot from a move, so a move made while a read came up short
+				-- (Gear not ready) can never cost an item kept in place its slot once the read is whole again
+				local cap = (tonumber(kc.limit) or 0) - #locked
+				for _, m in ipairs(toMove) do
+					local moved = #inPlace < cap and firstFit(inPlace, m.item, kc, catalog, unlocked, kind, cfg, nil, held) or nil
+					if moved then
+						final[m.i] = { e = moved }
+						table.insert(inPlace, moved)
 					else
-						table.insert(dropped, { kind = kind, index = i, id = type(raw) == "table" and raw.id or nil, reason = reason })
+						local _, why = R.Fits(inPlace, m.e, kc, catalog, unlocked, kind, nil, cfg, held)
+						if #inPlace >= cap and (why == "bounds" or why == "overlap") then why = "limit" end -- full, counting the locked
+						table.insert(drops, { i = m.i, raw = m.raw, reason = why or "overlap" })
 					end
 				end
+			end
+			-- the kept entries in their list order; the unbuilt indexes are their places in it; the drops in index order
+			local kept = {}
+			for i = 1, n do
+				local f = final[i]
+				if f then
+					table.insert(kept, f.e)
+					if f.why then table.insert(unbuilt, { kind = kind, index = #kept, id = f.e.id, reason = f.why }) end
+				end
+			end
+			table.sort(drops, function(a, b) return a.i < b.i end)
+			for _, d in ipairs(drops) do
+				table.insert(dropped, { kind = kind, index = d.i, id = type(d.raw) == "table" and d.raw.id or nil, reason = d.reason })
 			end
 			-- anything outside the list's array part is junk too
 			local extra = {}
@@ -496,14 +591,6 @@ function R.FullHome(cfg, catalog)
 		for _, item in ipairs(items) do
 			if type(item) == "table" and item.kind == "floor" and allowedIn(item, kind) then table.insert(floors, item) end
 		end
-		local gx0, gz0, gx1, gz1 = math.huge, math.huge, -math.huge, -math.huge
-		for _, a in ipairs(tbl(kc.grid) or {}) do
-			local x0, z0, x1, z1 = area(a)
-			if x0 then
-				gx0, gz0 = math.min(gx0, math.floor(x0)), math.min(gz0, math.floor(z0))
-				gx1, gz1 = math.max(gx1, math.ceil(x1) - 1), math.max(gz1, math.ceil(z1) - 1)
-			end
-		end
 		local taken = {}
 		-- are the cells, and every cell within `margin` of them, free of the items placed so far?
 		local function clear(cells, margin)
@@ -516,21 +603,9 @@ function R.FullHome(cfg, catalog)
 			end
 			return true
 		end
+		-- firstFit's scan, past only the places whose cells are `margin` clear ("max", "limit": no other place helps)
 		local function spot(item, margin)
-			if gx0 > gx1 or gz0 > gz1 then return nil end
-			for r = 0, 1 do
-				for z = gz0, gz1 do
-					for x = gx0, gx1 do
-						local e = { id = item.id, x = x, z = z, r = r }
-						if clear(R.Cells(item, e), margin) then
-							local fits, why = R.Fits(list, e, kc, catalog, unlocked, kind, nil, cfg)
-							if fits then return e end
-							if why ~= "bounds" and why ~= "overlap" then return nil end -- "max", "limit": no other place helps
-						end
-					end
-				end
-			end
-			return nil
+			return firstFit(list, item, kc, catalog, unlocked, kind, cfg, function(cells) return clear(cells, margin) end)
 		end
 		for margin = 1, 0, -1 do
 			local placed = true

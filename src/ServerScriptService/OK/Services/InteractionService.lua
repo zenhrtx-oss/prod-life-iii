@@ -204,6 +204,9 @@ local function hook(inst)
 		local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 		if not root or (root.Position - inst.Position).Magnitude > Config.Interaction.MaxDistance + 8 then return end
 		local kind = inst:GetAttribute("Kind")
+		-- the cooldowns are spent here, before Guard and the handler run (R-T16 fix, M7). So a kind whose press can be refused
+		-- (Station and GearRack: someone else's room's laptop or rack, Guard's owner toast) must never carry a
+		-- Config.GlobalCooldowns entry: a refused press in one player's room would block that kind for the whole server
 		local ok, why = allowed(player, kind)
 		if not ok then
 			if why == "global" then send(player, "Toast", { text = "Someone just used that · try again in a moment" }) end

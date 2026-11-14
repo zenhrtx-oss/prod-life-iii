@@ -4,7 +4,10 @@
 -- 667x375, or to 750x332 (a notched 844x390 phone's safe area: too narrow for the pair to clear FIRE's column side by
 -- side), the pills stack and end left of FIRE (x < vp.X - 152). The OS panel opens first and its career comes after
 -- (the "os" seam acks once it has landed); the Career tab then lists 4 gates (Studio Two LOCKED) and the 5 stat-gated
--- gear rows; your own producer card carries the career line.
+-- gear rows; your own producer card carries the career line. R-T16 fix, I7: with no home studio owned (t45a's career Reset),
+-- the real studio's row reads LOCKED and shows the gate it needs first as one more needs chip, ChipAfter, first in its Needs
+-- row, with that gate's own name (HOME STUDIO, copy 2.2); the home studio's row has none. The expected red, before the sync
+-- of OK/Config, Systems/Career and Modules/PanelUI: no ChipAfter.
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local pg = player:WaitForChild("PlayerGui", 10)
@@ -78,7 +81,15 @@ assert(act.AbsoluteSize.Y >= 44, "gate button under 44 px")
 local tile = panel.Content:FindFirstChild("Stats") and panel.Content.Stats:FindFirstChild("Stat_aura")
 local tileValue = tile and tile:FindFirstChild("Value")
 assert(tileValue and tileValue.Text == "+380", "Aura tile reads '" .. tostring(tileValue and tileValue.Text) .. "'")
-table.insert(out, "Career tab: 4 gates (Studio Two LOCKED), 7 gear rows, Aura tile +380")
+-- R-T16 fix, I7: the ladder's order, shown as one more needs chip
+local realRow, homeRow = panel.Content:FindFirstChild("Gate_real_studio"), panel.Content:FindFirstChild("Gate_home_studio")
+local realChip = realRow and realRow:FindFirstChild("ChipAfter", true)
+assert(realChip and realChip:IsA("TextLabel") and realChip.ContentText == "× HOME STUDIO" and realChip.LayoutOrder < 1, "the real studio's row has no needs chip 'HOME STUDIO' first (ChipAfter: "
+  .. tostring(realChip and realChip.ContentText) .. "; before the R-T16 fix sync of OK/Config, Systems/Career and Modules/PanelUI: none, the expected red)")
+local realAct = realRow:FindFirstChild("Action")
+assert(realAct and realAct.Text == "LOCKED", "the real studio's row reads '" .. tostring(realAct and realAct.Text) .. "' before the home studio, want LOCKED")
+assert(homeRow and homeRow:FindFirstChild("ChipAfter", true) == nil, "the home studio's row shows a gate it needs first; it needs none")
+table.insert(out, "Career tab: 4 gates (Studio Two LOCKED), 7 gear rows, Aura tile +380; the real studio LOCKED with the needs chip '" .. realChip.ContentText .. "' first")
 
 -- 5. your own producer card
 command("card:self")

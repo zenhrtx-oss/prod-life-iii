@@ -23,7 +23,8 @@
 --   nothing the edit bar waits on can hold it back. Task 14: the same rule turns off every landing DoorPrompt (the owner's
 --   door mode) whose own OwnerId attribute isn't this player's.
 -- * In: the server's Room remote "decorate" { kind } (the owner pressed that room's DecoratePrompt). Not while the beat
---   maker is open, and only for this player's own room (Plot_<PlotSlot>.Room_<kind>, OwnerId this player) once Room_Get has
+--   maker is open, nor (R-T16 fix, I1) while a walk-in or Day One card is (PlayerGui.OK_WalkIn's Open; either refusal sets
+--   OK_Room's Refused to "daw" or "card"), and only for this player's own room (Plot_<PlotSlot>.Room_<kind>, OwnerId this player) once Room_Get has
 --   answered with that room and, after that wait, the same live character still stands in their own plot (InPlot =
 --   PlotSlot). Then, all in one pcall (a throw leaves at once, LeftBy "error"): the camera goes Scriptable, straight down over the room with its north at the top,
 --   high enough that the room's floor (Config.Rooms.Kinds[kind].size, half a stud each side) fits the screen between the top
@@ -47,9 +48,14 @@
 --   shows as a faint grey ghost at its cell. Ghosts, plates and faint ghosts live only on this client, in a Folder
 --   OK_DecoratePreview inside the room.
 -- * Out: DONE; a teleport or any move of 3 studs or more, InPlot changing, the room going (a rebuild); a death or a respawn;
---   a throw while setting up.
+--   a throw while setting up; (R-T16 fix, I1) the beat maker's window showing (PlayerGui.OK_DAW.DAW Visible: LeftBy "daw")
+--   or a walk-in or Day One card opening (OK_WalkIn's Open turning true: LeftBy "card"), so the two never fight over the
+--   prompts, the touch controls, Backspace / ButtonB or the screen.
 --   Each puts back the camera (Custom, on the humanoid), the controls, the touch controls, the prompts and the hidden parts,
---   and destroys the preview.
+--   and destroys the preview; except that the "daw" way out leaves the prompts (ProximityPromptService) and the touch
+--   controls alone: DAWClient owns them while the beat maker is open (it turned them off when it opened and turns them on
+--   when it closes). A room laptop's beat maker is never seated, so DAWClient never takes the camera there and it is safe
+--   to give back.
 -- * The Room remote's "state" (the server's State after any change to your rooms) refreshes the view while decorating; after
 --   a Room_Edit that answers ok this client also asks Room_Get, so the view never waits on the push.
 -- * Posters you design (Task 13). In a room with wall spots (Config.Rooms.Kinds.<kind>.posters: home and real) the Poster_n
@@ -71,13 +77,18 @@
 -- Test attributes on OK_Room (RoomUI writes Rows and Layout): Editing, Kind, Item (the id the bar shows), Selected ("",
 -- "new:<id>" or "item:<index>"), Ghost ("x,z,r" of the ghost's lowest cell and turn, or ""), GhostOk, LastEdit ("" on the way
 -- in, "sending", then "ok" or the refusal: "error" for a failed call), LeftBy (why the last session ended: "done", "moved",
--- "died", "respawn", "room", "error": a throw while setting up), Poster ("slot,w,c,s" of the design on show, or ""; Task 13),
+-- "died", "respawn", "room", "error": a throw while setting up, "daw", "card": R-T16 fix, I1), Refused (R-T16 fix, I1: "daw"
+-- or "card" when a "decorate" was refused for the beat maker or a card; a test clears it to "" first), Poster ("slot,w,c,s"
+-- of the design on show, or ""; Task 13),
 -- ControlsOn (the ControlModule's own controlsEnabled, else its active controller's `enabled`,
 -- read back right after this client disabled or enabled it; nil when neither can be read; in a game with no PlayerModule,
 -- this client's own flag for the WalkSpeed / jump fallback. A test can't require the ControlModule itself: from its own VM
 -- that would be a second copy); Command = "next" | "prev" | "add" | "cell:x,z" | "pick:index" | "rotate" | "place" | "remove" |
 -- "cancel" | "done" | "tap:x,y" (a tap at that screen point, as a real tap's own path) | "slot:n" | "word:+1" | "word:-1" |
--- "color:+1" | "color:-1" | "style:+1" | "style:-1" | "hang" (Task 13), cleared to "" once taken. Selected also reads
+-- "color:+1" | "color:-1" | "style:+1" | "style:-1" | "hang" (Task 13) | "key:<KeyCode name>" (R-T16 fix, M5: that key's
+-- press through the keyboard / gamepad action's own handler, keyAction), cleared to "" once taken. Keys: WASD, the arrows
+-- and (M5) DPadUp / DPadDown / DPadLeft / DPadRight move the ghost a cell (prompts are off in decorate mode, so the pad's
+-- DPadDown (Decorate) and DPadRight (the closet) never clash). Selected also reads
 -- "slot:<n>" while a new poster is designed for spot n (a hung one is "item:<index>").
 local RS = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -238,6 +249,18 @@ task.spawn(function()
 	local ed = nil
 	local leave -- (why)
 	local setup -- (session, humanoid, view): enter()'s part that turns things off and on, run in a pcall
+	local keyAction -- (name, state, input): the keyboard / gamepad action (below); the Command seam's "key:" runs it too
+
+	-- what owns the screen besides decorate mode (R-T16 fix, I1): the beat maker's window and the walk-in / Day One card
+	local function dawWindow()
+		local pg = player:FindFirstChild("PlayerGui")
+		local g = pg and pg:FindFirstChild("OK_DAW")
+		local w = g and g:FindFirstChild("DAW")
+		return (w and w:IsA("GuiObject")) and w or nil
+	end
+	local function cardGui() local pg = player:FindFirstChild("PlayerGui"); return pg and pg:FindFirstChild("OK_WalkIn") or nil end
+	local function dawOpen() local w = dawWindow(); return w ~= nil and w.Visible end
+	local function cardOpen() local g = cardGui(); return g ~= nil and g:GetAttribute("Open") == true end
 
 	local function kindCfg() local rv = ed.rv; return { limit = rv.limit, grid = rv.grid, keep = rv.keep, posters = rv.slots } end
 	-- the client's Fits, as the server's Edit runs it: the saved items that don't stand (locked) still hold their cells
@@ -716,6 +739,13 @@ task.spawn(function()
 	end
 	local function command(c)
 		if not ed then return end
+		-- "key:<KeyCode name>": that key's press through keyAction itself (R-T16 fix, M5: a test's gamepad press)
+		local kn = string.match(c, "^key:(%w+)$")
+		if kn then
+			local okKey, kc = pcall(function() return Enum.KeyCode[kn] end)
+			if okKey and kc then keyAction(ACT, Enum.UserInputState.Begin, { KeyCode = kc }) end
+			return
+		end
 		if c == "done" then leave("done"); return end
 		if c == "cancel" then choose(nil); return end
 		if ed.busy then return end
@@ -788,12 +818,14 @@ task.spawn(function()
 		task.spawn(command, c) -- a place or a remove waits on the server
 	end)
 
-	-- keyboard: a cell at a time, a turn, place, remove, cancel / leave (the bar's own Command seam)
+	-- keyboard and gamepad: a cell at a time, a turn, place, remove, cancel / leave (the bar's own Command seam). R-T16 fix, M5:
+	-- the D-pad moves the ghost too (prompts are off in decorate mode, so DPadDown and DPadRight press no prompt)
 	local KEYS = {
 		[Enum.KeyCode.W] = { 0, -1 }, [Enum.KeyCode.Up] = { 0, -1 }, [Enum.KeyCode.S] = { 0, 1 }, [Enum.KeyCode.Down] = { 0, 1 },
 		[Enum.KeyCode.A] = { -1, 0 }, [Enum.KeyCode.Left] = { -1, 0 }, [Enum.KeyCode.D] = { 1, 0 }, [Enum.KeyCode.Right] = { 1, 0 },
+		[Enum.KeyCode.DPadUp] = { 0, -1 }, [Enum.KeyCode.DPadDown] = { 0, 1 }, [Enum.KeyCode.DPadLeft] = { -1, 0 }, [Enum.KeyCode.DPadRight] = { 1, 0 },
 	}
-	local function keyAction(_, st, input)
+	keyAction = function(_, st, input)
 		if st ~= Enum.UserInputState.Begin or not ed then return Enum.ContextActionResult.Pass end
 		local k = input.KeyCode
 		local step = KEYS[k]
@@ -833,15 +865,21 @@ task.spawn(function()
 		local room = myRoom(kind)
 		local h, r = hum(), rootPart()
 		if not (room and h and h.Health > 0 and r) then return end
-		local dawGui = player:FindFirstChild("PlayerGui") and player.PlayerGui:FindFirstChild("OK_DAW")
-		local daw = dawGui and dawGui:FindFirstChild("DAW")
-		if daw and daw.Visible then return end -- the beat maker owns the screen
+		-- the beat maker or a walk-in / Day One card owns the screen (R-T16 fix, I1: the card too): no decorate mode under it
+		local function busyScreen()
+			local why = (dawOpen() and "daw") or (cardOpen() and "card") or nil
+			if why then gui:SetAttribute("Refused", why) end
+			return why ~= nil
+		end
+		if busyScreen() then return end
 		local view = fetch()
 		if ed or not (view and type(view.rooms[kind]) == "table") or not room:IsDescendantOf(workspace) then return end
-		-- fetch() yielded: still alive, still this character, still in your own plot (a door may have moved you meanwhile)
+		-- fetch() yielded: still alive, still this character, still in your own plot (a door may have moved you meanwhile),
+		-- and nothing else took the screen meanwhile
 		r = rootPart()
 		local slot = player:GetAttribute("PlotSlot")
 		if not (r and hum() == h and h.Health > 0 and type(slot) == "number" and slot > 0 and player:GetAttribute("InPlot") == slot) then return end
+		if busyScreen() then return end
 		ed = { kind = kind, room = room, pivot = room:GetPivot(), at = r.Position, browse = 1, list = {}, faint = {},
 			hidden = {}, dimmed = {}, guiOff = {}, anchors = {}, conns = {}, saved = { pps = PPS.Enabled, touch = GuiService.TouchControlsEnabled } }
 		local my = ed
@@ -877,11 +915,27 @@ task.spawn(function()
 		table.insert(my.conns, player.CharacterAdded:Connect(function() leave("respawn") end))
 		table.insert(my.conns, player:GetAttributeChangedSignal("InPlot"):Connect(function() leave("moved") end))
 		table.insert(my.conns, cam:GetPropertyChangedSignal("ViewportSize"):Connect(fitCamera))
+		-- R-T16 fix, I1: the beat maker's window showing (Day One's "Make it now", a laptop) or a walk-in / Day One card opening
+		-- (OK_WalkIn's Open, which WalkInUI sets) ends decorate mode, so the two never share the screen, the prompts or ButtonB
+		local daw = dawWindow()
+		if daw then
+			table.insert(my.conns, daw:GetPropertyChangedSignal("Visible"):Connect(function()
+				if daw.Visible and ed == my then leave("daw") end
+			end))
+		end
+		local card = cardGui()
+		if card then
+			table.insert(my.conns, card:GetAttributeChangedSignal("Open"):Connect(function()
+				if card:GetAttribute("Open") == true and ed == my then leave("card") end
+			end))
+		end
 		CAS:BindActionAtPriority(ACT, keyAction, false, Enum.ContextActionPriority.High.Value + 60, Enum.KeyCode.W, Enum.KeyCode.A,
 			Enum.KeyCode.S, Enum.KeyCode.D, Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right, Enum.KeyCode.R,
 			Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.Delete, Enum.KeyCode.Backspace, Enum.KeyCode.ButtonY,
-			Enum.KeyCode.ButtonB)
+			Enum.KeyCode.ButtonB, Enum.KeyCode.DPadUp, Enum.KeyCode.DPadDown, Enum.KeyCode.DPadLeft, Enum.KeyCode.DPadRight)
 		gui:SetAttribute("Editing", true)
+		-- either may have come up while this was setting up (nothing above yields, but a card's Open can land in between frames)
+		if ed == my and dawOpen() then leave("daw") elseif ed == my and cardOpen() then leave("card") end
 	end
 	leave = function(why)
 		local e = ed
@@ -899,8 +953,13 @@ task.spawn(function()
 		local h = hum()
 		if h then cam.CameraSubject = h end
 		unlock(e)
-		PPS.Enabled = e.saved.pps
-		pcall(function() GuiService.TouchControlsEnabled = e.saved.touch end)
+		-- R-T16 fix, I1: on the "daw" way out the beat maker is open, and DAWClient owns the prompts and the touch controls (it
+		-- turned them off when it opened and turns them on when it closes): putting decorate mode's saved "on" back here would
+		-- light the prompts under the open beat maker. Every other way out puts them back as decorate mode found them
+		if why ~= "daw" then
+			PPS.Enabled = e.saved.pps
+			pcall(function() GuiService.TouchControlsEnabled = e.saved.touch end)
+		end
 		for k, v in pairs({ Editing = false, Kind = "", Item = "", Selected = "", Ghost = "", GhostOk = false, Poster = "" }) do gui:SetAttribute(k, v) end
 		gui:SetAttribute("LeftBy", tostring(why))
 	end

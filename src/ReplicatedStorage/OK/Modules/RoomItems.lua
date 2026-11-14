@@ -42,7 +42,9 @@
 --   "Design" on its Front face drawing the style with Frames and TextLabels in PosterColorInk[c] (the word's ink, copy §9):
 --   1 BOLD = the word big, centred, filling the width (TextLabel "Label"); 2 FRAMED = a thin ink border (Frame "Border", a
 --   UIStroke) with the word smaller inside it ("Label"); 3 STACKED = the word three times down the poster, the middle one
---   biggest ("Label_Top", "Label", "Label_Bottom"). No images, no TextBox, no lights, meshes, scripts or tags. Its pivot is
+--   biggest ("Label_Top", "Label", "Label_Bottom"). Each label's TextSize is set from its box (PosterTextSize; R-T16 fix, I3:
+--   TextScaled off, no UITextSizeConstraint), so the hung poster and the designer's preview read the same. No images, no
+--   TextBox, no lights, meshes, scripts or tags. Its pivot is
 --   the centre of the Face's back and the front looks along -Z, so a caller PivotTo's it onto a Poster_<n> Attachment's
 --   WorldCFrame (a wall anchor: it then hangs flush on the wall facing into the room). The Face is anchored, never collides
 --   or touches, casts no shadow, and answers a raycast (a tap in decorate mode picks it, as any placed item). The model is
@@ -229,13 +231,33 @@ end
 -- posters (Task 13) ---------------------------------------------------------------------------------------------------
 M.POSTER_W, M.POSTER_H, M.POSTER_D = 3, 4, 0.05 -- studs: the face (Data/RoomCatalog's poster size) and its depth
 local POSTER_PPS = 60 -- the design's pixels a stud: 180 x 240
--- each style's words: { name, centre (scale x, y), size (scale w, h), the biggest text it may grow to }
+M.POSTER_PPS = POSTER_PPS
+-- each style's words: { name, centre (scale x, y), size (scale w, h) } on the 180 x 240 design
 local POSTER_STYLES = {
-	[1] = { { "Label", 0.5, 0.5, 0.92, 0.42, 120 } },
-	[2] = { { "Label", 0.5, 0.5, 0.62, 0.22, 56 } },
-	[3] = { { "Label_Top", 0.5, 0.2, 0.6, 0.16, 40 }, { "Label", 0.5, 0.5, 0.92, 0.3, 100 }, { "Label_Bottom", 0.5, 0.8, 0.6, 0.16, 40 } },
+	[1] = { { "Label", 0.5, 0.5, 0.92, 0.42 } },
+	[2] = { { "Label", 0.5, 0.5, 0.62, 0.22 } },
+	[3] = { { "Label_Top", 0.5, 0.2, 0.6, 0.16 }, { "Label", 0.5, 0.5, 0.92, 0.3 }, { "Label_Bottom", 0.5, 0.8, 0.6, 0.16 } },
 }
 M.PosterStyleSpecs = POSTER_STYLES -- read only: the layouts, for a caller's checks
+local POSTER_FONT = Enum.Font.GothamBlack
+local TextService = game:GetService("TextService")
+-- the size a poster word is set at in a label box of bw x bh design pixels (R-T16 fix, I3: TextScaled on a server-built
+-- SurfaceGui collapsed to its 8 px floor, so the size is worked out here and TextScaled stays off): as big as fits, at most
+-- 100 (Roblox's own cap), 90% of the box's height, and the word's width at that size within the box's width. The width
+-- comes from TextService (the word's width at size 100, in a pcall; else #word * 78, GothamBlack's caps), then the size
+-- steps down while TextService still measures it wider than the box, so the label's TextFits holds. Never yields
+function M.PosterTextSize(word, bw, bh)
+	local okW, w100 = pcall(function() return TextService:GetTextSize(word, 100, POSTER_FONT, Vector2.new(4000, 400)).X end)
+	if not (okW and type(w100) == "number" and w100 > 0) then w100 = #word * 78 end
+	local size = math.floor(math.min(100, bh * 0.9, 100 * bw / w100))
+	for _ = 1, 6 do
+		if size <= 1 then break end
+		local okS, wS = pcall(function() return TextService:GetTextSize(word, size, POSTER_FONT, Vector2.new(4000, 400)).X end)
+		if not (okS and type(wS) == "number") or wS <= math.floor(bw) then break end
+		size -= 1
+	end
+	return math.max(1, size)
+end
 local POSTER_BORDER = { inset = 12, thickness = 5 } -- px: FRAMED's border, in from the edge
 local function whole(v, n) return type(v) == "number" and v == v and v % 1 == 0 and v >= 1 and v <= n end
 local function rgb(t)
@@ -297,15 +319,12 @@ function M.Poster(design, cfg)
 		label.BackgroundTransparency = 1
 		label.Text = word
 		label.TextColor3 = ink
-		label.Font = Enum.Font.GothamBlack
-		label.TextScaled = true
+		label.Font = POSTER_FONT
+		label.TextScaled = false -- R-T16 fix, I3: an explicit size from the box (PosterTextSize), never TextScaled
 		label.TextWrapped = false
+		label.TextSize = M.PosterTextSize(word, l[4] * M.POSTER_W * POSTER_PPS, l[5] * M.POSTER_H * POSTER_PPS)
 		label.TextXAlignment = Enum.TextXAlignment.Center
 		label.TextYAlignment = Enum.TextYAlignment.Center
-		local cap = Instance.new("UITextSizeConstraint")
-		cap.MaxTextSize = l[6]
-		cap.MinTextSize = 8
-		cap.Parent = label
 		label.Parent = paper
 	end
 	gui.Parent = face

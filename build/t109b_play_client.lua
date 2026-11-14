@@ -27,6 +27,10 @@
 --     one item. A tap (the "tap:x,y" seam: a real tap's own path) on a free cell's centre moves the ghost there (GhostOk);
 --     "cancel"; a tap on the rug's model picks it (Selected item:2, copy 6.15's hint); "rotate" turns its ghost (r 1).
 --     Free cells come from RoomRules.Fits with the unbuilt lamp's cells held (UnbuiltCells), as the server's Edit runs it.
+--     R-T16 fix, M5 (the gamepad): decorate mode's action OK_Decorate is bound to DPadUp, DPadDown, DPadLeft and DPadRight
+--     (ContextActionService's GetBoundActionInfo, when it reads the inputs back), and with the turned rug picked the
+--     "key:DPadRight" seam (that key's press through the action's own handler) moves its ghost a cell east, then DPadDown
+--     south, DPadLeft west and DPadUp north, back where it was.
 -- (4) Phone first: OK_Room forced (ForceViewport) to 667x375, 771x390 and 844x390 less this gui's insets, and to 640x360
 --     (two rows there, under 667 px wide). In each of the three states (nothing picked, a new item, a placed item) every
 --     visible button is 44 px or more both ways, inside (0, 0)-vp, and overlaps no other.
@@ -40,6 +44,7 @@
 -- given back, the character moved to the lounge; the error is rethrown.
 local Players, RS = game:GetService("Players"), game:GetService("ReplicatedStorage")
 local PPS = game:GetService("ProximityPromptService")
+local CAS = game:GetService("ContextActionService")
 local player = Players.LocalPlayer
 local t0 = os.clock(); while os.clock() - t0 < 12 do local h = player.Character and player.Character:FindFirstChildOfClass("Humanoid"); if h and h.Health > 0 then break end; task.wait(0.2) end
 local char = player.Character
@@ -325,9 +330,24 @@ local function run()
 	cmd(string.format("tap:%.1f,%.1f", sr.X, sr.Y), function() return attr("Selected") == "item:" .. RUG end, "3 tap the rug")
 	assert(bar.Hint.Text == "Move it, turn it or take it away." and attr("Ghost") == cellRug, "3: the picked rug shows hint '" .. bar.Hint.Text .. "', Ghost " .. tostring(attr("Ghost")) .. "; want copy 6.15, " .. cellRug)
 	cmd("rotate", function() return attr("Ghost") == string.format("%d,%d,1", c[1], c[2]) end, "3 rotate")
+	-- R-T16 fix, M5: the D-pad, through the action's own handler (keyAction, the "key:" seam)
+	local RED_M5 = " (R-T16 fix, M5: before the sync of OK/RoomClient the D-pad moves nothing: the expected red)"
+	local info = CAS:GetBoundActionInfo("OK_Decorate")
+	local padRead = type(info) == "table" and type(info.inputTypes) == "table"
+	if padRead then
+		local bound = {}
+		for _, kc in ipairs(info.inputTypes) do bound[kc] = true end
+		for _, kc in ipairs({ Enum.KeyCode.DPadUp, Enum.KeyCode.DPadDown, Enum.KeyCode.DPadLeft, Enum.KeyCode.DPadRight }) do
+			assert(bound[kc], "3: decorate mode's action OK_Decorate is not bound to " .. kc.Name .. RED_M5)
+		end
+	end
+	for _, step in ipairs({ { "DPadRight", 1, 0 }, { "DPadDown", 1, 1 }, { "DPadLeft", 0, 1 }, { "DPadUp", 0, 0 } }) do
+		local wantPad = string.format("%d,%d,1", c[1] + step[2], c[2] + step[3])
+		cmd("key:" .. step[1], function() return attr("Ghost") == wantPad end, "3 " .. step[1] .. " (want Ghost " .. wantPad .. ")" .. RED_M5)
+	end
 	cmd("cancel", function() return attr("Selected") == "" end, "3 cancel again")
-	table.insert(out, string.format("3 the unbuilt floor lamp: a faint ghost, a plant over it red and refused 'overlap' (6.35); edit: add -> a see-through rug ghost; cell (%d, %d) -> GhostOk; place -> ok, Room_Get holds the rug there; the plant on the rug's cell -> red, place -> 'overlap' and copy 6.35; a tap on free cell (%d, %d) moves the ghost; a tap on the rug picks it (6.15); rotate -> r 1",
-		c[1], c[2], fc[1], fc[2]))
+	table.insert(out, string.format("3 the unbuilt floor lamp: a faint ghost, a plant over it red and refused 'overlap' (6.35); edit: add -> a see-through rug ghost; cell (%d, %d) -> GhostOk; place -> ok, Room_Get holds the rug there; the plant on the rug's cell -> red, place -> 'overlap' and copy 6.35; a tap on free cell (%d, %d) moves the ghost; a tap on the rug picks it (6.15); rotate -> r 1; the D-pad (%s) moves it east, south, west and north a cell",
+		c[1], c[2], fc[1], fc[2], padRead and "bound to all four" or "its binding unreadable"))
 
 	-- 4. phone first
 	local inset = cam.ViewportSize - gui.AbsoluteSize

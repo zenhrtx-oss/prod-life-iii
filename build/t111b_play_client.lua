@@ -10,6 +10,10 @@
 --     rows are exactly Gear_<id> for the fits this player owns (Config.Gear kind "fit" in the Gear attribute: fit_cuban,
 --     fit_shades), each with an Action button "EQUIP" (Fits empty); the footer reads "Closet · Backspace / B to close"
 --     (copy 8.5); there is no money line and no other Gear_ row.
+--     R-T16 fix, M1: the press is a double press, two InputHoldBegin / End pairs with nothing yielding between them (well
+--     inside 0.1 s), and the closet opens ONCE: one OpenPanel { closet } reaches this client. The count is read after (4)'s
+--     first EQUIP reply is back: the server answers in order, so a second OpenPanel would have come before that reply.
+--     The expected red, before the sync of Systems/Rooms: 2 OpenPanels.
 -- (4) EQUIP toggles Fits: fit_cuban's button pressed (its Command "press", the path a click takes): OK_UI's LastGear "ok",
 --     Fits holds fit_cuban and the re-rendered row reads "EQUIPPED", still in closet mode (the same two rows); pressed
 --     again: Fits no longer holds it and the row reads "EQUIP".
@@ -153,8 +157,26 @@ local function run()
 	standAt(cstand, body.Position)
 	cam.CameraType = Enum.CameraType.Custom
 	task.wait(0.5)
+	-- R-T16 fix, M1: a double press (nothing yields between the two), retried whole until an OpenPanel { closet } comes back
+	local function closetOpens(since)
+		local n = 0
+		for _, e in ipairs(events) do
+			if e.kind == "OpenPanel" and e.t >= since and type(e.payload) == "table" and e.payload.closet == true then n += 1 end
+		end
+		return n
+	end
 	local t3 = os.clock()
-	assert(press(cp, function() return panel.Visible and panel.Content:FindFirstChild("ClosetHeader") ~= nil end, 1.5), "pressing the ClosetPrompt did not open the closet panel (visible "
+	local gap, sent = math.huge, false
+	for _ = 1, 4 do
+		local a = os.clock()
+		cp:InputHoldBegin(); cp:InputHoldEnd()
+		cp:InputHoldBegin(); cp:InputHoldEnd()
+		gap = os.clock() - a
+		if waitFor(function() return closetOpens(a) >= 1 end, 3) then sent = true; break end
+	end
+	assert(sent, "the ClosetPrompt's double press brought no OpenPanel { closet }" .. RED)
+	assert(gap < 0.1, string.format("premise: the double press took %.3f s, want both presses inside 0.1 s", gap))
+	assert(waitFor(function() return panel.Visible and panel.Content:FindFirstChild("ClosetHeader") ~= nil end, 3), "pressing the ClosetPrompt did not open the closet panel (visible "
 		.. tostring(panel.Visible) .. ", rows " .. rowNames() .. ")" .. RED)
 	local op = eventSince("OpenPanel", t3)
 	local pay = op and type(op.payload) == "table" and op.payload or {}
@@ -187,9 +209,13 @@ local function run()
 		assert(waitFor(function() local nb = actionOf("fit_cuban"); return nb ~= nil and nb.Text == text end, 3), "round " .. round .. ": the row reads '"
 			.. tostring(actionOf("fit_cuban") and actionOf("fit_cuban").Text) .. "', want " .. text)
 		assert(panel.Content:FindFirstChild("ClosetHeader") and rowNames() == table.concat(fits, ","), "round " .. round .. ": after the equip the panel lists " .. rowNames() .. ", want the closet's two rows")
+		if round == 1 then -- R-T16 fix, M1: the equip's reply is back, so every OpenPanel the double press caused has come
+			local n = closetOpens(t3)
+			assert(n == 1, "3: the ClosetPrompt's two presses " .. string.format("%.3f", gap) .. " s apart opened the closet " .. n .. " times (OpenPanel { closet }), want once: the per-prompt debounce (0.25 s; before the R-T16 fix sync of Systems/Rooms: 2, the expected red)")
+		end
 		task.wait(0.3) -- the equip bucket (Systems/Gear) refills a token
 	end
-	table.insert(out, "4 EQUIP on fit_cuban: Fits holds it and the row reads EQUIPPED; again: off, EQUIP; still the closet's two rows")
+	table.insert(out, "4 EQUIP on fit_cuban: Fits holds it and the row reads EQUIPPED; again: off, EQUIP; still the closet's two rows; the double press (" .. string.format("%.3f", gap) .. " s apart) opened the closet once")
 
 	-- 5. the phone sizes
 	local inset = cam.ViewportSize - ui.AbsoluteSize

@@ -13,7 +13,9 @@
 --     read the locked sign (copy 2.8, 2.9 and 2.10).
 -- (2) home_studio, refused: with one need short by 1 (money = cost) Unlock answers "needs"; with the needs met and the money 1
 --     short it answers "money". Neither spends, publishes the gate, rebuilds (Rebuilt count 0, the same Plot_01) or opens
---     the door.
+--     the door. (2b) R-T16 fix, I7, the decided ladder (bedroom -> home studio -> a real studio; Config's real_studio.after =
+--     "home_studio"): real_studio with every need met and its price in hand, before home_studio, answers "needs" the same way
+--     (no spend, no gate, no rebuild, its door still locked); (4) buys it once home is owned.
 -- (3) home_studio, bought while you stand in your bedroom (the Career tab opens anywhere), with a saved bedroom rug: Unlock is
 --     ok, the money spent is the gate's cost, CareerGates holds it, the plot's rooms read bedroom,home with exactly one
 --     Rebuilt, exactly one Plot_01 in Workspace.OK_Plots (no Plot_01_old left over, the old model gone), you are still on the
@@ -223,6 +225,8 @@ local function run()
 		shortStat(g)
 	end
 	assert(hall.room == nil and tv.room == nil, "THE HALL and sponsor_tv are not rungs of your ladder: no `room` field (" .. tostring(hall.room) .. ", " .. tostring(tv.room) .. ")")
+	assert(real.after == "home_studio" and home.after == nil, "real_studio.after is " .. tostring(real.after) .. " and home_studio.after " .. tostring(home.after)
+		.. ", want home_studio and none (R-T16 fix, I7: the ladder's order; before the sync of OK/Config: the expected red)")
 	assert(hall.kind == "room" and (hall.cost or 0) > 0 and tv.kind == "toggle", "studio_two should be a priced room gate and sponsor_tv a toggle")
 	table.insert(out, string.format("0 config: gates [%s]; home_studio needs %s for $%d (room home), real_studio needs %s for $%d (room real); THE HALL has no `room`",
 		table.concat(order, ", "), show(home.needs), home.cost, show(real.needs), real.cost))
@@ -258,7 +262,19 @@ local function run()
 	n = rebuilds(0, 0.8)
 	assert(n == 0 and onePlot("money") == plot0, "money short: Rebuilt fired " .. n .. " time(s), want 0 and the same plot")
 	assertLocked("home", "money short")
-	table.insert(out, "2 home_studio refused: one need short -> 'needs', $" .. (home.cost - 1) .. " -> 'money'; no spend, no gate, Rebuilt 0, the same Plot_01, door still locked")
+	-- 2b. R-T16 fix, I7: real_studio before home_studio, with every need of its own met and its price in hand
+	stage(real, real.cost)
+	quiet()
+	local r2b = career:Invoke("Unlock", uid, "real_studio")
+	assert(type(r2b) == "table" and r2b.ok == false and r2b.reason == "needs", "Unlock(real_studio) with its needs met and $" .. real.cost .. " but no home_studio: got ok "
+		.. tostring(r2b and r2b.ok) .. " / reason " .. tostring(r2b and r2b.reason) .. ", want false / needs (the ladder: the home studio first; before the R-T16 fix sync of OK/Config and Systems/Career it unlocks: the expected red)")
+	assert(have().money == real.cost, "a refused real_studio changed the money: " .. have().money .. ", want " .. real.cost)
+	assert(not listHas("CareerGates", "real_studio"), "a refused real_studio put it in CareerGates: " .. tostring(p:GetAttribute("CareerGates")))
+	n = rebuilds(0, 0.8)
+	assert(n == 0 and onePlot("real before home") == plot0 and roomKinds() == "bedroom", "real before home: Rebuilt fired " .. n .. " time(s) (want 0), rooms '" .. roomKinds() .. "' (want bedroom)")
+	assertLocked("real", "real before home")
+	table.insert(out, "2 home_studio refused: one need short -> 'needs', $" .. (home.cost - 1) .. " -> 'money'; no spend, no gate, Rebuilt 0, the same Plot_01, door still locked; "
+		.. "2b real_studio before home_studio, its needs met and $" .. real.cost .. " in hand -> 'needs', nothing spent or rebuilt, its door locked")
 
 	-- 3. home_studio bought, standing in your bedroom, with a saved bedroom rug
 	assert(call("WakeUp") == true, "WakeUp returned false")
@@ -271,7 +287,9 @@ local function run()
 	for _, a in ipairs(Cfg.Kinds.bedroom.grid) do -- a spot the saved bedroom takes a rug on, from the live grid (areas { x0, z0, x1, z1 })
 		local try = { id = "rug", x = math.ceil(a[1]), z = math.ceil(a[2]), r = 0 }
 		local kept = call("SetHome", { v = 1, door = Cfg.DoorDefault, items = { bedroom = { try } } })
-		if type(kept) == "table" and type(kept.items) == "table" and type(kept.items.bedroom) == "table" and #kept.items.bedroom == 1 and kept.items.bedroom[1].id == "rug" then rug = try; break end
+		-- the rug as the save keeps it: since the R-T16 fix (I6) Repair moves a rug off a taken or keep-area cell to the first
+		-- free place instead of dropping it, so the kept entry may stand elsewhere than `try`
+		if type(kept) == "table" and type(kept.items) == "table" and type(kept.items.bedroom) == "table" and #kept.items.bedroom == 1 and kept.items.bedroom[1].id == "rug" then rug = kept.items.bedroom[1]; break end
 	end
 	assert(rug, "premise: no area of Config.Rooms.Kinds.bedroom.grid took a saved rug")
 	stage(home, home.cost)

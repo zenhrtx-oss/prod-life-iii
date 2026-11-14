@@ -5,7 +5,9 @@
 --   "The asset contract"): a Model with OK_Room and StandIn set, Atomic, its pivot on the floor at the room's centre
 --   (north -Z, floor top y 0); a door part (RoomDoor = true) on the south wall with a disabled ExitPrompt; one Station
 --   (OK_Interactable, Kind "Station", StationName); a Seat_Chair; a Spawn part facing into the room; every contract
---   Attachment (ContractAnchors) from kindCfg.anchors on a Sockets part; one PointLight (0.25, range 14).
+--   Attachment (ContractAnchors) from kindCfg.anchors on a Sockets part; one warm PointLight in the ceiling's Bulb, its
+--   brightness and range the shell row's `light` (R-T16 fix, I4: the range reaches the far floor corner from the bulb, plus
+--   4, at most 60; one Light a room still).
 -- * Landing(cfg, owned, kinds): the plot's landing, plot-local x 0..Landing.length, z 0..Landing.width, floor top y 0,
 --   OK_Room = "landing", 0 lights. Its FrontDoor (west wall) has an untagged LeavePrompt and an Attachment Inside (where
 --   you arrive from the building's hall). On the north wall, for each kind in `kinds` (default: every kind, ladder order),
@@ -224,24 +226,33 @@ end
 
 -- stand-ins ----------------------------------------------------------------------------------------------------------
 -- per kind: shell height, the door's opening, the desk { x, z, w, d } (top at y 3), the laptop screen { x, y, z }, the
--- chair's Seat { x, y, z, nx, nz }, the Spawn { x, z, nx, nz }. The bedroom's numbers are the asset's own
--- (bedroom_setup.lua, roblox_assemble.lua's Proxy_Desk); home's and real's match Config.Rooms' grid, keep and anchors.
+-- chair's Seat { x, y, z, nx, nz }, the Spawn { x, z, nx, nz }, and the one light { brightness, range } (R-T16 fix, I4).
+-- The bedroom's numbers are the asset's own (bedroom_setup.lua, roblox_assemble.lua's Proxy_Desk); home's and real's match
+-- Config.Rooms' grid, keep and anchors. The light's range is the distance from the bulb (the room's centre, BULB_DROP under
+-- the ceiling) to the far floor corner, plus 4, at most 60 (lightRange): bedroom 13.6 + 4, home 19.5 + 4, real 26.6 + 4.
+-- Its brightness is a first guess for night ambient (Config's ClockTime 0, ambient 78, 72, 88), to tune from a capture.
+local BULB_DROP = 0.3 -- studs: the bulb's centre under the ceiling (its part is 0.6 tall, flush with the ceiling)
 local SHELL = {
 	bedroom = { height = 9.89, door = 3.3, doorH = 8.24, desk = { -0.6081, -6.0762, 4.0541, 2.4324 },
 		screen = { -0.1072, 3.7369, -7.0703 }, seat = { -0.4054, 1.7319, -3.6438, -0.2079, -0.9781 },
-		spawn = { 1.6216, 2.8378, -0.6814, -0.7319 } },
+		spawn = { 1.6216, 2.8378, -0.6814, -0.7319 }, light = { 1.4, 18 } },
 	home = { height = 12, door = 4, doorH = 8, desk = { 0, -8.8, 4, 2.4 }, screen = { 0, 3.65, -9.3 },
-		seat = { 0, 1.7, -6.4, 0, -1 }, spawn = { 6, 6.5, -0.6814, -0.7319 } },
+		seat = { 0, 1.7, -6.4, 0, -1 }, spawn = { 6, 6.5, -0.6814, -0.7319 }, light = { 1.4, 24 } },
 	real = { height = 14, door = 4, doorH = 8, desk = { 0, -12.8, 5, 2.4 }, screen = { 0, 3.65, -13.3 },
-		seat = { 0, 1.7, -10.4, 0, -1 }, spawn = { 12, 10, -0.6814, -0.7319 } },
+		seat = { 0, 1.7, -10.4, 0, -1 }, spawn = { 12, 10, -0.6814, -0.7319 }, light = { 1.5, 31 } },
 }
+-- the bulb's range for a W x D room H tall: its far floor corner's distance from the bulb, plus 4, at most 60
+local function lightRange(W, D, H)
+	local h = H - BULB_DROP
+	return math.min(60, math.ceil(math.sqrt((W / 2) ^ 2 + (D / 2) ^ 2 + h * h) + 4))
+end
 -- a kind with no row above gets a shell worked out from its size and Entrance
 local function shellFor(kind, kc)
 	if SHELL[kind] then return SHELL[kind] end
 	local W, D = kc.size[1], kc.size[2]
 	local e = kc.anchors and kc.anchors.Entrance or { W / 2 - 4, 0, D / 2 - 1.5 }
 	return { height = 12, door = 4, doorH = 8, desk = { 0, -D / 2 + 1.2, 4, 2.4 }, screen = { 0, 3.65, -D / 2 + 0.7 },
-		seat = { 0, 1.7, -D / 2 + 3.6, 0, -1 }, spawn = { e[1] - 2, D / 2 - 3.5, -0.6814, -0.7319 } }
+		seat = { 0, 1.7, -D / 2 + 3.6, 0, -1 }, spawn = { e[1] - 2, D / 2 - 3.5, -0.6814, -0.7319 }, light = { 1.4, lightRange(W, D, 12) } }
 end
 
 function M.StandIn(kind, kindCfg)
@@ -254,11 +265,12 @@ function M.StandIn(kind, kindCfg)
 	local ex = e and e[1] or (hw - 4)
 	local dw, dh = sh.door, sh.doorH
 	local C = L.C
-	local wallP = { Material = Enum.Material.Plaster, Color = Color3.fromRGB(190, 178, 154) }
+	-- R-T16 fix, I4: the floor and walls a little lighter (they were 132, 122, 106 and 190, 178, 154), so the one bulb lifts them
+	local wallP = { Material = Enum.Material.Plaster, Color = Color3.fromRGB(204, 193, 170) }
 	local m = Instance.new("Model")
 	m.Name = "StandIn_" .. tostring(kind)
 	-- shell: walls 0.5 thick outside the interior, the south wall's opening at the Entrance's x
-	L.boxMM(m, "Floor", -hw - 0.5, -1, -hd - 0.5, hw + 0.5, 0, hd + 0.5, { Material = Enum.Material.Carpet, Color = Color3.fromRGB(132, 122, 106) })
+	L.boxMM(m, "Floor", -hw - 0.5, -1, -hd - 0.5, hw + 0.5, 0, hd + 0.5, { Material = Enum.Material.Carpet, Color = Color3.fromRGB(170, 158, 138) })
 	L.boxMM(m, "Ceiling", -hw - 0.5, H, -hd - 0.5, hw + 0.5, H + 0.5, hd + 0.5, { Material = Enum.Material.Plaster, Color = Color3.fromRGB(196, 188, 166) })
 	L.boxMM(m, "WallN", -hw - 0.5, 0, -hd - 0.5, hw + 0.5, H, -hd, wallP)
 	L.boxMM(m, "WallE", hw, 0, -hd, hw + 0.5, H, hd, wallP)
@@ -306,10 +318,13 @@ function M.StandIn(kind, kindCfg)
 		L.boxMM(m, "Booth_MicStand", bs[1] - 0.08, 0, bs[3] + 0.9, bs[1] + 0.08, 5.2, bs[3] + 1.06, { Color = C.steel, Material = Enum.Material.Metal, CanCollide = false })
 		L.boxMM(m, "Booth_Mic", bs[1] - 0.2, 5.2, bs[3] + 0.7, bs[1] + 0.2, 5.8, bs[3] + 1.1, { Color = C.black, CanCollide = false })
 	end
-	-- the one warm bulb (the user's call 2026-11-11: one light per room, as the bedroom asset's)
-	local bulb = L.boxMM(m, "Bulb", -0.25, H - 0.6, -0.25, 0.25, H, 0.25, { Material = Enum.Material.Neon, Color = Color3.fromRGB(214, 172, 112), CanCollide = false, CastShadow = false })
+	-- the one warm bulb (the user's call 2026-11-11: one light per room, as the bedroom asset's). R-T16 fix, I4: its range
+	-- reaches the far floor corner (the shell's `light`; it was 0.25 at range 14, which lit a home floor only 7.7 studs round
+	-- the middle and a real one 2.9), still exactly one Light
+	local bulb = L.boxMM(m, "Bulb", -0.25, H - 2 * BULB_DROP, -0.25, 0.25, H, 0.25, { Material = Enum.Material.Neon, Color = Color3.fromRGB(214, 172, 112), CanCollide = false, CastShadow = false })
+	local li = sh.light or { 1.4, lightRange(W, D, H) }
 	local light = Instance.new("PointLight")
-	light.Brightness = 0.25; light.Range = 14; light.Color = Color3.fromRGB(255, 214, 170); light.Shadows = false
+	light.Brightness = li[1]; light.Range = li[2]; light.Color = Color3.fromRGB(255, 214, 170); light.Shadows = false
 	light.Parent = bulb
 	m:SetAttribute("OK_Room", tostring(kind))
 	m:SetAttribute("StandIn", true)
